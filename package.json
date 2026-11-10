@@ -1,0 +1,19 @@
+{
+  "name": "cartucho-erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cartucho ERP — Plataforma ERP de escritorio local-first, modular y multiplataforma (Tauri 2 + React + TypeScript + Rust + SQLite)",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @cartucho/desktop dev",
+    "tauri:dev": "pnpm --filter @cartucho/desktop tauri dev",
+    "tauri:build": "pnpm --filter @cartucho/desktop tauri build",
+    "build": "pnpm --filter @cartucho/shared build && pnpm --filter @cartucho/desktop build",
+    "typecheck": "pnpm --filter @cartucho/shared typecheck && pnpm --filter @cartucho/desktop typecheck",
+    "test:rust": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml"
+  }
+}
