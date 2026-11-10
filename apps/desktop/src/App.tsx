@@ -1,232 +1,236 @@
-import React, { useEffect, useState } from "react";
-import type { SystemOverview } from "@cartucho/shared";
+import { useCallback, useEffect, useState } from "react";
+import type {
+  NavigationSectionId,
+  ResolvedTheme,
+  SystemOverview,
+  ThemePreference,
+} from "@cartucho/shared";
 import {
   fetchSystemOverview,
   recordPersistenceCheck,
+  saveThemePreference,
 } from "./services/systemClient";
-import "./App.css";
+import { Sidebar, Statusbar, Topbar } from "./components/layout";
+import {
+  ErrorState,
+  LoadingState,
+  ToastMessage,
+  ToastRegion,
+} from "./components/ui";
+import {
+  AboutView,
+  HomeView,
+  PreferencesView,
+  StorageView,
+} from "./components/views";
+import "./styles/theme.css";
+
+function getSystemColorScheme(): ResolvedTheme {
+  if (
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
+    return "dark";
+  }
+  return "light";
+}
 
 export function App() {
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [noteInput, setNoteInput] = useState<string>(
-    "Comprobación de persistencia en SQLite local"
+  const [activeSection, setActiveSection] =
+    useState<NavigationSectionId>("home");
+  const [themePreference, setThemePreferenceState] =
+    useState<ThemePreference>("system");
+  const [systemScheme, setSystemScheme] = useState<ResolvedTheme>(
+    getSystemColorScheme
   );
-  const [saving, setSaving] = useState<boolean>(false);
+  const [savingCheck, setSavingCheck] = useState<boolean>(false);
+  const [savingTheme, setSavingTheme] = useState<boolean>(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  useEffect(() => {
-    let mounted = true;
-    fetchSystemOverview(true)
-      .then((data) => {
-        if (mounted) {
-          setOverview(data);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (mounted) {
-          setError(err instanceof Error ? err.message : String(err));
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
+  const pushToast = useCallback((type: "success" | "error", text: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((prev) => [...prev, { id, type, text }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((item) => item.id !== id));
+    }, 3500);
   }, []);
 
-  const handleRecordCheck = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!noteInput.trim()) return;
-    setSaving(true);
-    setError(null);
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  // Escuchar cambios de tema del sistema operativo en tiempo real
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => {
+      setSystemScheme(e.matches ? "dark" : "light");
+    };
+    mediaQuery.addEventListener("change", handler);
+    return () => mediaQuery.removeEventListener("change", handler);
+  }, []);
+
+  // Resolver el tema efectivo ("light" | "dark") y aplicarlo al atributo data-theme del documento
+  const resolvedTheme: ResolvedTheme =
+    themePreference === "system" ? systemScheme : themePreference;
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", resolvedTheme);
+  }, [resolvedTheme]);
+
+  // Carga inicial del estado real desde Tauri / SQLite
+  const loadOverview = useCallback(async (incrementStartup: boolean) => {
     try {
-      const updated = await recordPersistenceCheck(noteInput);
-      setOverview(updated);
-      setNoteInput("Comprobación de persistencia #" + (updated.database.recentPersistenceChecks.length + 1));
+      setError(null);
+      const data = await fetchSystemOverview(incrementStartup);
+      setOverview(data);
+      if (data.preferences?.theme) {
+        setThemePreferenceState(data.preferences.theme);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSaving(false);
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOverview(true);
+  }, [loadOverview]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadOverview(false);
+    pushToast("success", "Estado del sistema actualizado desde SQLite.");
+  };
+
+  const handleRecordCheck = async (note: string) => {
+    setSavingCheck(true);
+    try {
+      const updated = await recordPersistenceCheck(note);
+      setOverview(updated);
+      pushToast(
+        "success",
+        "Registro guardado correctamente en la base de datos SQLite local."
+      );
+    } catch (err: unknown) {
+      pushToast(
+        "error",
+        err instanceof Error ? err.message : "Error al escribir en SQLite."
+      );
+    } finally {
+      setSavingCheck(false);
     }
   };
 
+  const handleSelectTheme = async (nextTheme: ThemePreference) => {
+    setSavingTheme(true);
+    setThemePreferenceState(nextTheme);
+    try {
+      const updated = await saveThemePreference(nextTheme);
+      setOverview(updated);
+      pushToast(
+        "success",
+        `Preferencia de tema (${
+          nextTheme === "system"
+            ? "Sistema"
+            : nextTheme === "dark"
+            ? "Oscuro"
+            : "Claro"
+        }) guardada en SQLite.`
+      );
+    } catch (err: unknown) {
+      pushToast(
+        "error",
+        err instanceof Error
+          ? err.message
+          : "Error al guardar preferencia de tema."
+      );
+    } finally {
+      setSavingTheme(false);
+    }
+  };
+
+  const handleQuickToggleTheme = async () => {
+    const nextTheme: ThemePreference =
+      resolvedTheme === "dark" ? "light" : "dark";
+    await handleSelectTheme(nextTheme);
+  };
+
   if (loading) {
-    return (
-      <div className="app-shell loading-screen">
-        <div className="status-card">
-          <h1>Inicializando Cartucho ERP...</h1>
-          <p>Verificando motor local y conexión con SQLite...</p>
-        </div>
-      </div>
-    );
+    return <LoadingState />;
   }
 
   if (error || !overview) {
     return (
-      <div className="app-shell error-screen">
-        <div className="status-card error-border">
-          <h1>Error al inicializar el diagnóstico del sistema</h1>
-          <p>{error ?? "No fue posible obtener el estado del sistema."}</p>
-        </div>
-      </div>
+      <ErrorState
+        message={
+          error ?? "No fue posible obtener el estado del sistema desde SQLite."
+        }
+        onRetry={() => {
+          setLoading(true);
+          loadOverview(false);
+        }}
+      />
     );
   }
 
-  const { database } = overview;
-
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <div className="brand-badge">CE</div>
-          <div>
-            <h1>{overview.appName}</h1>
-            <p className="subtitle">
-              {overview.phase} · v{overview.appVersion}
-            </p>
-          </div>
-        </div>
-        <div className="badges">
-          <span className="pill pill-primary">Arquitectura: Local-First</span>
-          <span className={`pill ${database.connected ? "pill-success" : "pill-danger"}`}>
-            {database.connected ? "SQLite Conectado" : "SQLite Desconectado"}
-          </span>
-          <span className="pill pill-neutral">
-            Entorno: {overview.runtimeMode === "tauri-desktop" ? "Tauri 2 Nativo" : "Vista Previa Web"}
-          </span>
-        </div>
-      </header>
+    <div className="desktop-layout">
+      <Sidebar
+        activeSection={activeSection}
+        onSelectSection={setActiveSection}
+        appVersion={overview.appVersion}
+      />
 
-      <main className="content-grid">
-        <section className="panel">
-          <h2>Estado de la Aplicación y Entorno</h2>
-          <p className="panel-description">
-            Aplicación de escritorio autónoma. Funciona 100% sin conexión a Internet y almacena
-            sus datos localmente en el equipo del usuario.
-          </p>
-          <dl className="kv-list">
-            <div>
-              <dt>Nombre / Versión</dt>
-              <dd>{overview.appName} v{overview.appVersion}</dd>
-            </div>
-            <div>
-              <dt>Modo Arquitectónico</dt>
-              <dd>Instalación Local Independiente ({overview.architectureMode})</dd>
-            </div>
-            <div>
-              <dt>Plataforma / Arquitectura</dt>
-              <dd>{overview.osPlatform} ({overview.osArch})</dd>
-            </div>
-            <div>
-              <dt>Aperturas Registradas</dt>
-              <dd>{database.startupCount} inicio(s) persistidos</dd>
-            </div>
-            <div>
-              <dt>Primera Inicialización</dt>
-              <dd>{new Date(database.firstInitializedAt).toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt>Última Actividad</dt>
-              <dd>{new Date(database.lastOpenedAt).toLocaleString()}</dd>
-            </div>
-          </dl>
-        </section>
+      <Topbar
+        activeSection={activeSection}
+        overview={overview}
+        resolvedTheme={resolvedTheme}
+        onQuickToggleTheme={handleQuickToggleTheme}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+      />
 
-        <section className="panel">
-          <h2>Estado de Base de Datos Local (SQLite)</h2>
-          <p className="panel-description">
-            Ubicada en el directorio de datos de aplicación del sistema operativo, fuera de la
-            carpeta de instalación y del repositorio Git.
-          </p>
-          <dl className="kv-list">
-            <div>
-              <dt>Motor / Versión</dt>
-              <dd>{database.engine} ({database.sqliteVersion})</dd>
-            </div>
-            <div>
-              <dt>Versión de Esquema</dt>
-              <dd>v{database.schemaVersion} ({database.appliedMigrations.length} migración aplicada)</dd>
-            </div>
-            <div className="full-width">
-              <dt>Directorio de Datos del SO (AppData)</dt>
-              <dd className="mono">{database.appDataDir}</dd>
-            </div>
-            <div className="full-width">
-              <dt>Ruta del Archivo SQLite</dt>
-              <dd className="mono">{database.databasePath}</dd>
-            </div>
-          </dl>
+      <main className="app-main">
+        {activeSection === "home" && (
+          <HomeView overview={overview} onNavigate={setActiveSection} />
+        )}
 
-          <div className="subpanel">
-            <h3>Migraciones Aplicadas</h3>
-            <ul className="migration-list">
-              {database.appliedMigrations.map((m) => (
-                <li key={m.version}>
-                  <span className="mono">v{m.version}</span>
-                  <span>{m.name}</span>
-                  <span className="muted">{new Date(m.appliedAt).toLocaleString()}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
+        {activeSection === "storage" && (
+          <StorageView
+            overview={overview}
+            onRecordCheck={handleRecordCheck}
+            savingCheck={savingCheck}
+          />
+        )}
 
-        <section className="panel full-span">
-          <div className="panel-header-row">
-            <div>
-              <h2>Prueba Técnica de Persistencia Local (SQLite)</h2>
-              <p className="panel-description">
-                Registra un evento de prueba en la base de datos SQLite local para verificar que los
-                datos persisten al cerrar y volver a abrir la aplicación.
-              </p>
-            </div>
-          </div>
+        {activeSection === "preferences" && (
+          <PreferencesView
+            themePreference={themePreference}
+            resolvedTheme={resolvedTheme}
+            preferencesUpdatedAt={overview.preferences.updatedAt}
+            onSelectTheme={handleSelectTheme}
+            savingTheme={savingTheme}
+          />
+        )}
 
-          <form className="persistence-form" onSubmit={handleRecordCheck}>
-            <input
-              type="text"
-              value={noteInput}
-              onChange={(e) => setNoteInput(e.target.value)}
-              placeholder="Escribe una nota de verificación..."
-              aria-label="Nota de verificación de persistencia"
-            />
-            <button type="submit" disabled={saving}>
-              {saving ? "Guardando en SQLite..." : "Registrar Prueba en SQLite"}
-            </button>
-          </form>
-
-          <div className="table-wrapper">
-            <table className="records-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Nota de Verificación</th>
-                  <th>Fecha y Hora (UTC / Local)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {database.recentPersistenceChecks.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="muted">
-                      No hay registros de prueba todavía.
-                    </td>
-                  </tr>
-                ) : (
-                  database.recentPersistenceChecks.map((item) => (
-                    <tr key={item.id}>
-                      <td className="mono">#{item.id}</td>
-                      <td>{item.note}</td>
-                      <td className="mono">{new Date(item.createdAt).toLocaleString()}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        {activeSection === "about" && <AboutView overview={overview} />}
       </main>
+
+      <Statusbar
+        overview={overview}
+        themePreference={themePreference}
+        resolvedTheme={resolvedTheme}
+      />
+
+      <ToastRegion toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
