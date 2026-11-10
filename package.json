@@ -10,8 +10,9 @@
   },
   "scripts": {
     "dev": "pnpm --filter @cartucho/desktop dev",
-    "tauri:dev": "pnpm --filter @cartucho/desktop tauri dev",
-    "tauri:build": "pnpm --filter @cartucho/desktop tauri build",
+    "tauri:dev": "pnpm --filter @cartucho/desktop tauri:dev",
+    "tauri:build": "pnpm --filter @cartucho/desktop tauri:build",
+    "tauri:info": "pnpm --filter @cartucho/desktop tauri info",
     "build": "pnpm --filter @cartucho/shared build && pnpm --filter @cartucho/desktop build",
     "typecheck": "pnpm --filter @cartucho/shared typecheck && pnpm --filter @cartucho/desktop typecheck",
     "test:rust": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml"

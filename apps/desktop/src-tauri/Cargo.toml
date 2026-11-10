@@ -1,0 +1,24 @@
+[package]
+name = "cartucho-erp-desktop"
+version = "0.1.0"
+description = "Cartucho ERP — Aplicación de escritorio local-first (Tauri 2 + Rust)"
+authors = ["Cartucho ERP"]
+edition = "2021"
+
+[lib]
+name = "cartucho_erp_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+desktop-tauri = ["dep:tauri", "dep:tauri-build"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+directories = "5.0"
+tauri = { version = "2", features = [], optional = true }
