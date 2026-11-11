@@ -3342,3 +3342,90 @@ a {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ------------------------------------------------------------------ Licencia */
+
+.license-key-input {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.device-code {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.module-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 14px;
+}
+
+.module-chip.is-on {
+  color: var(--text);
+  border-color: transparent;
+  background: var(--success-soft);
+}
+
+.module-chip.is-on svg {
+  color: var(--success);
+}
+
+.support-card {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 24px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+  animation: page-in 240ms var(--ease);
+}
+
+.support-card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--danger);
+  color: #fff;
+}
+
+.support-card-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.support-card-body p {
+  margin: 0 0 6px;
+}
+
+.support-card-contact {
+  font-size: 15px;
+}

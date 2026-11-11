@@ -4,7 +4,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { CompleteInitialSetupInput, ResolvedTheme, SystemOverview, ThemePreference } from "@cartucho/shared";
-import { api } from "./services/systemClient";
+import { api, onLicenseChanged } from "./services/systemClient";
+import { AccessProvider, buildAccess } from "./lib/access";
+import { ActivationScreen } from "./components/license";
 import { errorMessage } from "./lib/format";
 import { AppShell } from "./components/layout";
 import { LoginScreen, SetupWizard, StartupErrorScreen } from "./components/onboarding";
@@ -64,15 +66,27 @@ function AppInner() {
   }, [load]);
 
   const authenticated = !!overview?.isAuthenticated;
+  const license = overview?.license ?? null;
+  const access = buildAccess(license);
+
+  // La verificación periódica (cada hora) puede cambiar módulos o desactivar la licencia.
+  useEffect(() => onLicenseChanged(() => void load()), [load]);
+
+  // Si la ruta actual dejó de estar permitida, vuelve al inicio.
+  useEffect(() => {
+    if (!access.canOpen(route)) setRoute({ page: "dashboard" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [license]);
 
   // Contador de stock bajo para el menú lateral; se refresca al navegar.
   useEffect(() => {
-    if (!authenticated) return;
+    if (!authenticated || !access.can("inventory")) return;
     api
       .listProducts({ onlyLowStock: true })
       .then((p) => setLowStockCount(p.length))
       .catch(() => undefined);
-  }, [authenticated, route]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated, route, license]);
 
   const navigate = useCallback(
     (r: Route) => {
@@ -123,6 +137,10 @@ function AppInner() {
     );
   }
 
+  if (license?.mode === "unlicensed") {
+    return <ActivationScreen license={license} onActivated={load} />;
+  }
+
   if (!overview.hasAdminUser || !overview.company) {
     return (
       <SetupWizard
@@ -150,6 +168,7 @@ function AppInner() {
   }
 
   return (
+    <AccessProvider license={license}>
     <AppShell
       company={overview.company}
       user={overview.currentUser}
@@ -157,7 +176,7 @@ function AppInner() {
       navigate={navigate}
       resolvedTheme={theme}
       onToggleTheme={toggleTheme}
-      lowStockCount={lowStockCount}
+      lowStockCount={access.can("inventory") ? lowStockCount : 0}
       onLogout={async () => {
         setOverview(await api.logout());
         setHistory([]);
@@ -173,5 +192,6 @@ function AppInner() {
         reloadOverview={load}
       />
     </AppShell>
+    </AccessProvider>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Download, FilePlus2, FileText } from "lucide-react";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync, useDebounced } from "../lib/hooks";
 import { errorMessage, fmtDate, isOverdue, money, todayISO } from "../lib/format";
 import { Alert, Button, EmptyState, InvoiceStatusBadge, PageHeader, SearchBox, Segmented, SkeletonRows, useToast } from "../components/ui";
@@ -10,6 +11,7 @@ type StatusFilter = "" | "open" | "paid" | "void";
 
 export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialStatus?: string }) {
   const toast = useToast();
+  const access = useAccess();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>((initialStatus as StatusFilter) ?? "");
   const [from, setFrom] = useState("");
@@ -54,9 +56,11 @@ export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialS
                 Exportar
               </Button>
             )}
-            <Button variant="primary" icon={<FilePlus2 size={16} />} onClick={() => navigate({ page: "invoice-new" })}>
-              Nueva factura
-            </Button>
+            {access.canWrite("invoices") && (
+              <Button variant="primary" icon={<FilePlus2 size={16} />} onClick={() => navigate({ page: "invoice-new" })}>
+                Nueva factura
+              </Button>
+            )}
           </>
         }
       />
@@ -98,9 +102,11 @@ export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialS
               title="Crea tu primera factura"
               text="Tus facturas quedarán aquí con su estado de pago, listas para reimprimir."
               action={
-                <Button variant="primary" onClick={() => navigate({ page: "invoice-new" })}>
-                  Nueva factura
-                </Button>
+                access.canWrite("invoices") ? (
+                  <Button variant="primary" onClick={() => navigate({ page: "invoice-new" })}>
+                    Nueva factura
+                  </Button>
+                ) : undefined
               }
             />
           )

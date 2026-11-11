@@ -255,7 +255,7 @@ mod tauri_commands {
         input: ChangePasswordInput,
         state: S<'_>,
     ) -> Result<SystemOverview, String> {
-        overview_gated(&state, Gate::CoreWrite, |db| {
+        overview_gated(&state, Gate::Core, |db| {
             db.change_authenticated_user_password(&input)?;
             db.build_system_overview()
         })
@@ -271,7 +271,7 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn set_theme_preference(theme: String, state: S<'_>) -> Result<SystemOverview, String> {
-        overview_gated(&state, Gate::CoreWrite, |db| {
+        overview_gated(&state, Gate::Core, |db| {
             db.set_theme_preference(&theme)?;
             db.build_system_overview()
         })

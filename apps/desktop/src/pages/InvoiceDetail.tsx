@@ -3,6 +3,7 @@ import { Ban, Banknote, Copy, FileSignature, Printer } from "lucide-react";
 import type { BusinessSettings, InvoiceDetail, PaymentMethod } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync } from "../lib/hooks";
 import { errorMessage, fmtDate, fmtDateTime, isOverdue, METHOD_LABELS, money, qty, todayISO } from "../lib/format";
 import { Alert, Button, ConfirmDialog, Drawer, Field, InvoiceStatusBadge, MoneyInput, PageHeader, Segmented, SkeletonRows, useToast } from "../components/ui";
@@ -30,6 +31,8 @@ export function invoiceToPrintable(inv: InvoiceDetail): PrintableDoc {
 
 export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }: PageProps & { id: number; autoPrint?: boolean }) {
   const toast = useToast();
+  const access = useAccess();
+  const canEdit = access.canWrite("invoices");
   const { data: inv, loading, error, setData } = useAsync(() => api.getInvoice(id), [id]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [printing, setPrinting] = useState(!!autoPrint);
@@ -70,18 +73,20 @@ export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }:
         subtitle={`${inv.customer.name} · ${fmtDate(inv.issueDate)}`}
         actions={
           <>
-            {inv.status !== "void" && (
+            {canEdit && inv.status !== "void" && (
               <Button variant="danger" icon={<Ban size={16} />} onClick={() => setVoiding(true)}>
                 Anular
               </Button>
             )}
-            <Button icon={<Copy size={16} />} onClick={() => navigate({ page: "invoice-new", fromInvoiceId: inv.id })}>
-              Duplicar
-            </Button>
+            {canEdit && (
+              <Button icon={<Copy size={16} />} onClick={() => navigate({ page: "invoice-new", fromInvoiceId: inv.id })}>
+                Duplicar
+              </Button>
+            )}
             <Button icon={<Printer size={16} />} onClick={() => setPrinting(true)} disabled={!settings}>
               Imprimir
             </Button>
-            {inv.status !== "void" && inv.balance > 0 && (
+            {canEdit && inv.status !== "void" && inv.balance > 0 && (
               <Button variant="primary" icon={<Banknote size={16} />} onClick={() => setPaying(true)}>
                 Registrar pago
               </Button>
@@ -117,7 +122,7 @@ export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }:
                 <dd>{fmtDate(inv.issueDate)}</dd>
                 <dt>Vencimiento</dt>
                 <dd style={overdue ? { color: "var(--danger)", fontWeight: 600 } : undefined}>{inv.dueDate ? fmtDate(inv.dueDate) : "—"}</dd>
-                {inv.quoteNumber && (
+                {inv.quoteNumber && access.can("quotes") && (
                   <>
                     <dt>Cotización</dt>
                     <dd>
@@ -196,7 +201,7 @@ export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }:
                 <span className={inv.balance > 0 ? "profit-negative" : ""}>{money(inv.balance)}</span>
               </div>
             </div>
-            {inv.status !== "void" && inv.balance > 0 && (
+            {canEdit && inv.status !== "void" && inv.balance > 0 && (
               <Button variant="primary" block className="mt-16" icon={<Banknote size={16} />} onClick={() => setPaying(true)}>
                 Registrar pago
               </Button>

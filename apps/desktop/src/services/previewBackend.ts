@@ -18,12 +18,16 @@ import type {
   InventoryMovement,
   InvoiceDetail,
   InvoiceSummary,
+  LicenseMode,
+  LicenseStatus,
+  ModuleKey,
   Payment,
   Product,
   QuoteDetail,
   SearchHit,
   SystemOverview,
 } from "@cartucho/shared";
+import { ALL_MODULES } from "@cartucho/shared";
 
 const KEY = "cartucho_erp_preview_v4";
 const SESSION_KEY = "cartucho_erp_preview_session";
@@ -184,6 +188,7 @@ function overview(): SystemOverview {
       recentPersistenceChecks: [],
     },
     company: db.company,
+    license: licenseStatus(),
     hasAdminUser: !!db.admin,
     isAuthenticated: authed,
     currentUser:
@@ -200,6 +205,92 @@ function overview(): SystemOverview {
         : null,
   };
 }
+
+// ------------------------------------------------------------------ Licencia simulada
+
+/**
+ * La vista previa simula la licencia para poder diseñar cada modo sin servidor.
+ * Desde la consola: `__cartuchoLicencia("restricted")`, `__cartuchoLicencia("licensed", ["invoices", "customers"])`,
+ * `__cartuchoLicencia("unlicensed")` o `__cartuchoLicencia("dev")`.
+ */
+interface PreviewLicense {
+  mode: LicenseMode;
+  modules: ModuleKey[];
+}
+const LICENSE_KEY = "cartucho_preview_license";
+
+function loadLicense(): PreviewLicense {
+  try {
+    const raw = localStorage.getItem(LICENSE_KEY);
+    if (raw) return JSON.parse(raw) as PreviewLicense;
+  } catch {
+    /* ignorar */
+  }
+  return { mode: "dev", modules: [...ALL_MODULES] };
+}
+
+function saveLicense(l: PreviewLicense) {
+  try {
+    localStorage.setItem(LICENSE_KEY, JSON.stringify(l));
+  } catch {
+    /* ignorar */
+  }
+}
+
+function licenseStatus(): LicenseStatus {
+  const l = loadLicense();
+  const base: LicenseStatus = {
+    mode: l.mode,
+    reason: null,
+    message: null,
+    customer: null,
+    plan: null,
+    modules: l.mode === "restricted" ? ["invoices"] : l.mode === "unlicensed" ? [] : l.modules,
+    maxDevices: null,
+    validUntil: null,
+    daysLeft: null,
+    licenseExpiresAt: null,
+    lastCheckAt: null,
+    lastCheckError: null,
+    deviceCode: "PREV-IEW0-0000-0000",
+    serverConfigured: false,
+    licenseKeyMasked: null,
+    support: "WhatsApp +57 300 000 0000",
+  };
+  if (l.mode === "licensed" || l.mode === "restricted") {
+    const until = new Date(Date.now() + 30 * 86400000).toISOString();
+    Object.assign(base, {
+      customer: db.company?.tradeName ?? "Cliente de prueba",
+      plan: l.modules.length === ALL_MODULES.length ? "completo" : "personalizado",
+      maxDevices: 2,
+      validUntil: until,
+      daysLeft: 30,
+      lastCheckAt: now(),
+      licenseKeyMasked: "CE-••••-••••-••••-7K2M",
+    });
+  }
+  if (l.mode === "restricted") {
+    base.reason = "revoked";
+    base.message = "Tu licencia fue desactivada. Solo puedes consultar tus facturas. Contacta a soporte para reactivarla.";
+  }
+  if (l.mode === "unlicensed") {
+    base.reason = "not_activated";
+    base.message = "Este equipo aún no tiene una licencia activa.";
+  }
+  if (l.mode === "dev") {
+    base.message = "Modo desarrollo: todos los módulos habilitados.";
+  }
+  return base;
+}
+
+/** Comandos permitidos en modo restringido (como en Rust). */
+const RESTRICTED_ALLOWED = new Set([
+  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference",
+  "list_invoices", "get_invoice", "list_payments", "get_dashboard", "global_search",
+  "get_business_settings", "get_data_location", "export_backup", "create_manual_backup",
+  "get_license_status", "activate_license_online", "activate_license_offline", "check_license_now",
+  "retry_open_database", "reset_data_location", "list_categories",
+]);
 
 function applyCompany(input: Record<string, unknown>) {
   const tradeName = String(input.tradeName ?? "").trim();
@@ -881,8 +972,24 @@ const handlers: Record<string, Handler> = {
   use_existing_data_location: () => fail("Esta opción solo está disponible en la aplicación de escritorio."),
 };
 
+const licenseHandlers: Record<string, Handler> = {
+  get_license_status: () => licenseStatus(),
+  check_license_now: () => licenseStatus(),
+  activate_license_offline: () => fail("La activación sin conexión solo está disponible en la aplicación de escritorio."),
+  activate_license_online: ({ licenseKey }) => {
+    const key = String(licenseKey ?? "").trim().toUpperCase();
+    if (!/^CE(-[A-Z0-9]{4}){4}$/.test(key)) fail("La clave debe tener el formato CE-XXXX-XXXX-XXXX-XXXX.");
+    saveLicense({ mode: "licensed", modules: [...ALL_MODULES] });
+    return licenseStatus();
+  },
+};
+
 export async function handlePreviewCommand(command: string, args: Record<string, unknown>): Promise<unknown> {
-  const h = handlers[command];
+  const mode = loadLicense().mode;
+  if (mode === "restricted" && !RESTRICTED_ALLOWED.has(command)) {
+    throw "Tu licencia está desactivada. Solo puedes consultar tus facturas. Contacta a soporte.";
+  }
+  const h = handlers[command] ?? licenseHandlers[command];
   if (!h) throw new Error(`Comando no disponible en vista previa: ${command}`);
   // Pequeña espera para simular la comunicación con el backend.
   await new Promise((r) => setTimeout(r, 60));
@@ -964,6 +1071,13 @@ function addDaysLocal(iso: string, n: number) {
 }
 
 if (typeof window !== "undefined") {
+  (window as unknown as { __cartuchoLicencia: (mode: LicenseMode, modules?: ModuleKey[]) => void }).__cartuchoLicencia = (
+    mode,
+    modules = [...ALL_MODULES],
+  ) => {
+    saveLicense({ mode, modules });
+    window.location.reload();
+  };
   (window as unknown as { __cartuchoDemo: () => Promise<void> }).__cartuchoDemo = async () => {
     await seedDemo();
     window.location.reload();
