@@ -288,9 +288,9 @@ function LayoutMini({ layout, colors, accent }: { layout: LayoutId; colors: { bg
 
 function AppearanceSettings({ overview, setOverview }: PageProps) {
   const toast = useToast();
-  const current = overview.preferences.theme;
   const ap = overview.preferences.appearance ?? DEFAULT_APPEARANCE;
-  const dark = document.documentElement.dataset.theme === "dark";
+  const pref = overview.preferences.theme;
+  const dark = pref === "dark" || (pref === "system" && !!window.matchMedia?.("(prefers-color-scheme: dark)").matches);
   const accentOf = (id: AccentId, isDark: boolean) => {
     const a = ACCENTS.find((x) => x.id === id) ?? ACCENTS[0];
     return isDark ? a.dark : a.light;
@@ -299,19 +299,18 @@ function AppearanceSettings({ overview, setOverview }: PageProps) {
     ? (DARK_BACKGROUNDS.find((b) => b.id === ap.bgDark) ?? DARK_BACKGROUNDS[0]).swatch
     : (LIGHT_BACKGROUNDS.find((b) => b.id === ap.bgLight) ?? LIGHT_BACKGROUNDS[0]).swatch;
 
+  // Se aplica al instante (optimista) y luego se confirma con el backend.
   const save = async (patch: Partial<Appearance>, theme?: ThemePreference) => {
+    const before = overview;
+    const next = { ...ap, ...patch };
+    setOverview({ ...overview, preferences: { ...overview.preferences, appearance: next, theme: theme ?? overview.preferences.theme } });
     try {
-      setOverview(await api.setAppearance({ ...ap, ...patch }, theme));
+      setOverview(await api.setAppearance(next, theme));
     } catch (e) {
+      setOverview(before);
       toast(errorMessage(e), "error");
     }
   };
-
-  const options: { id: ThemePreference; label: string; light: boolean | null }[] = [
-    { id: "light", label: "Claro", light: true },
-    { id: "dark", label: "Oscuro", light: false },
-    { id: "system", label: "Según el sistema", light: null },
-  ];
   const presetActive = (p: AppearancePreset) =>
     p.appearance.layout === ap.layout &&
     p.appearance.accent === ap.accent &&
@@ -357,35 +356,7 @@ function AppearanceSettings({ overview, setOverview }: PageProps) {
         </div>
       </Section>
 
-      <Section title="Tema" desc="Claro, oscuro o según la configuración de Windows. Cada uno usa su fondo elegido abajo.">
-        <div className="theme-options">
-          {options.map((o) => (
-            <button
-              key={o.id}
-              className={`theme-option ${current === o.id ? "is-active" : ""}`}
-              onClick={async () => {
-                try {
-                  setOverview(await api.setTheme(o.id));
-                } catch (e) {
-                  toast(errorMessage(e), "error");
-                }
-              }}
-            >
-              <div className="theme-swatch">
-                <div className="s1" style={{ background: o.light === null ? "linear-gradient(180deg,#ffffff 50%,#0a0d13 50%)" : o.light ? "#ffffff" : "#0a0d13", borderRight: "1px solid #e4e7ec" }} />
-                <div className="s2" style={{ background: o.light === null ? "linear-gradient(90deg,#f4f5f8 50%,#0e1117 50%)" : o.light ? "#f4f5f8" : "#0e1117" }}>
-                  <div className="ln" style={{ width: "60%", background: "var(--accent)" }} />
-                  <div className="ln" style={{ width: "80%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
-                  <div className="ln" style={{ width: "45%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
-                </div>
-              </div>
-              <span style={{ fontWeight: 500 }}>{o.label}</span>
-            </button>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Fondo" desc="El color de la pantalla, las tarjetas y el menú. Al elegir uno se cambia al tema correspondiente.">
+      <Section title="Fondo" desc="El color de la pantalla, las tarjetas y el menú. Elige uno oscuro o uno claro.">
         <div className="ap-subtitle">Oscuros</div>
         <div className="swatch-row mb-16">
           {DARK_BACKGROUNDS.map((b) => (

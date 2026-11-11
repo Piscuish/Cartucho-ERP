@@ -217,7 +217,7 @@ a {
   /* La fila ocupa exactamente el alto disponible; el contenido se desplaza dentro de .main-scroll. */
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
-  transition: grid-template-columns var(--dur-slow) var(--ease);
+  transition: grid-template-columns 200ms var(--ease);
 }
 
 .app-shell.is-collapsed {
@@ -236,6 +236,9 @@ a {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Desplazamiento acelerado por GPU aunque el fondo sea transparente (pantallas al 100 %). */
+  will-change: scroll-position;
+  overscroll-behavior: contain;
 }
 
 .page {
@@ -372,11 +375,12 @@ a {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px 10px;
+  padding: 10px 10px;
+  scrollbar-width: thin;
 }
 
 .sb-group + .sb-group {
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 .sb-group-label {
@@ -395,7 +399,7 @@ a {
   align-items: center;
   gap: 12px;
   width: 100%;
-  height: 38px;
+  height: 36px;
   padding: 0 10px;
   margin: 1px 0;
   border: 0;
@@ -544,7 +548,9 @@ a {
 }
 
 .is-collapsed .sb-item {
-  padding: 0 16px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
 }
 
 .is-collapsed .sb-user {
@@ -552,20 +558,28 @@ a {
   padding: 8px 0;
 }
 
-/* Tooltip simple para el menú colapsado */
-.is-collapsed .sb-item[data-tip]:hover::after {
-  content: attr(data-tip);
+/* Etiqueta del menú contraído (posicionada desde layout.tsx) */
+.sb-tooltip {
   position: fixed;
-  left: calc(var(--sidebar-w-collapsed) + 6px);
-  margin-top: 0;
+  transform: translateY(-50%);
   padding: 6px 10px;
   border-radius: 6px;
   background: var(--sb-bg-2);
   color: var(--sb-text-strong);
   font-size: 12.5px;
+  white-space: nowrap;
   box-shadow: var(--shadow-lg);
+  border: 1px solid var(--sb-border);
   z-index: 100;
   pointer-events: none;
+  animation: tip-in 120ms var(--ease);
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translate(-4px, -50%);
+  }
 }
 
 /* =============================================================================
@@ -3564,92 +3578,4 @@ a {
 
 .titlebar.is-blurred .titlebar-mark {
   opacity: 0.6;
-}
-
-/* Cambio de estilo suave */
-html.is-restyling *,
-html.is-restyling *::before,
-html.is-restyling *::after {
-  transition: background-color 240ms var(--ease), border-color 240ms var(--ease), color 240ms var(--ease) !important;
-}
-
-/* ---------- Galería de estilos ---------- */
-.style-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
-}
-
-.style-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
-}
-
-.style-card:hover {
-  border-color: var(--border-strong);
-  transform: translateY(-1px);
-}
-
-.style-card.is-active {
-  border-color: var(--accent);
-  box-shadow: var(--focus);
-}
-
-.style-mini {
-  display: flex;
-  height: 92px;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.style-mini-side {
-  width: 26%;
-  padding: 8px 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.style-mini-main {
-  flex: 1;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.style-mini-row {
-  display: flex;
-  gap: 5px;
-}
-
-.style-mini-card {
-  flex: 1;
-  height: 26px;
-}
-
-.style-mini .bar {
-  height: 5px;
-  border-radius: 3px;
-}
-
-.style-card-name {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-weight: 600;
-}
-
-.style-card-desc {
-  font-size: 12.5px;
-  color: var(--text-3);
-  margin-top: -6px;
 }

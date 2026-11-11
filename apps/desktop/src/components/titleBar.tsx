@@ -64,7 +64,12 @@ function TitleBar({ title, logo }: FrameTitle) {
       if (!w) return;
       const sync = async () => setMaximized(await w.isMaximized());
       await sync();
-      const a = await w.onResized(() => void sync());
+      // Al arrastrar un borde llegan decenas de eventos por segundo: se consulta solo al terminar.
+      let timer: number | undefined;
+      const a = await w.onResized(() => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => void sync(), 120);
+      });
       const b = await w.onFocusChanged(({ payload }) => setFocused(payload));
       if (cancelled) {
         a();

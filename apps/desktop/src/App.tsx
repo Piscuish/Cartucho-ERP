@@ -66,12 +66,14 @@ function AppInner() {
     };
     const changed = Object.entries(next).some(([k, v]) => root.dataset[k] !== v);
     if (!changed) return;
-    const animate = !!root.dataset.theme;
-    if (animate) root.classList.add("is-restyling");
-    Object.assign(root.dataset, next);
-    if (!animate) return;
-    const t = window.setTimeout(() => root.classList.remove("is-restyling"), 320);
-    return () => window.clearTimeout(t);
+    const apply = () => Object.assign(root.dataset, next);
+    // Fundido de una sola captura (barato) en lugar de animar cada elemento.
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+    if (root.dataset.theme && doc.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      doc.startViewTransition(apply);
+    } else {
+      apply();
+    }
   }, [theme, appearance]);
 
   const load = useCallback(async () => {
@@ -126,15 +128,6 @@ function AppInner() {
       return h.slice(0, -1);
     });
   }, []);
-
-  const toggleTheme = async () => {
-    const next: ThemePreference = theme === "dark" ? "light" : "dark";
-    try {
-      setOverview(await api.setTheme(next));
-    } catch (e) {
-      toast(errorMessage(e), "error");
-    }
-  };
 
   if (startupError) {
     return (
@@ -197,8 +190,6 @@ function AppInner() {
       user={overview.currentUser}
       route={route}
       navigate={navigate}
-      resolvedTheme={theme}
-      onToggleTheme={toggleTheme}
       lowStockCount={access.can("inventory") ? lowStockCount : 0}
       layout={appearance.layout}
       onLogout={async () => {

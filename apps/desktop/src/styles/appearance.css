@@ -236,10 +236,10 @@ html[data-layout="neon"] .topbar-search {
   background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 
+/* Vidrio sin desenfoque: el blur en cada tarjeta era la causa principal del lag. */
 html[data-layout="neon"] .main-area .card,
 html[data-layout="neon"] .quick-action {
-  background: color-mix(in srgb, var(--surface) 62%, transparent);
-  backdrop-filter: blur(16px) saturate(140%);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
 }
 
@@ -321,12 +321,26 @@ html[data-layout="riel"] .sb-nav {
   padding: 12px 0;
 }
 
+html[data-layout="riel"] .sb-group + .sb-group {
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+html[data-layout="riel"] .sb-group-label,
+html[data-layout="riel"] .sb-item-label,
+html[data-layout="riel"] .sb-item .sb-badge,
+html[data-layout="riel"] .sb-user-text,
+html[data-layout="riel"] .sb-hide-collapsed {
+  display: none;
+}
+
 html[data-layout="riel"] .sb-item {
   --tone: var(--sb-text);
-  width: 48px;
-  height: 48px;
-  margin: 8px auto;
+  width: 46px;
+  height: 46px;
+  margin: 6px auto;
   padding: 0;
+  gap: 0;
   justify-content: center;
   border-radius: 14px;
   background: color-mix(in srgb, var(--tone) 15%, transparent);
@@ -363,8 +377,13 @@ html[data-layout="riel"] .sb-item.is-active::before {
   box-shadow: 0 0 0 2px var(--sb-bg);
 }
 
+html[data-layout="riel"] .sb-footer {
+  padding-top: 8px;
+}
+
 html[data-layout="riel"] .sb-user {
   justify-content: center;
+  padding: 8px 0 12px;
 }
 
 html[data-layout="riel"] .sb-avatar {
