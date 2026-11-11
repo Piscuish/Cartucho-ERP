@@ -1,7 +1,7 @@
 /**
  * Estructura principal: menú lateral colapsable, barra superior y búsqueda rápida (Ctrl+K).
  */
-import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronsLeft,
@@ -11,14 +11,12 @@ import {
   FileSignature,
   FileText,
   LogOut,
-  Moon,
   Package,
   Plus,
   Search,
-  Sun,
   Users,
 } from "lucide-react";
-import type { AuthenticatedUserSummary, CompanyProfile, ResolvedTheme, SearchHit } from "@cartucho/shared";
+import type { AuthenticatedUserSummary, CompanyProfile, SearchHit } from "@cartucho/shared";
 import { NAV_TONE, NAVIGATION, NavGroup, Route } from "../config/moduleRegistry";
 import type { LayoutId } from "@cartucho/shared";
 import { useAccess } from "../lib/access";
@@ -33,8 +31,6 @@ export function AppShell({
   route,
   navigate,
   onLogout,
-  resolvedTheme,
-  onToggleTheme,
   lowStockCount,
   layout = "clasico",
   children,
@@ -45,8 +41,6 @@ export function AppShell({
   route: Route;
   navigate: (r: Route) => void;
   onLogout: () => void;
-  resolvedTheme: ResolvedTheme;
-  onToggleTheme: () => void;
   lowStockCount: number;
   children: ReactNode;
 }) {
@@ -72,6 +66,19 @@ export function AppShell({
   // El diseño «Riel» siempre muestra el menú como columna de íconos.
   const railOnly = layout === "riel";
   const collapsed = railOnly || collapsedPref;
+
+  // Etiqueta flotante del menú contraído (se calcula con la posición real del botón).
+  const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null);
+  const tipProps = (label: string) => ({
+    onMouseEnter: (e: ReactMouseEvent<HTMLElement>) => {
+      if (!collapsed) return;
+      const r = e.currentTarget.getBoundingClientRect();
+      const host = e.currentTarget.closest(".window-content")?.getBoundingClientRect();
+      setTip({ label, top: r.top - (host?.top ?? 0) + r.height / 2, left: r.right - (host?.left ?? 0) + 10 });
+    },
+    onMouseLeave: () => setTip(null),
+  });
+  useEffect(() => setTip(null), [route, collapsed]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
@@ -105,6 +112,7 @@ export function AppShell({
                     key={item.id}
                     className={`sb-item ${active ? "is-active" : ""}`}
                     data-tip={item.label}
+                    {...tipProps(item.label)}
                     style={NAV_TONE[item.id] ? ({ "--tone": NAV_TONE[item.id] } as CSSProperties) : undefined}
                     onClick={() => navigate(item.route)}
                     aria-current={active ? "page" : undefined}
@@ -130,18 +138,33 @@ export function AppShell({
               <div className="sb-user-name">{user.fullName}</div>
               <div className="sb-user-role">Administrador</div>
             </div>
+            {!railOnly && (
+              <button className="sb-icon-btn sb-hide-collapsed" onClick={() => setCollapsed(true)} title="Contraer menú (Ctrl+B)" aria-label="Contraer menú">
+                <ChevronsLeft size={16} />
+              </button>
+            )}
             <button className="sb-icon-btn sb-hide-collapsed" onClick={onLogout} title="Cerrar sesión" aria-label="Cerrar sesión">
               <LogOut size={16} />
             </button>
           </div>
-          {!railOnly && (
-            <button className="sb-item" onClick={() => setCollapsed((c) => !c)} data-tip={collapsed ? "Expandir menú" : "Contraer menú"}>
+          {collapsed && !railOnly && (
+            <button
+              className="sb-item"
+              onClick={() => setCollapsed((c) => !c)}
+              data-tip={collapsed ? "Expandir menú" : "Contraer menú"}
+              {...tipProps(collapsed ? "Expandir menú" : "Contraer menú")}
+            >
               {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
               <span className="sb-item-label">Contraer menú</span>
             </button>
           )}
         </div>
       </aside>
+      {tip && (
+        <div className="sb-tooltip" style={{ top: tip.top, left: tip.left }} role="tooltip">
+          {tip.label}
+        </div>
+      )}
 
       <div className="main-area">
         <header className="topbar">
@@ -151,9 +174,6 @@ export function AppShell({
             <span className="kbd">Ctrl K</span>
           </button>
           <div className="topbar-spacer" />
-          <button className="icon-btn" onClick={onToggleTheme} title="Cambiar tema" aria-label="Cambiar tema">
-            {resolvedTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
           {access.canWrite("quotes") && (
             <Button variant="secondary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
               Cotización

@@ -73,3 +73,12 @@ Implementación:
 - Se guarda como JSON en `_app_metadata` con la clave `appearance` (sin migración). Si no existe, se traduce el
   `visual_style` de la versión anterior; un valor inválido vuelve a la apariencia por defecto.
 - Para agregar un fondo o acento: bloque CSS, entrada en `@cartucho/shared` (`LIGHT_BACKGROUNDS`, `DARK_BACKGROUNDS`, `ACCENTS`) y su id en las listas `VALID_*` de `db.rs`.
+
+### Optimización (noviembre 2026)
+
+- Sin interruptor de claro/oscuro en la barra superior ni sección «Tema»: el tema lo define el **fondo** elegido (o la combinación rápida).
+- Neón sin `backdrop-filter` (el desenfoque por tarjeta causaba lag); el contenido se desplaza con `will-change: scroll-position`.
+- El cambio de apariencia usa un solo fundido (`startViewTransition`) en lugar de animar todos los elementos, y se aplica al instante (optimista).
+- La barra de título consulta «maximizada» solo al terminar de redimensionar.
+- Menú contraído: etiquetas posicionadas con JavaScript (antes aparecían en lugares incorrectos); íconos centrados en Riel.
+- Menú más compacto y botón «Contraer» junto al usuario, para que todo quepa en pantallas de 768 px.
