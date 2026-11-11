@@ -4,9 +4,9 @@ import type { BusinessSettings, QuoteDetail, QuoteStatus } from "@cartucho/share
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
 import { useAccess } from "../lib/access";
-import { useAsync, useDebounced } from "../lib/hooks";
+import { useAsync, useDebounced, useShowMore } from "../lib/hooks";
 import { addDays, fmtDate, money, qty, todayISO } from "../lib/format";
-import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, QuoteStatusBadge, SearchBox, Segmented, SkeletonRows, useToast } from "../components/ui";
+import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, QuoteStatusBadge, SearchBox, Segmented, SkeletonRows, useToast, ShowMore } from "../components/ui";
 import { PrintDialog, PrintableDoc } from "../components/print";
 
 export function QuotesPage({ navigate }: PageProps) {
@@ -15,6 +15,7 @@ export function QuotesPage({ navigate }: PageProps) {
   const [status, setStatus] = useState<"" | QuoteStatus>("");
   const q = useDebounced(search);
   const { data, loading, error } = useAsync(() => api.listQuotes(q, status || null), [q, status]);
+  const page = useShowMore(data?.length ?? 0, 100, data);
   const today = todayISO();
 
   return (
@@ -78,7 +79,7 @@ export function QuotesPage({ navigate }: PageProps) {
                 </tr>
               </thead>
               <tbody>
-                {data?.map((x) => {
+                {data?.slice(0, page.limit).map((x) => {
                   const expired = x.status === "open" && x.validUntil && x.validUntil < today;
                   return (
                     <tr key={x.id} className="is-clickable" onClick={() => navigate({ page: "quote", id: x.id })}>
@@ -96,6 +97,7 @@ export function QuotesPage({ navigate }: PageProps) {
                 })}
               </tbody>
             </table>
+            <ShowMore remaining={page.remaining} onMore={page.more} />
           </div>
         )}
       </div>

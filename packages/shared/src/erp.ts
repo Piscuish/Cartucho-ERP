@@ -172,6 +172,8 @@ export interface InvoiceFilter {
   dateTo?: string | null;
   customerId?: number | null;
   limit?: number | null;
+  /** Solo facturas creadas por este usuario. */
+  createdBy?: number | null;
 }
 
 export interface InvoiceSummary {
@@ -186,6 +188,9 @@ export interface InvoiceSummary {
   paidAmount: number;
   balance: number;
   createdAt: string;
+  /** Usuario que creó la factura. */
+  createdById?: number | null;
+  createdByName?: string | null;
 }
 
 export interface DocumentLine {
@@ -209,6 +214,38 @@ export interface Payment {
   note: string | null;
   invoiceVoided: boolean;
   createdAt: string;
+  /** Usuario que registró el pago. */
+  createdByName?: string | null;
+}
+
+// ------------------------------------------------------------------ Cierre de caja y estado de cuenta
+
+export interface CashClose {
+  date: string;
+  userId: number | null;
+  userName: string | null;
+  byMethod: { method: PaymentMethod; count: number; total: number }[];
+  collectedTotal: number;
+  cashCollected: number;
+  invoicesCount: number;
+  invoicesTotal: number;
+  voidedCount: number;
+  voidedTotal: number;
+  /** Gastos en efectivo del día (solo en el cierre de todos los usuarios). */
+  cashExpenses: number;
+  expectedCash: number;
+  byUser: { userId: number | null; userName: string; payments: number; collected: number; invoices: number; invoiced: number }[];
+  payments: Payment[];
+}
+
+export interface CustomerStatement {
+  customer: Customer;
+  invoices: InvoiceSummary[];
+  payments: Payment[];
+  totalInvoiced: number;
+  totalPaid: number;
+  balance: number;
+  overdueBalance: number;
 }
 
 export interface InvoiceDetail extends InvoiceSummary {
@@ -401,6 +438,9 @@ export const ERP_COMMANDS = {
   DELETE_EXPENSE: "delete_expense",
   FINANCE_SUMMARY: "finance_summary",
   GET_DASHBOARD: "get_dashboard",
+  GET_CASH_CLOSE: "get_cash_close",
+  GET_CUSTOMER_STATEMENT: "get_customer_statement",
+  SET_AUTO_LOCK: "set_auto_lock",
   GLOBAL_SEARCH: "global_search",
   EXPORT_CSV: "export_csv",
   GET_BUSINESS_SETTINGS: "get_business_settings",

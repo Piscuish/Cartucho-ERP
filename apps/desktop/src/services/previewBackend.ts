@@ -40,6 +40,7 @@ interface Store {
   firstInitializedAt: string;
   theme: string;
   appearance?: Appearance;
+  autoLockMinutes?: number;
   roles?: PreviewRole[];
   users?: PreviewUser[];
   company: CompanyProfile | null;
@@ -264,6 +265,7 @@ function overview(): SystemOverview {
     preferences: {
       theme: db.theme as SystemOverview["preferences"]["theme"],
       appearance: db.appearance ?? { ...DEFAULT_APPEARANCE },
+      autoLockMinutes: db.autoLockMinutes ?? 0,
       updatedAt: now(),
     },
     database: {
@@ -386,7 +388,7 @@ function licenseStatus(): LicenseStatus {
 /** Comandos permitidos en modo restringido (como en Rust). */
 const RESTRICTED_ALLOWED = new Set([
   "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_appearance", "list_roles", "save_role", "delete_role", "list_users", "save_user",
-  "list_invoices", "get_invoice", "list_payments", "get_dashboard", "global_search",
+  "list_invoices", "get_invoice", "list_payments", "get_cash_close", "get_dashboard", "global_search",
   "get_business_settings", "get_data_location", "export_backup", "create_manual_backup",
   "get_license_status", "activate_license_online", "activate_license_offline", "check_license_now",
   "retry_open_database", "reset_data_location", "list_categories",
@@ -506,8 +508,22 @@ function buildDoc(input: Record<string, unknown>) {
 }
 
 function invoiceSummary(i: InvoiceDetail): InvoiceSummary {
-  const { id, number, customerId, customerName, issueDate, dueDate, status, total, paidAmount, createdAt } = i;
-  return { id, number, customerId, customerName, issueDate, dueDate, status, total, paidAmount, balance: status === "void" ? 0 : total - paidAmount, createdAt };
+  const { id, number, customerId, customerName, issueDate, dueDate, status, total, paidAmount, createdAt, createdById, createdByName } = i;
+  return {
+    id,
+    number,
+    customerId,
+    customerName,
+    issueDate,
+    dueDate,
+    status,
+    total,
+    paidAmount,
+    balance: status === "void" ? 0 : total - paidAmount,
+    createdAt,
+    createdById: createdById ?? 1,
+    createdByName: createdByName ?? db.admin?.fullName ?? null,
+  };
 }
 
 function payment(invoiceId: number, p: Record<string, unknown>) {
@@ -527,6 +543,7 @@ function payment(invoiceId: number, p: Record<string, unknown>) {
     note: opt(p.note),
     invoiceVoided: false,
     createdAt: now(),
+    createdByName: sessionUser()?.fullName ?? null,
   });
   inv.paidAmount += amount;
   inv.status = statusFor(inv.total, inv.paidAmount);
@@ -952,6 +969,8 @@ const handlers: Record<string, Handler> = {
   create_invoice: ({ input }) => {
     requireAuth();
     const inv = createInvoice(input as Record<string, unknown>);
+    const u = sessionUser();
+    Object.assign(inv, { createdById: u?.id ?? 1, createdByName: u?.fullName ?? null });
     save();
     return inv;
   },
@@ -965,7 +984,8 @@ const handlers: Record<string, Handler> = {
           (like(i.number, q) || like(i.customerName, q)) &&
           (!f.status || (f.status === "open" ? i.status === "pending" || i.status === "partial" : i.status === f.status)) &&
           inRange(i.issueDate, (f.dateFrom as string) || null, (f.dateTo as string) || null) &&
-          (!f.customerId || i.customerId === f.customerId),
+          (!f.customerId || i.customerId === f.customerId) &&
+          (!f.createdBy || (i.createdById ?? 1) === f.createdBy),
       )
       .sort((a, b) => b.issueDate.localeCompare(a.issueDate) || b.id - a.id)
       .slice(0, Number(f.limit) || 500)
@@ -996,6 +1016,75 @@ const handlers: Record<string, Handler> = {
     inv.voidedAt = now();
     save();
     return handlers.get_invoice({ id: invoiceId });
+  },
+  get_cash_close: ({ date, userId }) => {
+    requireAuth();
+    const me = sessionUser()!;
+    const isAdmin = me.roleKey === "admin";
+    const uid = isAdmin ? ((userId as number | null) ?? null) : me.id;
+    const day = String(date);
+    const who = (i: { createdById?: number | null }) => i.createdById ?? 1;
+    const nameOf = (id: number) => (id === db.admin?.id ? db.admin.fullName : users().find((u) => u.id === id)?.fullName ?? "Sin usuario");
+    const live = db.invoices.filter((i) => i.status !== "void");
+    const pays = live.flatMap((i) => i.payments.map((p) => ({ ...p, invoiceVoided: false, uid: p.createdByName ? (p.createdByName === db.admin?.fullName ? 1 : users().find((u) => u.fullName === p.createdByName)?.id ?? 1) : who(i) })))
+      .filter((p) => p.paidAt === day && (uid === null || p.uid === uid));
+    const methods = (["cash", "transfer", "card", "other"] as const).map((m) => ({
+      method: m,
+      count: pays.filter((p) => p.method === m).length,
+      total: pays.filter((p) => p.method === m).reduce((a, p) => a + p.amount, 0),
+    }));
+    const dayInv = live.filter((i) => i.issueDate === day && (uid === null || who(i) === uid));
+    const voided = db.invoices.filter((i) => i.status === "void" && (i.voidedAt ?? "").slice(0, 10) === day && (uid === null || who(i) === uid));
+    const cashExpenses = uid === null ? db.expenses.filter((e) => e.expenseDate === day && e.method === "cash").reduce((a, e) => a + e.amount, 0) : 0;
+    const ids = [...new Set([...pays.map((p) => p.uid), ...dayInv.map(who)])];
+    const collected = pays.reduce((a, p) => a + p.amount, 0);
+    return {
+      date: day,
+      userId: uid,
+      userName: uid === null ? null : nameOf(uid),
+      byMethod: methods,
+      collectedTotal: collected,
+      cashCollected: methods[0].total,
+      invoicesCount: dayInv.length,
+      invoicesTotal: dayInv.reduce((a, i) => a + i.total, 0),
+      voidedCount: voided.length,
+      voidedTotal: voided.reduce((a, i) => a + i.total, 0),
+      cashExpenses,
+      expectedCash: methods[0].total - cashExpenses,
+      byUser: ids
+        .map((id) => ({
+          userId: id,
+          userName: nameOf(id),
+          payments: pays.filter((p) => p.uid === id).length,
+          collected: pays.filter((p) => p.uid === id).reduce((a, p) => a + p.amount, 0),
+          invoices: dayInv.filter((i) => who(i) === id).length,
+          invoiced: dayInv.filter((i) => who(i) === id).reduce((a, i) => a + i.total, 0),
+        }))
+        .sort((a, b) => b.collected - a.collected),
+      payments: pays.map(({ uid: _u, ...p }) => p),
+    };
+  },
+  get_customer_statement: ({ customerId, today }) => {
+    requireAuth();
+    const c = (handlers.list_customers({ includeInactive: true }) as { id: number }[]).find((x) => x.id === customerId) ?? fail("El cliente no existe.");
+    const inv = db.invoices.filter((i) => i.customerId === customerId && i.status !== "void").sort((a, b) => a.issueDate.localeCompare(b.issueDate));
+    const sums = inv.map(invoiceSummary);
+    return {
+      customer: c,
+      invoices: sums,
+      payments: inv.flatMap((i) => i.payments.map((p) => ({ ...p, invoiceVoided: false }))).sort((a, b) => a.paidAt.localeCompare(b.paidAt)),
+      totalInvoiced: sums.reduce((a, i) => a + i.total, 0),
+      totalPaid: sums.reduce((a, i) => a + i.paidAmount, 0),
+      balance: sums.reduce((a, i) => a + i.balance, 0),
+      overdueBalance: sums.filter((i) => i.balance > 0 && i.dueDate && i.dueDate < String(today)).reduce((a, i) => a + i.balance, 0),
+    };
+  },
+  set_auto_lock: ({ minutes }) => {
+    requireAdmin();
+    if (![0, 5, 10, 15, 30, 60].includes(Number(minutes))) fail("Elige 5, 10, 15, 30 o 60 minutos, o «Nunca».");
+    db.autoLockMinutes = Number(minutes);
+    save();
+    return overview();
   },
   list_payments: ({ dateFrom, dateTo }) => {
     requireAuth();

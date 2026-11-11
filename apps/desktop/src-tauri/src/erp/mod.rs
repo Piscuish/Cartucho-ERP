@@ -8,6 +8,7 @@
 //!   las marcas de auditoría (`created_at`, `updated_at`) en RFC 3339 UTC.
 //! - Toda operación exige sesión autenticada y se valida aquí, en Rust.
 
+pub mod cash;
 pub mod catalog;
 pub mod customers;
 pub mod finance;

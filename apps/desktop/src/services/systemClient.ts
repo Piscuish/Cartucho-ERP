@@ -8,6 +8,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   BusinessSettings,
+  CashClose,
+  CustomerStatement,
   Category,
   CategoryKind,
   ChangePasswordInput,
@@ -150,6 +152,9 @@ export const api = {
   deleteExpense: (id: number) => call<void>(C.DELETE_EXPENSE, { id }),
   financeSummary: (dateFrom: string, dateTo: string) => call<FinanceSummary>(C.FINANCE_SUMMARY, { dateFrom, dateTo }),
   dashboard: (today: string) => call<DashboardData>(C.GET_DASHBOARD, { today }),
+  cashClose: (date: string, userId: number | null) => call<CashClose>(C.GET_CASH_CLOSE, { date, userId }),
+  customerStatement: (customerId: number, today: string) => call<CustomerStatement>(C.GET_CUSTOMER_STATEMENT, { customerId, today }),
+  setAutoLock: (minutes: number) => call<SystemOverview>(C.SET_AUTO_LOCK, { minutes }),
   search: (query: string) => call<SearchHit[]>(C.GLOBAL_SEARCH, { query }),
   exportCsv: (kind: CsvReportKind, dateFrom: string | null, dateTo: string | null, destination: string) =>
     call<string>(C.EXPORT_CSV, { kind, dateFrom, dateTo, destination }),

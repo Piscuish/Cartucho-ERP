@@ -76,6 +76,9 @@ pub struct InvoiceFilter {
     pub date_to: Option<String>,
     pub customer_id: Option<i64>,
     pub limit: Option<i64>,
+    /// Solo las facturas creadas por este usuario (filtro «vendedor»).
+    #[serde(default)]
+    pub created_by: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -92,6 +95,11 @@ pub struct InvoiceSummary {
     pub paid_amount: i64,
     pub balance: i64,
     pub created_at: String,
+    /// Usuario que creó la factura (None en registros antiguos sin usuario).
+    #[serde(default)]
+    pub created_by_id: Option<i64>,
+    #[serde(default)]
+    pub created_by_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -119,6 +127,9 @@ pub struct Payment {
     pub note: Option<String>,
     pub invoice_voided: bool,
     pub created_at: String,
+    /// Usuario que registró el pago.
+    #[serde(default)]
+    pub created_by_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -348,12 +359,13 @@ fn status_for(total: i64, paid: i64) -> &'static str {
     }
 }
 
-const INVOICE_SUMMARY_SELECT: &str = "
+pub(crate) const INVOICE_SUMMARY_SELECT: &str = "
     SELECT i.id, i.number, i.customer_id, i.customer_name, i.issue_date, i.due_date, i.status,
-           i.total, i.paid_amount, i.created_at
+           i.total, i.paid_amount, i.created_at,
+           i.created_by, (SELECT full_name FROM app_users WHERE id = i.created_by)
     FROM invoices i";
 
-fn map_invoice_summary(r: &Row<'_>) -> rusqlite::Result<InvoiceSummary> {
+pub(crate) fn map_invoice_summary(r: &Row<'_>) -> rusqlite::Result<InvoiceSummary> {
     let total: i64 = r.get(7)?;
     let paid: i64 = r.get(8)?;
     let status: String = r.get(6)?;
@@ -373,6 +385,8 @@ fn map_invoice_summary(r: &Row<'_>) -> rusqlite::Result<InvoiceSummary> {
         total,
         paid_amount: paid,
         created_at: r.get(9)?,
+        created_by_id: r.get(10)?,
+        created_by_name: r.get(11)?,
     })
 }
 
@@ -432,7 +446,8 @@ fn load_lines(
 
 pub(crate) const PAYMENT_SELECT: &str = "
     SELECT p.id, p.invoice_id, i.number, i.customer_name, p.amount, p.method, p.paid_at, p.note,
-           i.status = 'void', p.created_at
+           i.status = 'void', p.created_at,
+           (SELECT full_name FROM app_users WHERE id = p.created_by)
     FROM payments p JOIN invoices i ON i.id = p.invoice_id";
 
 pub(crate) fn map_payment(r: &Row<'_>) -> rusqlite::Result<Payment> {
@@ -447,6 +462,7 @@ pub(crate) fn map_payment(r: &Row<'_>) -> rusqlite::Result<Payment> {
         note: r.get(7)?,
         invoice_voided: r.get(8)?,
         created_at: r.get(9)?,
+        created_by_name: r.get(10)?,
     })
 }
 
@@ -617,6 +633,7 @@ impl LocalDatabase {
                AND (?3 IS NULL OR i.issue_date >= ?3)
                AND (?4 IS NULL OR i.issue_date <= ?4)
                AND (?5 IS NULL OR i.customer_id = ?5)
+               AND (?7 IS NULL OR i.created_by = ?7)
              ORDER BY i.issue_date DESC, i.id DESC LIMIT ?6",
             INVOICE_SUMMARY_SELECT
         );
@@ -631,7 +648,8 @@ impl LocalDatabase {
                     date_from,
                     date_to,
                     filter.customer_id,
-                    limit
+                    limit,
+                    filter.created_by
                 ],
                 map_invoice_summary,
             )

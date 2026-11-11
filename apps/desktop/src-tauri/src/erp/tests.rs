@@ -635,3 +635,95 @@ fn optional_modules_change_invoice_behavior() {
     assert_eq!(db.stock_of(pid), 4.0);
     let _ = &mut db;
 }
+
+#[test]
+fn cash_close_statement_and_seller_filter() {
+    let (_dir, mut db) = setup();
+    let admin_id = db.get_authenticated_user().unwrap().unwrap().id;
+    let cust = db.save_customer(&CustomerInput { name: "Colegio".to_string(), ..Default::default() }).unwrap();
+
+    // Admin: factura de contado (efectivo) y factura a crédito con abono por transferencia.
+    let a = db
+        .create_invoice(&InvoiceInput {
+            issue_date: "2026-11-10".to_string(),
+            lines: vec![line(None, "Copias", 10.0, 1000)],
+            initial_payment: Some(PaymentInput { amount: 10000, method: "cash".to_string(), paid_at: "2026-11-10".to_string(), note: None }),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(a.summary.created_by_id, Some(admin_id));
+    assert_eq!(a.summary.created_by_name.as_deref(), Some("Admin"));
+    let b = db
+        .create_invoice(&InvoiceInput {
+            customer_id: Some(cust.id),
+            issue_date: "2026-11-01".to_string(),
+            due_date: Some("2026-11-05".to_string()),
+            lines: vec![line(None, "Resmas", 5.0, 20000)],
+            ..Default::default()
+        })
+        .unwrap();
+    db.add_payment(b.summary.id, &PaymentInput { amount: 30000, method: "transfer".to_string(), paid_at: "2026-11-10".to_string(), note: None })
+        .unwrap();
+    db.save_expense(&ExpenseInput {
+        description: "Domicilio".to_string(),
+        amount: 4000,
+        expense_date: "2026-11-10".to_string(),
+        method: "cash".to_string(),
+        ..Default::default()
+    })
+    .unwrap();
+
+    // Vendedora: una venta en efectivo el mismo día.
+    db.save_user(&crate::users::UserInput {
+        id: None,
+        full_name: "Ana".into(),
+        username: "ana".into(),
+        role_key: "vendedor".into(),
+        password: Some("Vendedora#1".into()),
+        is_active: true,
+    })
+    .unwrap();
+    db.logout();
+    db.login("ana", "Vendedora#1").unwrap();
+    db.create_invoice(&InvoiceInput {
+        issue_date: "2026-11-10".to_string(),
+        lines: vec![line(None, "Lapiceros", 2.0, 1500)],
+        initial_payment: Some(PaymentInput { amount: 3000, method: "cash".to_string(), paid_at: "2026-11-10".to_string(), note: None }),
+        ..Default::default()
+    })
+    .unwrap();
+    // Un usuario que no es administrador solo ve su propio cierre aunque pida «todos».
+    let mine = db.cash_close("2026-11-10", None).unwrap();
+    assert_eq!(mine.user_name.as_deref(), Some("Ana"));
+    assert_eq!((mine.collected_total, mine.invoices_count, mine.cash_expenses), (3000, 1, 0));
+
+    db.logout();
+    db.login("admin", "ClaveSegura#1").unwrap();
+    let all = db.cash_close("2026-11-10", None).unwrap();
+    assert_eq!(all.collected_total, 10000 + 30000 + 3000);
+    assert_eq!(all.cash_collected, 13000);
+    assert_eq!(all.by_method.iter().find(|m| m.method == "transfer").unwrap().total, 30000);
+    assert_eq!((all.invoices_count, all.invoices_total), (2, 13000));
+    assert_eq!(all.cash_expenses, 4000);
+    assert_eq!(all.expected_cash, 9000);
+    assert_eq!(all.by_user.len(), 2);
+    assert_eq!(all.payments.len(), 3);
+    assert!(all.payments.iter().any(|p| p.created_by_name.as_deref() == Some("Ana")));
+
+    // Filtro por vendedor en el historial.
+    let ana_id = db.list_users().unwrap().into_iter().find(|u| u.username == "ana").unwrap().id;
+    let ana_invoices = db.list_invoices(&InvoiceFilter { created_by: Some(ana_id), ..Default::default() }).unwrap();
+    assert_eq!(ana_invoices.len(), 1);
+    assert_eq!(ana_invoices[0].created_by_name.as_deref(), Some("Ana"));
+
+    // Estado de cuenta: saldo 70.000 vencido desde el 5 de noviembre.
+    let st = db.customer_statement(cust.id, "2026-11-11").unwrap();
+    assert_eq!((st.total_invoiced, st.total_paid, st.balance, st.overdue_balance), (100000, 30000, 70000, 70000));
+    assert_eq!(st.payments.len(), 1);
+
+    // Bloqueo por inactividad: solo valores permitidos y solo administrador.
+    assert_eq!(db.get_preferences().unwrap().auto_lock_minutes, 0);
+    assert_eq!(db.set_auto_lock(15).unwrap().auto_lock_minutes, 15);
+    assert!(db.set_auto_lock(7).is_err());
+    let _ = &mut db;
+}

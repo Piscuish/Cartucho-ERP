@@ -287,6 +287,18 @@ export function StatCard({ label, value, icon, tone = "accent", foot }: { label:
   );
 }
 
+/** Botón «Mostrar N más» para listas largas (ver useShowMore). */
+export function ShowMore({ remaining, onMore, step = 100 }: { remaining: number; onMore: () => void; step?: number }) {
+  if (remaining <= 0) return null;
+  return (
+    <div className="show-more">
+      <Button size="sm" variant="ghost" onClick={onMore}>
+        Mostrar {Math.min(step, remaining)} más ({remaining} restantes)
+      </Button>
+    </div>
+  );
+}
+
 export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text?: string; action?: ReactNode }) {
   return (
     <div className="empty">

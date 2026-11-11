@@ -1,20 +1,22 @@
 import { useEffect, useState } from "react";
-import { Archive, ArchiveRestore, Download, FilePlus2, UserPlus, Users } from "lucide-react";
+import { Archive, ArchiveRestore, Download, FileBarChart, FilePlus2, UserPlus, Users } from "lucide-react";
+import { StatementDialog } from "../components/statement";
 import type { Customer, CustomerInput, InvoiceSummary } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
 import { useAccess } from "../lib/access";
-import { useAsync, useDebounced } from "../lib/hooks";
+import { useAsync, useDebounced, useShowMore } from "../lib/hooks";
 import { errorMessage, fmtDate, initials, isOverdue, money, todayISO } from "../lib/format";
-import { Alert, Badge, Button, Drawer, EmptyState, Field, InvoiceStatusBadge, PageHeader, SearchBox, SkeletonRows, Switch, useToast } from "../components/ui";
+import { Alert, Badge, Button, Drawer, EmptyState, Field, InvoiceStatusBadge, PageHeader, SearchBox, SkeletonRows, Switch, useToast, ShowMore } from "../components/ui";
 
-export function CustomersPage({ navigate, openId }: PageProps & { openId?: number }) {
+export function CustomersPage({ navigate, openId, overview }: PageProps & { openId?: number }) {
   const canEdit = useAccess().canWrite("customers");
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const q = useDebounced(search);
   const { data, loading, error, reload } = useAsync(() => api.listCustomers(q, showArchived), [q, showArchived]);
+  const page = useShowMore(data?.length ?? 0, 100, data);
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
 
   useEffect(() => {
@@ -95,7 +97,7 @@ export function CustomersPage({ navigate, openId }: PageProps & { openId?: numbe
                 </tr>
               </thead>
               <tbody>
-                {data?.map((c) => (
+                {data?.slice(0, page.limit).map((c) => (
                   <tr key={c.id} className={`is-clickable ${c.isActive ? "" : "is-muted"}`} onClick={() => setEditing(c)}>
                     <td>
                       <div className="cell-flex">
@@ -121,6 +123,7 @@ export function CustomersPage({ navigate, openId }: PageProps & { openId?: numbe
                 ))}
               </tbody>
             </table>
+            <ShowMore remaining={page.remaining} onMore={page.more} />
           </div>
         )}
       </div>
@@ -130,6 +133,7 @@ export function CustomersPage({ navigate, openId }: PageProps & { openId?: numbe
           customer={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
           navigate={navigate}
+          companyName={overview.company?.tradeName ?? ""}
           onSaved={(c, msg) => {
             toast(msg);
             void reload();
@@ -146,13 +150,16 @@ function CustomerDrawer({
   onClose,
   onSaved,
   navigate,
+  companyName,
 }: {
   customer: Customer | null;
   onClose: () => void;
   onSaved: (c: Customer, msg: string) => void;
   navigate: PageProps["navigate"];
+  companyName: string;
 }) {
   const access = useAccess();
+  const [statement, setStatement] = useState(false);
   const [form, setForm] = useState<CustomerInput>({
     id: customer?.id ?? null,
     name: customer?.name ?? "",
@@ -271,11 +278,18 @@ function CustomerDrawer({
           <div>
             <div className="row-between mb-16">
               <div className="card-title">Últimas facturas</div>
-              {access.canWrite("invoices") && (
-                <Button size="sm" icon={<FilePlus2 size={14} />} onClick={() => navigate({ page: "invoice-new", customerId: customer.id })}>
-                  Facturar a este cliente
-                </Button>
-              )}
+              <div className="row" style={{ gap: 6 }}>
+                {access.can("invoices") && (
+                  <Button size="sm" variant="ghost" icon={<FileBarChart size={14} />} onClick={() => setStatement(true)}>
+                    Estado de cuenta
+                  </Button>
+                )}
+                {access.canWrite("invoices") && (
+                  <Button size="sm" icon={<FilePlus2 size={14} />} onClick={() => navigate({ page: "invoice-new", customerId: customer.id })}>
+                    Facturar
+                  </Button>
+                )}
+              </div>
             </div>
             {invoices === null ? (
               <SkeletonRows rows={2} />
@@ -298,6 +312,7 @@ function CustomerDrawer({
           </div>
         )}
       </div>
+      {statement && customer && <StatementDialog customerId={customer.id} company={companyName} onClose={() => setStatement(false)} />}
     </Drawer>
   );
 }

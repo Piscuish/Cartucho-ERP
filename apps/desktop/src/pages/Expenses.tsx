@@ -4,9 +4,9 @@ import type { Category, Expense, ExpenseInput, PaymentMethod } from "@cartucho/s
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
 import { useAccess } from "../lib/access";
-import { useAsync, useDebounced } from "../lib/hooks";
+import { useAsync, useDebounced, useShowMore } from "../lib/hooks";
 import { errorMessage, fmtDate, METHOD_LABELS, money, monthStart, todayISO } from "../lib/format";
-import { Alert, Badge, Button, ConfirmDialog, Drawer, EmptyState, Field, IconButton, MoneyInput, PageHeader, SearchBox, Segmented, SkeletonRows, useToast } from "../components/ui";
+import { Alert, Badge, Button, ConfirmDialog, Drawer, EmptyState, Field, IconButton, MoneyInput, PageHeader, SearchBox, Segmented, SkeletonRows, useToast, ShowMore } from "../components/ui";
 import { CategoryManager } from "../components/categories";
 import { Period, PeriodPicker, periodRange } from "./Finance";
 
@@ -20,6 +20,7 @@ export function ExpensesPage(_props: PageProps) {
   const q = useDebounced(search);
   const range = periodRange(period, custom);
   const { data, loading, error, reload } = useAsync(() => api.listExpenses(range.from, range.to, categoryId, q), [range.from, range.to, categoryId, q]);
+  const page = useShowMore(data?.length ?? 0, 100, data);
   const cats = useAsync(() => api.listCategories("expense"), []);
   const [editing, setEditing] = useState<Expense | "new" | null>(null);
   const [deleting, setDeleting] = useState<Expense | null>(null);
@@ -114,7 +115,7 @@ export function ExpensesPage(_props: PageProps) {
                 </tr>
               </thead>
               <tbody>
-                {data?.map((e) => (
+                {data?.slice(0, page.limit).map((e) => (
                   <tr key={e.id}>
                     <td style={{ whiteSpace: "nowrap" }}>{fmtDate(e.expenseDate)}</td>
                     <td>
@@ -141,6 +142,7 @@ export function ExpensesPage(_props: PageProps) {
                 ))}
               </tbody>
             </table>
+            <ShowMore remaining={page.remaining} onMore={page.more} />
           </div>
         )}
       </div>

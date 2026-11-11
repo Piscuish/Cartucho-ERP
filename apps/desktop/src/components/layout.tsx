@@ -102,9 +102,9 @@ export function AppShell({
         </div>
 
         <nav className="sb-nav" aria-label="Menú principal">
-          {navigation.map((group) => (
-            <div className="sb-group" key={group.label}>
-              <div className="sb-group-label">{group.label}</div>
+          {navigation.map((group, gi) => (
+            <div className="sb-group" key={group.label || `g${gi}`}>
+              {group.label && <div className="sb-group-label">{group.label}</div>}
               {group.items.map((item) => {
                 const active = item.matches.includes(route.page);
                 const Icon = item.icon;

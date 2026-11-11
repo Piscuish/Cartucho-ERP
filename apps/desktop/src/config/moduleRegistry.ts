@@ -2,6 +2,7 @@ import type { ModuleKey, NavigationSectionId } from "@cartucho/shared";
 import {
   BarChart3,
   Boxes,
+  Calculator,
   FilePlus2,
   FileSignature,
   FileText,
@@ -18,6 +19,7 @@ export type SettingsTab = "company" | "billing" | "appearance" | "users" | "secu
 /** Ruta interna de la aplicación (navegación sin recargar). */
 export type Route =
   | { page: "dashboard" }
+  | { page: "cash-close" }
   | { page: "invoices"; status?: string }
   | { page: "invoice"; id: number; print?: boolean }
   | { page: "invoice-new"; customerId?: number; fromInvoiceId?: number }
@@ -44,6 +46,7 @@ export interface NavItem {
 export const NAV_MODULE: Partial<Record<NavigationSectionId, ModuleKey>> = {
   invoices: "invoices",
   "invoice-new": "invoices",
+  "cash-close": "invoices",
   quotes: "quotes",
   customers: "customers",
   catalog: "catalog",
@@ -57,6 +60,7 @@ export const NAV_TONE: Partial<Record<NavigationSectionId, string>> = {
   dashboard: "#3b82f6",
   "invoice-new": "#8b5cf6",
   invoices: "#6366f1",
+  "cash-close": "#0ea5e9",
   quotes: "#06b6d4",
   customers: "#14b8a6",
   catalog: "#22c55e",
@@ -70,6 +74,7 @@ export const NAV_TONE: Partial<Record<NavigationSectionId, string>> = {
 export const NAV_DESCRIPTION: Partial<Record<NavigationSectionId, string>> = {
   "invoice-new": "Vende e imprime una factura.",
   invoices: "Historial, abonos y anulaciones.",
+  "cash-close": "Lo cobrado hoy por forma de pago.",
   quotes: "Presupuestos que se vuelven factura.",
   customers: "Directorio, compras y saldos.",
   catalog: "Productos y servicios con precio.",
@@ -86,8 +91,9 @@ export interface NavGroup {
 
 /** Estructura del menú lateral. */
 export const NAVIGATION: NavGroup[] = [
+  // Grupos de un solo elemento sin título: ahorran espacio vertical.
   {
-    label: "General",
+    label: "",
     items: [{ id: "dashboard", label: "Inicio", icon: LayoutDashboard, route: { page: "dashboard" }, matches: ["dashboard"] }],
   },
   {
@@ -96,12 +102,13 @@ export const NAVIGATION: NavGroup[] = [
       { id: "invoice-new", label: "Nueva factura", icon: FilePlus2, route: { page: "invoice-new" }, matches: ["invoice-new"] },
       { id: "invoices", label: "Facturas", icon: FileText, route: { page: "invoices" }, matches: ["invoices", "invoice"] },
       { id: "quotes", label: "Cotizaciones", icon: FileSignature, route: { page: "quotes" }, matches: ["quotes", "quote", "quote-new"] },
-      { id: "customers", label: "Clientes", icon: Users, route: { page: "customers" }, matches: ["customers"] },
+      { id: "cash-close", label: "Cierre de caja", icon: Calculator, route: { page: "cash-close" }, matches: ["cash-close"] },
     ],
   },
   {
-    label: "Productos",
+    label: "Clientes y productos",
     items: [
+      { id: "customers", label: "Clientes", icon: Users, route: { page: "customers" }, matches: ["customers"] },
       { id: "catalog", label: "Catálogo", icon: Package, route: { page: "catalog" }, matches: ["catalog"] },
       { id: "inventory", label: "Inventario", icon: Boxes, route: { page: "inventory" }, matches: ["inventory"] },
     ],
@@ -114,7 +121,7 @@ export const NAVIGATION: NavGroup[] = [
     ],
   },
   {
-    label: "Sistema",
+    label: "",
     items: [{ id: "settings", label: "Configuración", icon: Settings, route: { page: "settings" }, matches: ["settings"] }],
   },
 ];

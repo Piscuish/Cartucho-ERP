@@ -58,8 +58,14 @@ pub struct AppPreferences {
     /// Diseño, fondos y color. Se guarda como JSON en `_app_metadata` con la clave `appearance`.
     #[serde(default)]
     pub appearance: Appearance,
+    /// Minutos sin uso antes de cerrar la sesión (0 = nunca).
+    #[serde(default)]
+    pub auto_lock_minutes: i64,
     pub updated_at: String,
 }
+
+/// Opciones permitidas para el cierre de sesión por inactividad.
+pub const VALID_AUTO_LOCK: &[i64] = &[0, 5, 10, 15, 30, 60];
 
 /// Apariencia visual de la instalación (ver `@cartucho/shared` › Appearance).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1660,6 +1666,26 @@ impl LocalDatabase {
         self.get_preferences()
     }
 
+    /// Minutos de inactividad antes de cerrar la sesión (0 = nunca). Solo administrador.
+    pub fn set_auto_lock(&self, minutes: i64) -> Result<AppPreferences, String> {
+        let user = self.require_authenticated_user()?;
+        if !user.is_admin {
+            return Err("Solo un administrador puede hacer esto.".to_string());
+        }
+        if !VALID_AUTO_LOCK.contains(&minutes) {
+            return Err("Elige 5, 10, 15, 30 o 60 minutos, o «Nunca».".to_string());
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            "INSERT INTO _app_metadata (key, value, updated_at)
+             VALUES ('auto_lock_minutes', ?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![minutes.to_string(), Utc::now().to_rfc3339()],
+        )
+        .map_err(|e| format!("Error guardando el bloqueo por inactividad: {}", e))?;
+        self.get_preferences()
+    }
+
     /// Guarda la apariencia (diseño, fondos, acento) de la instalación.
     pub fn set_appearance(&self, appearance: &Appearance) -> Result<AppPreferences, String> {
         self.require_authenticated_user()?;
@@ -1694,7 +1720,12 @@ impl LocalDatabase {
             .map(|a| a.sanitized())
             .or_else(|| read("visual_style").map(|(v, _)| Appearance::from_legacy_style(&v)))
             .unwrap_or_default();
+        let auto_lock_minutes = read("auto_lock_minutes")
+            .and_then(|(v, _)| v.parse::<i64>().ok())
+            .filter(|m| VALID_AUTO_LOCK.contains(m))
+            .unwrap_or(0);
         Ok(AppPreferences {
+            auto_lock_minutes,
             theme: theme.as_ref().map(|(v, _)| v.clone()).unwrap_or_else(|| "light".to_string()),
             appearance,
             updated_at: theme.map(|(_, u)| u).unwrap_or_else(|| Utc::now().to_rfc3339()),
