@@ -247,7 +247,7 @@ function AppearanceSettings({ overview, setOverview }: PageProps) {
     { id: "system", label: "Según el sistema", light: null },
   ];
   return (
-    <Section title="Tema" desc="El menú lateral siempre es oscuro; el área de trabajo cambia según el tema.">
+    <Section title="Tema" desc="Cambia toda la aplicación, incluido el menú lateral.">
       <div className="theme-options">
         {options.map((o) => (
           <button
@@ -262,7 +262,7 @@ function AppearanceSettings({ overview, setOverview }: PageProps) {
             }}
           >
             <div className="theme-swatch">
-              <div className="s1" style={{ background: o.light === false ? "#0a0d13" : "#161b26" }} />
+              <div className="s1" style={{ background: o.light === null ? "linear-gradient(180deg,#ffffff 50%,#0a0d13 50%)" : o.light ? "#ffffff" : "#0a0d13", borderRight: "1px solid #e4e7ec" }} />
               <div className="s2" style={{ background: o.light === null ? "linear-gradient(90deg,#f4f5f8 50%,#0e1117 50%)" : o.light ? "#f4f5f8" : "#0e1117" }}>
                 <div className="ln" style={{ width: "60%", background: "#8b7ff0" }} />
                 <div className="ln" style={{ width: "80%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
