@@ -32,7 +32,7 @@ build/
 target/
 **/target/
 WixTools/
-gen/schemas/
+**/gen/schemas/
 
 # Local SQLite Databases (must never be committed to the repository)
 *.sqlite
