@@ -19,6 +19,7 @@ Programa de **facturación y gestión para pequeñas empresas**. Funciona sin In
 | **Inventario** | Existencias, compras (opcionalmente registradas como gasto), ajustes por conteo y movimientos. |
 | **Finanzas** | Ventas, dinero recibido, gastos operativos (arriendo, luz, internet, nómina…), compras de inventario, balance de caja, ganancia bruta estimada, gráficos y exportación CSV para Excel. |
 | **Datos** | Exportar copia (por ejemplo, a una USB), crear respaldo, restaurar, mover la carpeta de datos, usar una carpeta traída de otro equipo y respaldo automático diario. |
+| **Usuarios y roles** | Varios usuarios por instalación. El administrador crea roles (Vendedor, Solo consulta o propios) eligiendo por módulo «Ver» o «Ver y editar», solo entre los módulos de la licencia. |
 | **Licencias y módulos** | Activación con clave `CE-XXXX-…` o código sin Internet; cada licencia define módulos (Básico, Tienda, Completo o personalizado) y equipos (1 a 5). Valida cada hora y funciona 30 días sin Internet. Si se desactiva, solo permite ver facturas y el inicio muestra «Contacta a soporte». Servidor y panel en `license-server/` (ver su README). |
 | **Interfaz** | Estilo «lateral oscuro» con acento violeta, tema claro/oscuro, menú colapsable (Ctrl+B) y búsqueda rápida (Ctrl+K). |
 

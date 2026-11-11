@@ -200,6 +200,8 @@ pub enum Gate {
     Write(&'static str),
     /// Activar o validar la licencia.
     License,
+    /// Solo administradores (usuarios, roles, apariencia). La licencia lo trata como Core.
+    Admin,
     /// Exportar una copia de los datos (permitido incluso en modo restringido).
     DataExport,
     /// Restaurar, mover carpeta, respaldos automáticos.
@@ -217,11 +219,11 @@ pub fn check_gate(ent: &Entitlements, gate: Gate) -> Result<(), String> {
             _ => Ok(()),
         },
         LicenseMode::Restricted => match gate {
-            Gate::Core | Gate::License | Gate::DataExport | Gate::Read("invoices") => Ok(()),
+            Gate::Core | Gate::Admin | Gate::License | Gate::DataExport | Gate::Read("invoices") => Ok(()),
             _ => Err(RESTRICTED_MSG.to_string()),
         },
         LicenseMode::Unlicensed => match gate {
-            Gate::Core | Gate::License => Ok(()),
+            Gate::Core | Gate::Admin | Gate::License => Ok(()),
             _ => Err("Activa tu licencia para usar Cartucho ERP.".to_string()),
         },
     }

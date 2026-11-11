@@ -3,12 +3,14 @@ import { Copy, FileCheck2, FileSignature, Printer, XCircle } from "lucide-react"
 import type { BusinessSettings, QuoteDetail, QuoteStatus } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync, useDebounced } from "../lib/hooks";
 import { addDays, fmtDate, money, qty, todayISO } from "../lib/format";
 import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, QuoteStatusBadge, SearchBox, Segmented, SkeletonRows, useToast } from "../components/ui";
 import { PrintDialog, PrintableDoc } from "../components/print";
 
 export function QuotesPage({ navigate }: PageProps) {
+  const canEdit = useAccess().canWrite("quotes");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"" | QuoteStatus>("");
   const q = useDebounced(search);
@@ -21,9 +23,11 @@ export function QuotesPage({ navigate }: PageProps) {
         title="Cotizaciones"
         subtitle="Presupuestos para tus clientes. Conviértelos en factura con un clic."
         actions={
-          <Button variant="primary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
-            Nueva cotización
-          </Button>
+          canEdit ? (
+            <Button variant="primary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
+              Nueva cotización
+            </Button>
+          ) : undefined
         }
       />
       <div className="card">
@@ -53,7 +57,7 @@ export function QuotesPage({ navigate }: PageProps) {
             title={search || status ? "No hay cotizaciones con esos filtros" : "Envía tu primera cotización"}
             text={search || status ? undefined : "Prepara un presupuesto, imprímelo y, cuando el cliente acepte, conviértelo en factura."}
             action={
-              !search && !status ? (
+              !search && !status && canEdit ? (
                 <Button variant="primary" onClick={() => navigate({ page: "quote-new" })}>
                   Nueva cotización
                 </Button>
@@ -121,6 +125,8 @@ function quoteToPrintable(q: QuoteDetail): PrintableDoc {
 
 export function QuoteDetailPage({ id, autoPrint, goBack, navigate, overview }: PageProps & { id: number; autoPrint?: boolean }) {
   const toast = useToast();
+  const access = useAccess();
+  const canEdit = access.canWrite("quotes");
   const { data: q, loading, error, setData } = useAsync(() => api.getQuote(id), [id]);
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [printing, setPrinting] = useState(!!autoPrint);
@@ -158,18 +164,20 @@ export function QuoteDetailPage({ id, autoPrint, goBack, navigate, overview }: P
         subtitle={`${q.customer.name} · ${fmtDate(q.issueDate)}${q.validUntil ? ` · válida hasta ${fmtDate(q.validUntil)}` : ""}`}
         actions={
           <>
-            {q.status === "open" && (
+            {canEdit && q.status === "open" && (
               <Button variant="danger" icon={<XCircle size={16} />} onClick={() => setCancelling(true)}>
                 Cancelar
               </Button>
             )}
-            <Button icon={<Copy size={16} />} onClick={() => navigate({ page: "quote-new", fromQuoteId: q.id })}>
-              Duplicar
-            </Button>
+            {canEdit && (
+              <Button icon={<Copy size={16} />} onClick={() => navigate({ page: "quote-new", fromQuoteId: q.id })}>
+                Duplicar
+              </Button>
+            )}
             <Button icon={<Printer size={16} />} onClick={() => setPrinting(true)} disabled={!settings}>
               Imprimir
             </Button>
-            {q.status === "open" && (
+            {canEdit && access.canWrite("invoices") && q.status === "open" && (
               <Button variant="primary" icon={<FileCheck2 size={16} />} onClick={() => setConverting(true)}>
                 Convertir en factura
               </Button>

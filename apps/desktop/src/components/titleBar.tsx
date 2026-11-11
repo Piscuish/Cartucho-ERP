@@ -129,8 +129,17 @@ export function WindowFrame({ children }: { children: ReactNode }) {
     <TitleContext.Provider value={set}>
       <div className="window-frame">
         <TitleBar {...frame} />
-        <div className="window-content">{children}</div>
+        <div className="window-content">
+          {children}
+          {/* Paneles y diálogos: dentro del área de contenido, debajo de la barra de título. */}
+          <div id="portal-root" />
+        </div>
       </div>
     </TitleContext.Provider>
   );
+}
+
+/** Dónde montar paneles, diálogos y la búsqueda rápida. */
+export function portalTarget(): HTMLElement {
+  return document.getElementById("portal-root") ?? document.body;
 }

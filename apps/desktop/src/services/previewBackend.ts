@@ -19,6 +19,8 @@ import type {
   InvoiceDetail,
   InvoiceSummary,
   Appearance,
+  Role,
+  UserAccount,
   LicenseMode,
   LicenseStatus,
   ModuleKey,
@@ -38,6 +40,8 @@ interface Store {
   firstInitializedAt: string;
   theme: string;
   appearance?: Appearance;
+  roles?: PreviewRole[];
+  users?: PreviewUser[];
   company: CompanyProfile | null;
   admin: { id: number; fullName: string; username: string; passwordSha256: string; createdAt: string; lastLoginAt: string | null } | null;
   seq: Record<string, number>;
@@ -133,6 +137,91 @@ function save() {
   }
 }
 
+// ------------------------------------------------------------------ Usuarios y roles (vista previa)
+
+interface PreviewRole {
+  id: number;
+  key: string;
+  name: string;
+  description: string | null;
+  isSystem: boolean;
+  permissions: Record<string, "read" | "write">;
+}
+interface PreviewUser {
+  id: number;
+  fullName: string;
+  username: string;
+  roleKey: string;
+  passwordSha256: string;
+  isActive: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+const DEFAULT_ROLES: PreviewRole[] = [
+  { id: 1, key: "admin", name: "Administrador", description: "Acceso total: usuarios, roles, empresa, licencia y respaldos.", isSystem: true, permissions: {} },
+  {
+    id: 2,
+    key: "vendedor",
+    name: "Vendedor",
+    description: "Factura, cotiza y atiende clientes. Consulta productos e inventario.",
+    isSystem: false,
+    permissions: { invoices: "write", quotes: "write", customers: "write", catalog: "read", inventory: "read" },
+  },
+  {
+    id: 3,
+    key: "consulta",
+    name: "Solo consulta",
+    description: "Ve facturas, clientes y productos sin modificarlos.",
+    isSystem: false,
+    permissions: { invoices: "read", quotes: "read", customers: "read", catalog: "read", inventory: "read" },
+  },
+];
+
+const roles = () => (db.roles ??= DEFAULT_ROLES.map((r) => ({ ...r, permissions: { ...r.permissions } })));
+const users = () => (db.users ??= []);
+
+let sessionUserId = (() => {
+  try {
+    return Number(sessionStorage.getItem(SESSION_KEY + "_uid") ?? "1") || 1;
+  } catch {
+    return 1;
+  }
+})();
+function setSessionUser(id: number) {
+  sessionUserId = id;
+  try {
+    sessionStorage.setItem(SESSION_KEY + "_uid", String(id));
+  } catch {
+    /* ignorar */
+  }
+}
+
+/** Usuario de la sesión: el administrador inicial (id 1) o uno creado desde Usuarios. */
+function sessionUser() {
+  if (!sessionActive || !db.admin) return null;
+  if (sessionUserId === db.admin.id) {
+    return { id: db.admin.id, fullName: db.admin.fullName, username: db.admin.username, roleKey: "admin", createdAt: db.admin.createdAt, lastLoginAt: db.admin.lastLoginAt };
+  }
+  const u = users().find((x) => x.id === sessionUserId && x.isActive);
+  return u ?? null;
+}
+
+function requireAdmin() {
+  requireAuth();
+  if (sessionUser()?.roleKey !== "admin") fail("Solo un administrador puede hacer esto.");
+}
+
+function roleView(r: PreviewRole): Role {
+  const count = users().filter((u) => u.roleKey === r.key).length + (r.key === "admin" ? 1 : 0);
+  return { ...r, permissions: r.key === "admin" ? {} : (r.permissions as Role["permissions"]), userCount: count };
+}
+
+function accountView(u: PreviewUser): UserAccount {
+  const r = roles().find((x) => x.key === u.roleKey);
+  return { id: u.id, username: u.username, fullName: u.fullName, roleKey: u.roleKey, roleName: r?.name ?? u.roleKey, isActive: u.isActive, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+}
+
 function setSession(v: boolean) {
   sessionActive = v;
   try {
@@ -163,7 +252,7 @@ const like = (v: string | null | undefined, q: string) => (v ?? "").toLowerCase(
 const opt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 function overview(): SystemOverview {
-  const authed = sessionActive && !!db.admin;
+  const authed = sessionActive && !!db.admin && !!sessionUser();
   return {
     appName: "Cartucho ERP",
     appVersion: "0.2.0",
@@ -197,18 +286,23 @@ function overview(): SystemOverview {
     license: licenseStatus(),
     hasAdminUser: !!db.admin,
     isAuthenticated: authed,
-    currentUser:
-      authed && db.admin
-        ? {
-            id: db.admin.id,
-            fullName: db.admin.fullName,
-            username: db.admin.username,
-            role: "admin",
-            permissions: ["*"],
-            createdAt: db.admin.createdAt,
-            lastLoginAt: db.admin.lastLoginAt,
-          }
-        : null,
+    currentUser: (() => {
+      const u = authed ? sessionUser() : null;
+      if (!u) return null;
+      const r = roles().find((x) => x.key === u.roleKey);
+      const isAdmin = u.roleKey === "admin";
+      return {
+        id: u.id,
+        fullName: u.fullName,
+        username: u.username,
+        role: u.roleKey,
+        roleName: r?.name ?? u.roleKey,
+        isAdmin,
+        permissions: isAdmin ? ["*"] : Object.entries(r?.permissions ?? {}).map(([m, l]) => `${m}:${l}`),
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt,
+      };
+    })(),
   };
 }
 
@@ -291,7 +385,7 @@ function licenseStatus(): LicenseStatus {
 
 /** Comandos permitidos en modo restringido (como en Rust). */
 const RESTRICTED_ALLOWED = new Set([
-  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_appearance",
+  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_appearance", "list_roles", "save_role", "delete_role", "list_users", "save_user",
   "list_invoices", "get_invoice", "list_payments", "get_dashboard", "global_search",
   "get_business_settings", "get_data_location", "export_backup", "create_manual_backup",
   "get_license_status", "activate_license_online", "activate_license_offline", "check_license_now",
@@ -565,10 +659,17 @@ const handlers: Record<string, Handler> = {
   },
   login_user: async ({ input }) => {
     const i = input as { username: string; password: string };
-    if (!db.admin || db.admin.username.toLowerCase() !== i.username.trim().toLowerCase() || db.admin.passwordSha256 !== (await sha256(i.password))) {
-      fail("Credenciales incorrectas. Verifica tu usuario y contraseña.");
+    const name = i.username.trim().toLowerCase();
+    const hash = await sha256(i.password);
+    if (db.admin && db.admin.username.toLowerCase() === name && db.admin.passwordSha256 === hash) {
+      db.admin.lastLoginAt = now();
+      setSessionUser(db.admin.id);
+    } else {
+      const u = users().find((x) => x.username.toLowerCase() === name && x.isActive && x.passwordSha256 === hash);
+      if (!u) fail("Credenciales incorrectas. Verifica tu usuario y contraseña.");
+      u.lastLoginAt = now();
+      setSessionUser(u.id);
     }
-    db.admin.lastLoginAt = now();
     setSession(true);
     save();
     return overview();
@@ -580,15 +681,102 @@ const handlers: Record<string, Handler> = {
   change_user_password: async ({ input }) => {
     requireAuth();
     const i = input as { currentPassword: string; newPassword: string; newPasswordConfirm: string };
-    if (db.admin!.passwordSha256 !== (await sha256(i.currentPassword))) fail("La contraseña actual introducida es incorrecta.");
+    const target = sessionUserId === db.admin!.id ? db.admin! : users().find((u) => u.id === sessionUserId)!;
+    if (target.passwordSha256 !== (await sha256(i.currentPassword))) fail("La contraseña actual introducida es incorrecta.");
     if (i.newPassword.length < 8) fail("La nueva contraseña debe tener al menos 8 caracteres.");
     if (i.newPassword !== i.newPasswordConfirm) fail("La confirmación de la nueva contraseña no coincide.");
-    db.admin!.passwordSha256 = await sha256(i.newPassword);
+    target.passwordSha256 = await sha256(i.newPassword);
     save();
     return overview();
   },
+  list_roles: () => {
+    requireAdmin();
+    return [...roles()].sort((a, b) => Number(b.isSystem) - Number(a.isSystem) || a.name.localeCompare(b.name)).map(roleView);
+  },
+  save_role: ({ input }) => {
+    requireAdmin();
+    const i = input as { id: number | null; name: string; description: string | null; permissions: Record<string, string> };
+    const name = String(i.name ?? "").trim();
+    if (!name) fail("El nombre del rol es obligatorio (máximo 40 caracteres).");
+    if (roles().some((r) => r.name.toLowerCase() === name.toLowerCase() && r.id !== i.id)) fail(`Ya existe un rol llamado «${name}».`);
+    const licensed = new Set(licenseStatus().modules);
+    const perms: Record<string, "read" | "write"> = {};
+    for (const [m, l] of Object.entries(i.permissions ?? {})) {
+      if (l !== "read" && l !== "write") continue;
+      if (!licensed.has(m as ModuleKey)) fail(`El módulo «${m}» no está incluido en tu licencia.`);
+      perms[m] = l;
+    }
+    let r = i.id ? roles().find((x) => x.id === i.id) : undefined;
+    if (r) {
+      r.name = name;
+      r.description = i.description?.trim() || null;
+      if (!r.isSystem) r.permissions = perms;
+    } else {
+      const id = Math.max(0, ...roles().map((x) => x.id)) + 1;
+      r = { id, key: `rol_${id}`, name, description: i.description?.trim() || null, isSystem: false, permissions: perms };
+      roles().push(r);
+    }
+    save();
+    return roleView(r);
+  },
+  delete_role: ({ id }) => {
+    requireAdmin();
+    const r = roles().find((x) => x.id === id);
+    if (!r) fail("El rol no existe.");
+    if (r.isSystem) fail("El rol Administrador no se puede eliminar.");
+    const n = users().filter((u) => u.roleKey === r.key).length;
+    if (n) fail(`Hay ${n} ${n === 1 ? "usuario" : "usuarios"} con este rol. Asígnales otro rol antes de eliminarlo.`);
+    db.roles = roles().filter((x) => x.id !== id);
+    save();
+    return null;
+  },
+  list_users: () => {
+    requireAdmin();
+    const admin: UserAccount = {
+      id: db.admin!.id,
+      username: db.admin!.username,
+      fullName: db.admin!.fullName,
+      roleKey: "admin",
+      roleName: roles().find((r) => r.key === "admin")?.name ?? "Administrador",
+      isActive: true,
+      createdAt: db.admin!.createdAt,
+      lastLoginAt: db.admin!.lastLoginAt,
+    };
+    return [admin, ...users().map(accountView)];
+  },
+  save_user: async ({ input }) => {
+    requireAdmin();
+    const i = input as { id: number | null; fullName: string; username: string; roleKey: string; password: string | null; isActive: boolean };
+    const fullName = String(i.fullName ?? "").trim();
+    const username = String(i.username ?? "").trim();
+    if (!fullName) fail("El nombre es obligatorio (máximo 120 caracteres).");
+    if (!/^[A-Za-z0-9._-]{3,40}$/.test(username)) fail("El nombre de usuario debe tener entre 3 y 40 caracteres, sin espacios ni tildes.");
+    if (!roles().some((r) => r.key === i.roleKey)) fail("Elige un rol válido.");
+    const taken = username.toLowerCase() === db.admin!.username.toLowerCase() ? db.admin!.id : users().find((u) => u.username.toLowerCase() === username.toLowerCase())?.id;
+    if (taken !== undefined && taken !== i.id) fail(`El usuario «${username}» ya existe.`);
+    if (i.password && i.password.length < 8) fail("La contraseña debe tener al menos 8 caracteres.");
+    if (i.id === db.admin!.id) {
+      if (i.roleKey !== "admin" || !i.isActive) fail("No puedes quitarte el rol de administrador ni desactivar tu propia cuenta.");
+      db.admin!.fullName = fullName;
+      db.admin!.username = username;
+      if (i.password) db.admin!.passwordSha256 = await sha256(i.password);
+      save();
+      return (handlers.list_users({}) as UserAccount[])[0];
+    }
+    let u = i.id ? users().find((x) => x.id === i.id) : undefined;
+    if (u) {
+      Object.assign(u, { fullName, username, roleKey: i.roleKey, isActive: !!i.isActive });
+      if (i.password) u.passwordSha256 = await sha256(i.password);
+    } else {
+      if (!i.password) fail("Escribe una contraseña para el nuevo usuario.");
+      u = { id: Math.max(1, ...users().map((x) => x.id)) + 1, fullName, username, roleKey: i.roleKey, passwordSha256: await sha256(i.password), isActive: !!i.isActive, createdAt: now(), lastLoginAt: null };
+      users().push(u);
+    }
+    save();
+    return accountView(u);
+  },
   set_appearance: ({ appearance, theme }) => {
-    requireAuth();
+    requireAdmin();
     const a = appearance as Appearance;
     const ok =
       LAYOUTS.some((x) => x.id === a?.layout) &&

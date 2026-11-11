@@ -1,6 +1,7 @@
 /**
  * Estructura principal: menú lateral colapsable, barra superior y búsqueda rápida (Ctrl+K).
  */
+import { portalTarget } from "./titleBar";
 import { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -136,7 +137,7 @@ export function AppShell({
             <div className="sb-avatar">{initials(user.fullName)}</div>
             <div className="sb-user-text">
               <div className="sb-user-name">{user.fullName}</div>
-              <div className="sb-user-role">Administrador</div>
+              <div className="sb-user-role">{user.roleName || (user.role === "admin" ? "Administrador" : user.role)}</div>
             </div>
             {!railOnly && (
               <button className="sb-icon-btn sb-hide-collapsed" onClick={() => setCollapsed(true)} title="Contraer menú (Ctrl+B)" aria-label="Contraer menú">
@@ -350,6 +351,6 @@ function CommandPalette({ onClose, navigate }: { onClose: () => void; navigate: 
         </div>
       </div>
     </>,
-    document.body,
+    portalTarget(),
   );
 }

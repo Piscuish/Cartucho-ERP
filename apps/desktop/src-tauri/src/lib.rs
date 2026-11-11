@@ -1,5 +1,6 @@
 pub mod data_admin;
 pub mod db;
+pub mod users;
 pub mod erp;
 pub mod licensing;
 
@@ -94,6 +95,10 @@ impl AppState {
         let ent = self.entitlements();
         check_gate(&ent, gate)?;
         self.with_db(|db| {
+            // Además de la licencia, el rol del usuario de la sesión debe permitirlo.
+            if let Some(access) = db.current_access()? {
+                role_gate(&access, gate)?;
+            }
             db.features = erp::Features {
                 customers: ent.has("customers"),
                 catalog: ent.has("catalog"),
@@ -102,6 +107,20 @@ impl AppState {
             };
             f(db)
         })
+    }
+
+    /// ¿El usuario de la sesión puede ver este módulo (licencia y rol)?
+    pub fn can_read_module(&self, ent: &Entitlements, module: &'static str) -> bool {
+        check_gate(ent, Gate::Read(module)).is_ok()
+            && self
+                .with_db(|db| Ok(db.current_access()?.map_or(true, |a| a.can_read(module))))
+                .unwrap_or(false)
+    }
+
+    /// Módulos que un administrador puede repartir en los roles: los de la licencia.
+    pub fn licensed_modules(&self) -> std::collections::BTreeSet<String> {
+        let ent = self.entitlements();
+        licensing::ALL_MODULES.iter().filter(|m| ent.has(m)).map(|m| m.to_string()).collect()
     }
 
     /// Vuelve a la carpeta de datos predeterminada y reintenta abrir la base.
@@ -122,6 +141,23 @@ impl AppState {
             *e = None;
         }
         Ok(())
+    }
+}
+
+/// Qué permite el rol para cada tipo de comando.
+pub fn role_gate(access: &users::UserAccess, gate: Gate) -> Result<(), String> {
+    let ok = match gate {
+        Gate::Core => true,
+        Gate::Read(m) => access.can_read(m),
+        Gate::Write(m) => access.can_write(m),
+        Gate::CoreWrite | Gate::Admin | Gate::License | Gate::DataExport | Gate::DataAdmin => access.is_admin,
+    };
+    if ok {
+        Ok(())
+    } else if matches!(gate, Gate::Read(_) | Gate::Write(_)) {
+        Err("Tu rol no tiene permiso para esta acción. Pídele acceso al administrador.".to_string())
+    } else {
+        Err("Solo un administrador puede hacer esto.".to_string())
     }
 }
 
@@ -271,7 +307,7 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn set_theme_preference(theme: String, state: S<'_>) -> Result<SystemOverview, String> {
-        overview_gated(&state, Gate::Core, |db| {
+        overview_gated(&state, Gate::Admin, |db| {
             db.set_theme_preference(&theme)?;
             db.build_system_overview()
         })
@@ -283,7 +319,7 @@ mod tauri_commands {
         theme: Option<String>,
         state: S<'_>,
     ) -> Result<SystemOverview, String> {
-        overview_gated(&state, Gate::Core, |db| {
+        overview_gated(&state, Gate::Admin, |db| {
             db.set_appearance(&appearance)?;
             if let Some(t) = theme.as_deref() {
                 db.set_theme_preference(t)?;
@@ -301,6 +337,34 @@ mod tauri_commands {
             db.save_company_profile(&input)?;
             db.build_system_overview()
         })
+    }
+
+    // ------------------------------------------------------------ Usuarios y roles (solo administrador)
+
+    #[tauri::command]
+    pub fn list_roles(state: S<'_>) -> Result<Vec<users::Role>, String> {
+        state.gated(Gate::Admin, |db| db.list_roles())
+    }
+
+    #[tauri::command]
+    pub fn save_role(input: users::RoleInput, state: S<'_>) -> Result<users::Role, String> {
+        let allowed = state.licensed_modules();
+        state.gated(Gate::Admin, |db| db.save_role(&input, &allowed))
+    }
+
+    #[tauri::command]
+    pub fn delete_role(id: i64, state: S<'_>) -> Result<(), String> {
+        state.gated(Gate::Admin, |db| db.delete_role(id))
+    }
+
+    #[tauri::command]
+    pub fn list_users(state: S<'_>) -> Result<Vec<users::UserAccount>, String> {
+        state.gated(Gate::Admin, |db| db.list_users())
+    }
+
+    #[tauri::command]
+    pub fn save_user(input: users::UserInput, state: S<'_>) -> Result<users::UserAccount, String> {
+        state.gated(Gate::Admin, |db| db.save_user(&input))
     }
 
     // ------------------------------------------------------------ Clientes
@@ -496,7 +560,7 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn get_dashboard(today: String, state: S<'_>) -> Result<DashboardData, String> {
-        state.gated(Gate::Core, |db| db.dashboard(&today))
+        state.gated(Gate::Read("invoices"), |db| db.dashboard(&today))
     }
 
     #[tauri::command]
@@ -512,7 +576,7 @@ mod tauri_commands {
                     "customer" => "customers",
                     _ => "catalog",
                 };
-                licensing::check_gate(&ent, Gate::Read(module)).is_ok()
+                state.can_read_module(&ent, module)
             })
             .collect())
     }
@@ -635,6 +699,11 @@ mod tauri_commands {
                 record_persistence_check,
                 set_theme_preference,
                 set_appearance,
+                list_roles,
+                save_role,
+                delete_role,
+                list_users,
+                save_user,
                 save_company_profile,
                 list_customers,
                 save_customer,
@@ -682,3 +751,26 @@ mod tauri_commands {
 
 #[cfg(feature = "desktop-tauri")]
 pub use tauri_commands::run_tauri_app;
+
+#[cfg(test)]
+mod role_gate_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn role_gate_matches_permissions() {
+        let admin = users::UserAccess { is_admin: true, modules: BTreeMap::new() };
+        for g in [Gate::Core, Gate::CoreWrite, Gate::Admin, Gate::DataAdmin, Gate::Write("finance")] {
+            assert!(role_gate(&admin, g).is_ok());
+        }
+        let seller = users::UserAccess::from_role("vendedor", Some(r#"{"invoices":"write","catalog":"read"}"#));
+        assert!(role_gate(&seller, Gate::Core).is_ok());
+        assert!(role_gate(&seller, Gate::Write("invoices")).is_ok());
+        assert!(role_gate(&seller, Gate::Read("catalog")).is_ok());
+        assert!(role_gate(&seller, Gate::Write("catalog")).is_err());
+        assert!(role_gate(&seller, Gate::Read("finance")).is_err());
+        for g in [Gate::CoreWrite, Gate::Admin, Gate::DataExport, Gate::DataAdmin, Gate::License] {
+            assert!(role_gate(&seller, g).unwrap_err().contains("administrador"));
+        }
+    }
+}

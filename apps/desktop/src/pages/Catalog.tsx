@@ -20,6 +20,7 @@ export function stockBadge(p: Product) {
 
 export function CatalogPage({ openId }: PageProps & { openId?: number }) {
   const withStock = useAccess().can("inventory");
+  const canEdit = useAccess().canWrite("catalog");
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
@@ -70,17 +71,21 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
         subtitle="Productos y servicios que vendes, con su foto, precio y descripción."
         actions={
           <>
-            <Button icon={<Tags size={16} />} onClick={() => setManagingCats(true)}>
-              Categorías
-            </Button>
+            {canEdit && (
+              <Button icon={<Tags size={16} />} onClick={() => setManagingCats(true)}>
+                Categorías
+              </Button>
+            )}
             {isDesktop() && (
               <Button icon={<Download size={16} />} onClick={exportCsv}>
                 Exportar
               </Button>
             )}
-            <Button variant="primary" icon={<PackagePlus size={16} />} onClick={() => setEditing("new")}>
-              Nuevo producto
-            </Button>
+            {canEdit && (
+              <Button variant="primary" icon={<PackagePlus size={16} />} onClick={() => setEditing("new")}>
+                Nuevo producto
+              </Button>
+            )}
           </>
         }
       />
@@ -123,7 +128,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
             title={search || categoryId ? "No hay productos con esos filtros" : "Agrega tu primer producto"}
             text={search || categoryId ? undefined : "Incluye nombre, precio, una foto de referencia y su descripción. También puedes registrar servicios."}
             action={
-              !search && !categoryId ? (
+              !search && !categoryId && canEdit ? (
                 <Button variant="primary" onClick={() => setEditing("new")}>
                   Nuevo producto
                 </Button>
@@ -235,6 +240,7 @@ function ProductDrawer({
   onSaved: (p: Product, msg: string) => void;
   onManageCategories: () => void;
 }) {
+  const canEditProduct = useAccess().canWrite("catalog");
   const withStock = useAccess().can("inventory");
   const [form, setForm] = useState<ProductInput>({
     id: product?.id ?? null,
@@ -294,6 +300,7 @@ function ProductDrawer({
   return (
     <Drawer
       wide
+      readOnly={!canEditProduct}
       title={product ? product.name : "Nuevo producto"}
       subtitle={product ? (product.trackStock ? `Existencias: ${qty(product.stockQty)} ${product.unit}` : "Servicio (sin inventario)") : "Producto o servicio de tu catálogo"}
       onClose={onClose}

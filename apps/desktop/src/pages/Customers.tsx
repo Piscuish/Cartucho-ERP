@@ -3,11 +3,13 @@ import { Archive, ArchiveRestore, Download, FilePlus2, UserPlus, Users } from "l
 import type { Customer, CustomerInput, InvoiceSummary } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync, useDebounced } from "../lib/hooks";
 import { errorMessage, fmtDate, initials, isOverdue, money, todayISO } from "../lib/format";
 import { Alert, Badge, Button, Drawer, EmptyState, Field, InvoiceStatusBadge, PageHeader, SearchBox, SkeletonRows, Switch, useToast } from "../components/ui";
 
 export function CustomersPage({ navigate, openId }: PageProps & { openId?: number }) {
+  const canEdit = useAccess().canWrite("customers");
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -45,9 +47,11 @@ export function CustomersPage({ navigate, openId }: PageProps & { openId?: numbe
                 Exportar
               </Button>
             )}
-            <Button variant="primary" icon={<UserPlus size={16} />} onClick={() => setEditing("new")}>
-              Nuevo cliente
-            </Button>
+            {canEdit && (
+              <Button variant="primary" icon={<UserPlus size={16} />} onClick={() => setEditing("new")}>
+                Nuevo cliente
+              </Button>
+            )}
           </>
         }
       />
@@ -71,7 +75,7 @@ export function CustomersPage({ navigate, openId }: PageProps & { openId?: numbe
             title={search ? "Ningún cliente coincide" : "Agrega tu primer cliente"}
             text={search ? "Prueba con otro nombre o documento." : "Guarda sus datos una vez y úsalos en todas tus facturas y cotizaciones."}
             action={
-              !search ? (
+              !search && canEdit ? (
                 <Button variant="primary" onClick={() => setEditing("new")}>
                   Nuevo cliente
                 </Button>
@@ -148,6 +152,7 @@ function CustomerDrawer({
   onSaved: (c: Customer, msg: string) => void;
   navigate: PageProps["navigate"];
 }) {
+  const access = useAccess();
   const [form, setForm] = useState<CustomerInput>({
     id: customer?.id ?? null,
     name: customer?.name ?? "",
@@ -196,6 +201,7 @@ function CustomerDrawer({
 
   return (
     <Drawer
+      readOnly={!access.canWrite("customers")}
       title={customer ? customer.name : "Nuevo cliente"}
       subtitle={customer ? `Cliente desde ${fmtDate(customer.createdAt.slice(0, 10))}` : "Los campos opcionales se pueden completar después."}
       onClose={onClose}
@@ -265,9 +271,11 @@ function CustomerDrawer({
           <div>
             <div className="row-between mb-16">
               <div className="card-title">Últimas facturas</div>
-              <Button size="sm" icon={<FilePlus2 size={14} />} onClick={() => navigate({ page: "invoice-new", customerId: customer.id })}>
-                Facturar a este cliente
-              </Button>
+              {access.canWrite("invoices") && (
+                <Button size="sm" icon={<FilePlus2 size={14} />} onClick={() => navigate({ page: "invoice-new", customerId: customer.id })}>
+                  Facturar a este cliente
+                </Button>
+              )}
             </div>
             {invoices === null ? (
               <SkeletonRows rows={2} />

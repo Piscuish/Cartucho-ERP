@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowDownToLine, Boxes, ClipboardCheck, Coins, Package, 
 import type { InventoryMovement, MovementKind, PaymentMethod, Product } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync, useDebounced } from "../lib/hooks";
 import { errorMessage, fmtDateTime, METHOD_LABELS, money, parseQty, qty, todayISO } from "../lib/format";
 import { Alert, Badge, Button, Drawer, EmptyState, Field, MoneyInput, PageHeader, SearchBox, Segmented, SkeletonRows, StatCard, Switch, useToast } from "../components/ui";
@@ -17,6 +18,7 @@ const MOVEMENT_LABEL: Record<MovementKind, { label: string; tone: string }> = {
 };
 
 export function InventoryPage({ navigate }: PageProps) {
+  const canEdit = useAccess().canWrite("inventory");
   const toast = useToast();
   const [tab, setTab] = useState<"stock" | "movements">("stock");
   const [search, setSearch] = useState("");
@@ -117,14 +119,14 @@ export function InventoryPage({ navigate }: PageProps) {
                         <td className="t-right money">{money(p.cost)}</td>
                         <td className="t-right money">{money(Math.round(Math.max(0, p.stockQty) * p.cost))}</td>
                         <td className="t-right">
-                          <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>
+                          {canEdit && <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>
                             <Button size="sm" icon={<ArrowDownToLine size={14} />} onClick={() => setAdjusting({ product: p, mode: "purchase" })}>
                               Compra
                             </Button>
                             <Button size="sm" variant="ghost" icon={<ClipboardCheck size={14} />} onClick={() => setAdjusting({ product: p, mode: "adjustment" })}>
                               Ajustar
                             </Button>
-                          </div>
+                          </div>}
                         </td>
                       </tr>
                     ))}

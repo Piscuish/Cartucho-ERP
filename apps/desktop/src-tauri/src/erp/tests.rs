@@ -73,7 +73,7 @@ fn migration_v4_seeds_categories_and_sequences() {
     let s = db.get_business_settings().unwrap();
     assert_eq!(s.invoice_prefix, "FAC-");
     assert_eq!(s.invoice_next_number, 1);
-    assert_eq!(crate::db::target_schema_version(), 4);
+    assert!(crate::db::target_schema_version() >= 4);
 }
 
 #[test]
@@ -547,7 +547,8 @@ fn upgrade_from_v3_preserves_data_and_creates_backup() {
              DROP TABLE expenses; DROP TABLE quote_lines; DROP TABLE quotes; DROP TABLE payments;
              DROP TABLE invoice_lines; DROP TABLE invoices; DROP TABLE document_sequences;
              DROP TABLE inventory_movements; DROP TABLE products; DROP TABLE customers; DROP TABLE categories;
-             DELETE FROM _schema_migrations WHERE version = 4;",
+             DROP TABLE IF EXISTS roles;
+             DELETE FROM _schema_migrations WHERE version >= 4;",
         )
         .unwrap();
     }
@@ -557,11 +558,11 @@ fn upgrade_from_v3_preserves_data_and_creates_backup() {
         db.get_company_profile().unwrap().unwrap().trade_name,
         "Antigua"
     );
-    assert_eq!(db.status_report().unwrap().schema_version, 4);
+    assert_eq!(db.status_report().unwrap().schema_version, crate::db::target_schema_version());
     let backups = db.list_backups().unwrap();
     assert!(backups
         .iter()
-        .any(|b| b.kind == "pre_migration" && b.file_name.contains("v3_to_v4")));
+        .any(|b| b.kind == "pre_migration" && b.file_name.contains("v3_to_v")));
     assert!(!db.list_categories("expense").unwrap().is_empty());
 }
 

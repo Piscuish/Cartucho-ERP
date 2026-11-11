@@ -1,6 +1,7 @@
 /**
  * Componentes de interfaz reutilizables del estilo "Lateral oscuro".
  */
+import { portalTarget } from "./titleBar";
 import {
   createContext,
   ReactNode,
@@ -339,6 +340,7 @@ export function Drawer({
   children,
   footer,
   wide,
+  readOnly,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -346,6 +348,8 @@ export function Drawer({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** Sin permiso de edición: campos deshabilitados y solo el botón «Cerrar». */
+  readOnly?: boolean;
 }) {
   useEscape(onClose);
   return createPortal(
@@ -361,11 +365,28 @@ export function Drawer({
             <X size={18} />
           </IconButton>
         </div>
-        <div className="drawer-body">{children}</div>
-        {footer && <div className="drawer-footer">{footer}</div>}
+        <div className="drawer-body">
+          {readOnly ? (
+            <fieldset className="readonly-fieldset" disabled>
+              <div className="readonly-note">Solo lectura: tu rol no permite modificar esto.</div>
+              {children}
+            </fieldset>
+          ) : (
+            children
+          )}
+        </div>
+        {readOnly ? (
+          <div className="drawer-footer">
+            <Button variant="ghost" onClick={onClose}>
+              Cerrar
+            </Button>
+          </div>
+        ) : (
+          footer && <div className="drawer-footer">{footer}</div>
+        )}
       </aside>
     </>,
-    document.body,
+    portalTarget(),
   );
 }
 
@@ -379,7 +400,7 @@ export function Modal({ onClose, children, footer, large }: { onClose: () => voi
         {footer && <div className="modal-footer">{footer}</div>}
       </div>
     </div>,
-    document.body,
+    portalTarget(),
   );
 }
 
@@ -483,7 +504,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             </div>
           ))}
         </div>,
-        document.body,
+        portalTarget(),
       )}
     </ToastCtx.Provider>
   );
