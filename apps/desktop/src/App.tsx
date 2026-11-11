@@ -7,6 +7,7 @@ import type { CompleteInitialSetupInput, ResolvedTheme, SystemOverview, ThemePre
 import { api, onLicenseChanged } from "./services/systemClient";
 import { AccessProvider, buildAccess } from "./lib/access";
 import { ActivationScreen } from "./components/license";
+import { useWindowTitle, WindowFrame } from "./components/titleBar";
 import { errorMessage } from "./lib/format";
 import { AppShell } from "./components/layout";
 import { LoginScreen, SetupWizard, StartupErrorScreen } from "./components/onboarding";
@@ -32,9 +33,11 @@ function useResolvedTheme(pref: ThemePreference | undefined): ResolvedTheme {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AppInner />
-    </ToastProvider>
+    <WindowFrame>
+      <ToastProvider>
+        <AppInner />
+      </ToastProvider>
+    </WindowFrame>
   );
 }
 
@@ -46,6 +49,7 @@ function AppInner() {
   const [, setHistory] = useState<Route[]>([]);
   const [lowStockCount, setLowStockCount] = useState(0);
   const theme = useResolvedTheme(overview?.preferences.theme);
+  useWindowTitle(overview?.company?.tradeName || "Cartucho ERP", overview?.company?.logoDataUrl ?? null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

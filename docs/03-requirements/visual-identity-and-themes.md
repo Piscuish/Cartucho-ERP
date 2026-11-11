@@ -42,3 +42,12 @@ Diseño en tarjetas y con poco texto: Cliente, Productos y servicios, y «Notas 
 ## 5. Documentos impresos
 
 Siempre en colores claros, con logotipo opcional. Plantilla completa para Carta, Media carta y A4; plantilla compacta monoespaciada para tirillas de 80 mm y 58 mm (el alto se ajusta al contenido). Todos indican que son documentos internos, no factura electrónica.
+
+## Barra de título propia (noviembre 2026)
+
+- La ventana se crea sin la barra del sistema (`decorations: false`); `components/titleBar.tsx` dibuja una propia
+  de 36 px con el logo y el nombre de la empresa, y los botones minimizar, maximizar/restaurar y cerrar (rojo al pasar el mouse).
+- Usa los colores del menú lateral (`--sb-*`), así que sigue al tema claro u oscuro y se une visualmente con el menú.
+- Arrastrar la barra mueve la ventana; doble clic maximiza o restaura; los bordes siguen cambiando el tamaño.
+- Al perder el foco, el título y los botones se atenúan, como en Windows 11.
+- Los modales y paneles quedan debajo de la barra (`.window-content` con `contain: layout paint`), así siempre se puede cerrar o minimizar.

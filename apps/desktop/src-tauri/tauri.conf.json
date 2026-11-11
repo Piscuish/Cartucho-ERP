@@ -18,7 +18,11 @@
         "minWidth": 1024,
         "minHeight": 640,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "label": "main",
+        "decorations": false,
+        "shadow": true,
+        "center": true
       }
     ],
     "security": {
