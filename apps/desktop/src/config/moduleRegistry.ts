@@ -52,6 +52,33 @@ export const NAV_MODULE: Partial<Record<NavigationSectionId, ModuleKey>> = {
   expenses: "expenses",
 };
 
+/** Color de cada sección (lo usan los diseños con íconos de colores). */
+export const NAV_TONE: Partial<Record<NavigationSectionId, string>> = {
+  dashboard: "#3b82f6",
+  "invoice-new": "#8b5cf6",
+  invoices: "#6366f1",
+  quotes: "#06b6d4",
+  customers: "#14b8a6",
+  catalog: "#22c55e",
+  inventory: "#f59e0b",
+  finance: "#ec4899",
+  expenses: "#ef4444",
+  settings: "#94a3b8",
+};
+
+/** Descripción corta de cada sección (inicio del diseño Estudio). */
+export const NAV_DESCRIPTION: Partial<Record<NavigationSectionId, string>> = {
+  "invoice-new": "Vende e imprime una factura.",
+  invoices: "Historial, abonos y anulaciones.",
+  quotes: "Presupuestos que se vuelven factura.",
+  customers: "Directorio, compras y saldos.",
+  catalog: "Productos y servicios con precio.",
+  inventory: "Existencias, compras y movimientos.",
+  finance: "Ventas, gastos y balance.",
+  expenses: "Arriendo, servicios, nómina…",
+  settings: "Empresa, apariencia y respaldos.",
+};
+
 export interface NavGroup {
   label: string;
   items: NavItem[];

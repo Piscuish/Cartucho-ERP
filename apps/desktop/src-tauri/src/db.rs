@@ -55,14 +55,77 @@ pub struct DatabaseStatusReport {
 #[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
     pub theme: String,
-    /// Estilo visual (paleta y forma). Se guarda en `_app_metadata` con la clave `visual_style`.
-    #[serde(default = "default_visual_style")]
-    pub visual_style: String,
+    /// Diseño, fondos y color. Se guarda como JSON en `_app_metadata` con la clave `appearance`.
+    #[serde(default)]
+    pub appearance: Appearance,
     pub updated_at: String,
 }
 
-fn default_visual_style() -> String {
-    DEFAULT_VISUAL_STYLE.to_string()
+/// Apariencia visual de la instalación (ver `@cartucho/shared` › Appearance).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    pub layout: String,
+    pub bg_light: String,
+    pub bg_dark: String,
+    pub accent: String,
+    #[serde(default)]
+    pub tinted_borders: bool,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            layout: "clasico".into(),
+            bg_light: "blanco".into(),
+            bg_dark: "pizarra".into(),
+            accent: "violeta".into(),
+            tinted_borders: false,
+        }
+    }
+}
+
+pub const VALID_LAYOUTS: &[&str] = &["clasico", "neon", "riel", "flotante", "estudio"];
+pub const VALID_LIGHT_BGS: &[&str] = &["blanco", "calido", "hielo"];
+pub const VALID_DARK_BGS: &[&str] = &["pizarra", "grafito", "negro", "noche", "morado", "bosque"];
+pub const VALID_ACCENTS: &[&str] = &["violeta", "azul", "cian", "verde", "naranja", "rosa", "rojo", "ambar", "mono"];
+
+impl Appearance {
+    /// Normaliza a minúsculas y rechaza valores desconocidos.
+    pub fn validated(&self) -> Result<Self, String> {
+        let check = |v: &str, list: &[&str], what: &str| -> Result<String, String> {
+            let n = v.trim().to_lowercase();
+            if list.contains(&n.as_str()) {
+                Ok(n)
+            } else {
+                Err(format!("{} desconocido: '{}'.", what, v))
+            }
+        };
+        Ok(Self {
+            layout: check(&self.layout, VALID_LAYOUTS, "Diseño")?,
+            bg_light: check(&self.bg_light, VALID_LIGHT_BGS, "Fondo claro")?,
+            bg_dark: check(&self.bg_dark, VALID_DARK_BGS, "Fondo oscuro")?,
+            accent: check(&self.accent, VALID_ACCENTS, "Color de acento")?,
+            tinted_borders: self.tinted_borders,
+        })
+    }
+
+    /// Traduce el estilo único de la versión anterior (`visual_style`).
+    fn from_legacy_style(style: &str) -> Self {
+        let (bg_light, bg_dark, accent) = match style {
+            "oceano" => ("hielo", "noche", "azul"),
+            "bosque" => ("calido", "bosque", "verde"),
+            "grafito" => ("blanco", "grafito", "mono"),
+            "coral" => ("calido", "grafito", "naranja"),
+            _ => ("blanco", "pizarra", "violeta"),
+        };
+        Self {
+            bg_light: bg_light.into(),
+            bg_dark: bg_dark.into(),
+            accent: accent.into(),
+            ..Self::default()
+        }
+    }
 }
 
 /// Perfil de la única empresa configurada en la instalación.
@@ -472,9 +535,6 @@ pub fn target_schema_version() -> i64 {
 }
 
 const VALID_THEMES: &[&str] = &["light", "dark", "system"];
-/// Estilos visuales disponibles (deben coincidir con `VISUAL_STYLES` en @cartucho/shared).
-pub const VALID_VISUAL_STYLES: &[&str] = &["violeta", "oceano", "bosque", "grafito", "coral"];
-pub const DEFAULT_VISUAL_STYLE: &str = "violeta";
 const ALLOWED_LOGO_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_SIZE_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 const MAX_FAILED_LOGINS: u32 = 5;
@@ -1534,21 +1594,19 @@ impl LocalDatabase {
         self.get_preferences()
     }
 
-    /// Guarda el estilo visual (paleta y forma) de la instalación.
-    pub fn set_visual_style(&self, style: &str) -> Result<AppPreferences, String> {
+    /// Guarda la apariencia (diseño, fondos, acento) de la instalación.
+    pub fn set_appearance(&self, appearance: &Appearance) -> Result<AppPreferences, String> {
         self.require_authenticated_user()?;
-        let normalized = style.trim().to_lowercase();
-        if !VALID_VISUAL_STYLES.contains(&normalized.as_str()) {
-            return Err(format!("Estilo visual desconocido '{}'.", style));
-        }
+        let valid = appearance.validated()?;
+        let json = serde_json::to_string(&valid).map_err(|e| format!("Error serializando la apariencia: {}", e))?;
         let conn = self.connect()?;
         conn.execute(
             "INSERT INTO _app_metadata (key, value, updated_at)
-             VALUES ('visual_style', ?1, ?2)
+             VALUES ('appearance', ?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-            params![&normalized, Utc::now().to_rfc3339()],
+            params![&json, Utc::now().to_rfc3339()],
         )
-        .map_err(|e| format!("Error guardando el estilo visual en SQLite: {}", e))?;
+        .map_err(|e| format!("Error guardando la apariencia en SQLite: {}", e))?;
         self.get_preferences()
     }
 
@@ -1564,14 +1622,15 @@ impl LocalDatabase {
             .ok()
         };
         let theme = read("theme_preference");
-        // Un valor desconocido (por ejemplo, de una versión futura) vuelve al estilo por defecto.
-        let style = read("visual_style")
-            .map(|(v, _)| v)
-            .filter(|v| VALID_VISUAL_STYLES.contains(&v.as_str()))
-            .unwrap_or_else(default_visual_style);
+        // Apariencia guardada; si no existe se traduce el estilo anterior. Valores inválidos → por defecto.
+        let appearance = read("appearance")
+            .and_then(|(v, _)| serde_json::from_str::<Appearance>(&v).ok())
+            .and_then(|a| a.validated().ok())
+            .or_else(|| read("visual_style").map(|(v, _)| Appearance::from_legacy_style(&v)))
+            .unwrap_or_default();
         Ok(AppPreferences {
             theme: theme.as_ref().map(|(v, _)| v.clone()).unwrap_or_else(|| "system".to_string()),
-            visual_style: style,
+            appearance,
             updated_at: theme.map(|(_, u)| u).unwrap_or_else(|| Utc::now().to_rfc3339()),
         })
     }
@@ -1792,11 +1851,21 @@ mod tests {
                 .set_theme_preference("dark")
                 .expect("Debe guardar preferencia de tema con sesión autenticada");
             assert_eq!(prefs.theme, "dark");
-            assert_eq!(prefs.visual_style, DEFAULT_VISUAL_STYLE);
+            assert_eq!(prefs.appearance, Appearance::default());
 
-            let prefs = db.set_visual_style("Oceano").expect("Debe guardar el estilo visual");
-            assert_eq!((prefs.theme.as_str(), prefs.visual_style.as_str()), ("dark", "oceano"));
-            assert!(db.set_visual_style("neon").is_err());
+            let wanted = Appearance {
+                layout: "Riel".into(),
+                bg_light: "hielo".into(),
+                bg_dark: "negro".into(),
+                accent: "azul".into(),
+                tinted_borders: true,
+            };
+            let prefs = db.set_appearance(&wanted).expect("Debe guardar la apariencia");
+            assert_eq!(prefs.theme, "dark");
+            assert_eq!(prefs.appearance.layout, "riel");
+            assert!(prefs.appearance.tinted_borders);
+            let bad = Appearance { accent: "fucsia".into(), ..Appearance::default() };
+            assert!(db.set_appearance(&bad).is_err());
         }
 
         // Sesión 2: Reapertura (simula cerrar y volver a abrir la aplicación)
@@ -1810,7 +1879,7 @@ mod tests {
             assert_eq!(overview_before_login.database.startup_count, 2);
             assert_eq!(overview_before_login.database.schema_version, target_schema_version());
             assert_eq!(overview_before_login.preferences.theme, "dark");
-            assert_eq!(overview_before_login.preferences.visual_style, "oceano");
+            assert_eq!(overview_before_login.preferences.appearance.bg_dark, "negro");
             assert!(overview_before_login.has_admin_user);
             // Al reabrir la app, la sesión está cerrada y exige iniciar sesión nuevamente
             assert!(!overview_before_login.is_authenticated);
@@ -2090,5 +2159,34 @@ mod tests {
             !app_data_dir.starts_with(&current_dir),
             "La base de datos no debe ubicarse dentro del repositorio del proyecto"
         );
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Una instalación con el estilo de la versión anterior conserva sus colores.
+    #[test]
+    fn legacy_visual_style_is_translated() {
+        let dir = TempDir::new().unwrap();
+        let db = LocalDatabase::open_in_dir(dir.path()).unwrap();
+        let conn = db.connect().unwrap();
+        conn.execute(
+            "INSERT INTO _app_metadata (key, value, updated_at) VALUES ('visual_style', 'oceano', '2026-11-11T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let prefs = db.get_preferences().unwrap();
+        assert_eq!((prefs.appearance.accent.as_str(), prefs.appearance.bg_dark.as_str()), ("azul", "noche"));
+
+        // Un JSON dañado vuelve a la apariencia por defecto en lugar de fallar.
+        conn.execute(
+            "INSERT INTO _app_metadata (key, value, updated_at) VALUES ('appearance', '{roto', '2026-11-11T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(db.get_preferences().unwrap().appearance.accent, "azul");
     }
 }

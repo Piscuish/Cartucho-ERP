@@ -1,7 +1,7 @@
 /**
  * Estructura principal: menú lateral colapsable, barra superior y búsqueda rápida (Ctrl+K).
  */
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronsLeft,
@@ -19,7 +19,8 @@ import {
   Users,
 } from "lucide-react";
 import type { AuthenticatedUserSummary, CompanyProfile, ResolvedTheme, SearchHit } from "@cartucho/shared";
-import { NAVIGATION, NavGroup, Route } from "../config/moduleRegistry";
+import { NAV_TONE, NAVIGATION, NavGroup, Route } from "../config/moduleRegistry";
+import type { LayoutId } from "@cartucho/shared";
 import { useAccess } from "../lib/access";
 import { api } from "../services/systemClient";
 import { useDebounced, useHotkey } from "../lib/hooks";
@@ -35,8 +36,10 @@ export function AppShell({
   resolvedTheme,
   onToggleTheme,
   lowStockCount,
+  layout = "clasico",
   children,
 }: {
+  layout?: LayoutId;
   company: CompanyProfile;
   user: AuthenticatedUserSummary;
   route: Route;
@@ -47,7 +50,7 @@ export function AppShell({
   lowStockCount: number;
   children: ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(() => {
+  const [collapsedPref, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("cartucho_sidebar_collapsed") === "1";
     } catch {
@@ -61,11 +64,14 @@ export function AppShell({
 
   useEffect(() => {
     try {
-      localStorage.setItem("cartucho_sidebar_collapsed", collapsed ? "1" : "0");
+      localStorage.setItem("cartucho_sidebar_collapsed", collapsedPref ? "1" : "0");
     } catch {
       /* ignorar */
     }
-  }, [collapsed]);
+  }, [collapsedPref]);
+  // El diseño «Riel» siempre muestra el menú como columna de íconos.
+  const railOnly = layout === "riel";
+  const collapsed = railOnly || collapsedPref;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
@@ -99,6 +105,7 @@ export function AppShell({
                     key={item.id}
                     className={`sb-item ${active ? "is-active" : ""}`}
                     data-tip={item.label}
+                    style={NAV_TONE[item.id] ? ({ "--tone": NAV_TONE[item.id] } as CSSProperties) : undefined}
                     onClick={() => navigate(item.route)}
                     aria-current={active ? "page" : undefined}
                   >
@@ -127,10 +134,12 @@ export function AppShell({
               <LogOut size={16} />
             </button>
           </div>
-          <button className="sb-item" onClick={() => setCollapsed((c) => !c)} data-tip={collapsed ? "Expandir menú" : "Contraer menú"}>
-            {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
-            <span className="sb-item-label">Contraer menú</span>
-          </button>
+          {!railOnly && (
+            <button className="sb-item" onClick={() => setCollapsed((c) => !c)} data-tip={collapsed ? "Expandir menú" : "Contraer menú"}>
+              {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+              <span className="sb-item-label">Contraer menú</span>
+            </button>
+          )}
         </div>
       </aside>
 

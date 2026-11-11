@@ -214,6 +214,8 @@ a {
 .app-shell {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
+  /* La fila ocupa exactamente el alto disponible; el contenido se desplaza dentro de .main-scroll. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   transition: grid-template-columns var(--dur-slow) var(--ease);
 }
@@ -226,6 +228,7 @@ a {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   height: 100%;
 }
 
@@ -1724,6 +1727,7 @@ a {
   height: 100%;
   display: grid;
   grid-template-columns: minmax(380px, 1.05fr) minmax(420px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   background: var(--surface);
 }
 
@@ -1855,6 +1859,7 @@ a {
   height: 100%;
   display: grid;
   grid-template-columns: 340px 1fr;
+  grid-template-rows: minmax(0, 1fr);
   background: var(--surface);
 }
 
@@ -3561,258 +3566,6 @@ a {
   opacity: 0.6;
 }
 
-/* =============================================================================
-   Estilos visuales (Configuración › Apariencia)
-   Cada estilo redefine paleta, menú lateral y forma. Se combina con claro/oscuro.
-   «violeta» es el estilo base definido arriba.
-   ============================================================================= */
-
-/* ---------- Océano: azul, menú lateral azul marino ---------- */
-[data-style="oceano"] {
-  --bg: #f2f5f9;
-  --surface-2: #f7f9fc;
-  --surface-3: #ebf0f6;
-  --border: #e1e7ef;
-  --border-strong: #cbd4e1;
-  --text: #0f1a2b;
-  --text-2: #475569;
-  --text-3: #8392a7;
-  --accent: #1f6feb;
-  --accent-hover: #195fd0;
-  --accent-soft: #e8f1fe;
-  --accent-soft-2: #d2e3fd;
-  --accent-text: #1552b3;
-  --focus: 0 0 0 3px rgba(31, 111, 235, 0.26);
-  --sb-bg: #0c1a33;
-  --sb-bg-2: #13264a;
-  --sb-border: #1a2d52;
-  --sb-text: #a9b8d6;
-  --sb-text-strong: #f2f6fc;
-  --sb-muted: #6f80a3;
-  --sb-active-bg: rgba(90, 160, 255, 0.18);
-  --sb-active-text: #ffffff;
-  --sb-accent: #5aa0ff;
-  --brand-panel-bg: #0c1a33;
-  --brand-panel-glow: rgba(90, 160, 255, 0.32);
-}
-
-[data-style="oceano"][data-theme="dark"] {
-  --bg: #0b111d;
-  --surface: #121a29;
-  --surface-2: #172033;
-  --surface-3: #1d2840;
-  --border: #223049;
-  --border-strong: #2e3d5a;
-  --text: #e6ecf5;
-  --text-2: #aab6ca;
-  --text-3: #74829b;
-  --accent: #4c9aff;
-  --accent-hover: #6aabff;
-  --accent-soft: rgba(76, 154, 255, 0.14);
-  --accent-soft-2: rgba(76, 154, 255, 0.24);
-  --accent-text: #9cc7ff;
-  --focus: 0 0 0 3px rgba(76, 154, 255, 0.35);
-  --sb-bg: #070e1b;
-  --sb-bg-2: #101a2e;
-  --sb-border: #16223a;
-}
-
-/* ---------- Bosque: verde, tonos cálidos y naturales ---------- */
-[data-style="bosque"] {
-  --bg: #f5f5f1;
-  --surface-2: #fafaf7;
-  --surface-3: #efefe9;
-  --border: #e5e4dc;
-  --border-strong: #d3d2c8;
-  --text: #1b1e18;
-  --text-2: #4d5248;
-  --text-3: #8b8f84;
-  --accent: #1f7a4d;
-  --accent-hover: #19663f;
-  --accent-soft: #e6f3ec;
-  --accent-soft-2: #cde7d9;
-  --accent-text: #165c3a;
-  --neutral-soft: #efefe9;
-  --focus: 0 0 0 3px rgba(31, 122, 77, 0.25);
-  --sb-bg: #fbfbf8;
-  --sb-bg-2: #f0f0ea;
-  --sb-border: #e5e4dc;
-  --sb-text: #4d5248;
-  --sb-text-strong: #1b1e18;
-  --sb-muted: #8b8f84;
-  --sb-active-bg: #e6f3ec;
-  --sb-active-text: #165c3a;
-  --sb-accent: #1f7a4d;
-  --brand-panel-bg: #eef5ef;
-  --brand-panel-glow: rgba(31, 122, 77, 0.18);
-}
-
-[data-style="bosque"][data-theme="dark"] {
-  --bg: #0f1210;
-  --surface: #161a17;
-  --surface-2: #1b201c;
-  --surface-3: #222823;
-  --border: #28302a;
-  --border-strong: #36403a;
-  --text: #e7ebe6;
-  --text-2: #b1b9b0;
-  --text-3: #7c857b;
-  --accent: #4cc38a;
-  --accent-hover: #63cf9a;
-  --accent-soft: rgba(76, 195, 138, 0.14);
-  --accent-soft-2: rgba(76, 195, 138, 0.24);
-  --accent-text: #93e0b9;
-  --on-accent: #06140d;
-  --neutral-soft: rgba(255, 255, 255, 0.06);
-  --focus: 0 0 0 3px rgba(76, 195, 138, 0.32);
-  --sb-bg: #0b0e0c;
-  --sb-bg-2: #141815;
-  --sb-border: #1b211d;
-  --sb-text: #a5ada4;
-  --sb-text-strong: #f1f4f0;
-  --sb-muted: #6e776d;
-  --sb-active-bg: rgba(76, 195, 138, 0.16);
-  --sb-active-text: #ffffff;
-  --sb-accent: #5fd39b;
-  --brand-panel-bg: #0b0e0c;
-  --brand-panel-glow: rgba(76, 195, 138, 0.25);
-}
-
-/* ---------- Grafito: blanco y negro, esquinas rectas, plano ---------- */
-[data-style="grafito"] {
-  --bg: #f6f6f6;
-  --surface-2: #fafafa;
-  --surface-3: #f0f0f0;
-  --border: #e4e4e4;
-  --border-strong: #cfcfcf;
-  --text: #111111;
-  --text-2: #4b4b4b;
-  --text-3: #8a8a8a;
-  --accent: #18181b;
-  --accent-hover: #000000;
-  --accent-soft: #f0f0f1;
-  --accent-soft-2: #e2e2e4;
-  --accent-text: #18181b;
-  --on-accent: #ffffff;
-  --neutral-soft: #f0f0f0;
-  --focus: 0 0 0 3px rgba(24, 24, 27, 0.18);
-  --sb-bg: #fafafa;
-  --sb-bg-2: #f0f0f0;
-  --sb-border: #e4e4e4;
-  --sb-text: #4b4b4b;
-  --sb-text-strong: #111111;
-  --sb-muted: #8a8a8a;
-  --sb-active-bg: #18181b;
-  --sb-active-text: #ffffff;
-  --sb-accent: #18181b;
-  --brand-panel-bg: #f2f2f2;
-  --brand-panel-glow: rgba(0, 0, 0, 0.06);
-  --radius-sm: 3px;
-  --radius: 5px;
-  --radius-lg: 7px;
-  --radius-xl: 10px;
-  --shadow-sm: none;
-  --shadow: none;
-  --shadow-lg: 0 10px 28px -10px rgba(0, 0, 0, 0.2);
-}
-
-[data-style="grafito"][data-theme="dark"] {
-  --bg: #0c0c0d;
-  --surface: #141415;
-  --surface-2: #19191b;
-  --surface-3: #212124;
-  --border: #27272a;
-  --border-strong: #3a3a3e;
-  --text: #ededee;
-  --text-2: #b4b4b8;
-  --text-3: #7b7b80;
-  --accent: #f4f4f5;
-  --accent-hover: #ffffff;
-  --accent-soft: rgba(255, 255, 255, 0.08);
-  --accent-soft-2: rgba(255, 255, 255, 0.14);
-  --accent-text: #fafafa;
-  --on-accent: #111111;
-  --neutral-soft: rgba(255, 255, 255, 0.06);
-  --focus: 0 0 0 3px rgba(255, 255, 255, 0.22);
-  --sb-bg: #09090a;
-  --sb-bg-2: #141415;
-  --sb-border: #1f1f22;
-  --sb-text: #a1a1a6;
-  --sb-text-strong: #fafafa;
-  --sb-muted: #6b6b70;
-  --sb-active-bg: #f4f4f5;
-  --sb-active-text: #111111;
-  --sb-accent: #f4f4f5;
-  --brand-panel-bg: #09090a;
-  --brand-panel-glow: rgba(255, 255, 255, 0.08);
-  --shadow-lg: 0 12px 32px -8px rgba(0, 0, 0, 0.7);
-}
-
-/* ---------- Coral: naranja cálido, bordes muy redondeados ---------- */
-[data-style="coral"] {
-  --bg: #faf7f5;
-  --surface-2: #fdfaf8;
-  --surface-3: #f5efeb;
-  --border: #eee5df;
-  --border-strong: #ddd0c7;
-  --text: #221a16;
-  --text-2: #5b4f48;
-  --text-3: #9a8d85;
-  --accent: #e8590c;
-  --accent-hover: #d14d06;
-  --accent-soft: #fff0e6;
-  --accent-soft-2: #ffdcc4;
-  --accent-text: #b8460a;
-  --neutral-soft: #f5efeb;
-  --focus: 0 0 0 3px rgba(232, 89, 12, 0.24);
-  --sb-bg: #fffdfb;
-  --sb-bg-2: #f7f0eb;
-  --sb-border: #eee5df;
-  --sb-text: #5b4f48;
-  --sb-text-strong: #221a16;
-  --sb-muted: #9a8d85;
-  --sb-active-bg: #fff0e6;
-  --sb-active-text: #b8460a;
-  --sb-accent: #e8590c;
-  --brand-panel-bg: #fff3eb;
-  --brand-panel-glow: rgba(232, 89, 12, 0.18);
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
-}
-
-[data-style="coral"][data-theme="dark"] {
-  --bg: #141110;
-  --surface: #1c1816;
-  --surface-2: #221d1a;
-  --surface-3: #2a2421;
-  --border: #322a26;
-  --border-strong: #433833;
-  --text: #f1ebe7;
-  --text-2: #c3b7b0;
-  --text-3: #8c7f78;
-  --accent: #ff8a4c;
-  --accent-hover: #ff9d68;
-  --accent-soft: rgba(255, 138, 76, 0.14);
-  --accent-soft-2: rgba(255, 138, 76, 0.24);
-  --accent-text: #ffb98f;
-  --on-accent: #1f0d03;
-  --neutral-soft: rgba(255, 255, 255, 0.06);
-  --focus: 0 0 0 3px rgba(255, 138, 76, 0.32);
-  --sb-bg: #100d0c;
-  --sb-bg-2: #1c1816;
-  --sb-border: #26201d;
-  --sb-text: #b9ada6;
-  --sb-text-strong: #f8f3f0;
-  --sb-muted: #7d716a;
-  --sb-active-bg: rgba(255, 138, 76, 0.16);
-  --sb-active-text: #ffffff;
-  --sb-accent: #ff9d68;
-  --brand-panel-bg: #100d0c;
-  --brand-panel-glow: rgba(255, 138, 76, 0.25);
-}
-
 /* Cambio de estilo suave */
 html.is-restyling *,
 html.is-restyling *::before,
@@ -3899,10 +3652,4 @@ html.is-restyling *::after {
   font-size: 12.5px;
   color: var(--text-3);
   margin-top: -6px;
-}
-
-/* Grafito: el elemento activo es sólido, así que su ícono y el avatar usan el color del texto activo. */
-[data-style="grafito"] .sb-item.is-active svg,
-[data-style="grafito"] .sb-avatar {
-  color: var(--sb-active-text);
 }

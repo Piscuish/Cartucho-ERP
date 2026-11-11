@@ -278,9 +278,16 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn set_visual_style(style: String, state: S<'_>) -> Result<SystemOverview, String> {
+    pub fn set_appearance(
+        appearance: crate::db::Appearance,
+        theme: Option<String>,
+        state: S<'_>,
+    ) -> Result<SystemOverview, String> {
         overview_gated(&state, Gate::Core, |db| {
-            db.set_visual_style(&style)?;
+            db.set_appearance(&appearance)?;
+            if let Some(t) = theme.as_deref() {
+                db.set_theme_preference(t)?;
+            }
             db.build_system_overview()
         })
     }
@@ -627,7 +634,7 @@ mod tauri_commands {
                 change_user_password,
                 record_persistence_check,
                 set_theme_preference,
-                set_visual_style,
+                set_appearance,
                 save_company_profile,
                 list_customers,
                 save_customer,

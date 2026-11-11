@@ -18,6 +18,7 @@ import type {
   InventoryMovement,
   InvoiceDetail,
   InvoiceSummary,
+  Appearance,
   LicenseMode,
   LicenseStatus,
   ModuleKey,
@@ -27,7 +28,7 @@ import type {
   SearchHit,
   SystemOverview,
 } from "@cartucho/shared";
-import { ALL_MODULES, VISUAL_STYLES } from "@cartucho/shared";
+import { ACCENTS, ALL_MODULES, DARK_BACKGROUNDS, DEFAULT_APPEARANCE, LAYOUTS, LIGHT_BACKGROUNDS } from "@cartucho/shared";
 
 const KEY = "cartucho_erp_preview_v4";
 const SESSION_KEY = "cartucho_erp_preview_session";
@@ -36,7 +37,7 @@ interface Store {
   startupCount: number;
   firstInitializedAt: string;
   theme: string;
-  visualStyle?: string;
+  appearance?: Appearance;
   company: CompanyProfile | null;
   admin: { id: number; fullName: string; username: string; passwordSha256: string; createdAt: string; lastLoginAt: string | null } | null;
   seq: Record<string, number>;
@@ -173,7 +174,7 @@ function overview(): SystemOverview {
     runtimeMode: "browser-preview",
     preferences: {
       theme: db.theme as SystemOverview["preferences"]["theme"],
-      visualStyle: (db.visualStyle ?? "violeta") as SystemOverview["preferences"]["visualStyle"],
+      appearance: db.appearance ?? { ...DEFAULT_APPEARANCE },
       updatedAt: now(),
     },
     database: {
@@ -290,7 +291,7 @@ function licenseStatus(): LicenseStatus {
 
 /** Comandos permitidos en modo restringido (como en Rust). */
 const RESTRICTED_ALLOWED = new Set([
-  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_visual_style",
+  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_appearance",
   "list_invoices", "get_invoice", "list_payments", "get_dashboard", "global_search",
   "get_business_settings", "get_data_location", "export_backup", "create_manual_backup",
   "get_license_status", "activate_license_online", "activate_license_offline", "check_license_now",
@@ -586,11 +587,17 @@ const handlers: Record<string, Handler> = {
     save();
     return overview();
   },
-  set_visual_style: ({ style }) => {
+  set_appearance: ({ appearance, theme }) => {
     requireAuth();
-    const id = String(style ?? "").toLowerCase();
-    if (!VISUAL_STYLES.some((s) => s.id === id)) fail(`Estilo visual desconocido '${String(style)}'.`);
-    db.visualStyle = id;
+    const a = appearance as Appearance;
+    const ok =
+      LAYOUTS.some((x) => x.id === a?.layout) &&
+      LIGHT_BACKGROUNDS.some((x) => x.id === a?.bgLight) &&
+      DARK_BACKGROUNDS.some((x) => x.id === a?.bgDark) &&
+      ACCENTS.some((x) => x.id === a?.accent);
+    if (!ok) fail("Apariencia no válida.");
+    db.appearance = { layout: a.layout, bgLight: a.bgLight, bgDark: a.bgDark, accent: a.accent, tintedBorders: !!a.tintedBorders };
+    if (theme) db.theme = String(theme);
     save();
     return overview();
   },
