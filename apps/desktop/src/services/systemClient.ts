@@ -44,6 +44,7 @@ import {
   SystemOverview,
   TAURI_COMMANDS,
   ThemePreference,
+  VisualStyleId,
 } from "@cartucho/shared";
 
 export const isDesktop = (): boolean => {
@@ -75,6 +76,7 @@ export const api = {
   logout: () => call<SystemOverview>(C.LOGOUT_USER),
   changePassword: (input: ChangePasswordInput) => call<SystemOverview>(C.CHANGE_USER_PASSWORD, { input }),
   setTheme: (theme: ThemePreference) => call<SystemOverview>(C.SET_THEME_PREFERENCE, { theme }),
+  setVisualStyle: (style: VisualStyleId) => call<SystemOverview>(C.SET_VISUAL_STYLE, { style }),
   saveCompany: (input: SaveCompanyProfileInput) => call<SystemOverview>(C.SAVE_COMPANY_PROFILE, { input }),
   resetDataLocation: () => call<SystemOverview>(C.RESET_DATA_LOCATION),
   retryOpenDatabase: () => call<SystemOverview>(C.RETRY_OPEN_DATABASE),

@@ -55,7 +55,14 @@ pub struct DatabaseStatusReport {
 #[serde(rename_all = "camelCase")]
 pub struct AppPreferences {
     pub theme: String,
+    /// Estilo visual (paleta y forma). Se guarda en `_app_metadata` con la clave `visual_style`.
+    #[serde(default = "default_visual_style")]
+    pub visual_style: String,
     pub updated_at: String,
+}
+
+fn default_visual_style() -> String {
+    DEFAULT_VISUAL_STYLE.to_string()
 }
 
 /// Perfil de la única empresa configurada en la instalación.
@@ -465,6 +472,9 @@ pub fn target_schema_version() -> i64 {
 }
 
 const VALID_THEMES: &[&str] = &["light", "dark", "system"];
+/// Estilos visuales disponibles (deben coincidir con `VISUAL_STYLES` en @cartucho/shared).
+pub const VALID_VISUAL_STYLES: &[&str] = &["violeta", "oceano", "bosque", "grafito", "coral"];
+pub const DEFAULT_VISUAL_STYLE: &str = "violeta";
 const ALLOWED_LOGO_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_SIZE_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 const MAX_FAILED_LOGINS: u32 = 5;
@@ -1521,33 +1531,49 @@ impl LocalDatabase {
         )
         .map_err(|e| format!("Error persistiendo preferencia de tema en SQLite: {}", e))?;
 
-        Ok(AppPreferences {
-            theme: normalized,
-            updated_at: now,
-        })
+        self.get_preferences()
+    }
+
+    /// Guarda el estilo visual (paleta y forma) de la instalación.
+    pub fn set_visual_style(&self, style: &str) -> Result<AppPreferences, String> {
+        self.require_authenticated_user()?;
+        let normalized = style.trim().to_lowercase();
+        if !VALID_VISUAL_STYLES.contains(&normalized.as_str()) {
+            return Err(format!("Estilo visual desconocido '{}'.", style));
+        }
+        let conn = self.connect()?;
+        conn.execute(
+            "INSERT INTO _app_metadata (key, value, updated_at)
+             VALUES ('visual_style', ?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![&normalized, Utc::now().to_rfc3339()],
+        )
+        .map_err(|e| format!("Error guardando el estilo visual en SQLite: {}", e))?;
+        self.get_preferences()
     }
 
     /// Lee la preferencia de tema actual desde SQLite.
     pub fn get_preferences(&self) -> Result<AppPreferences, String> {
         let conn = self.connect()?;
-        let result = conn.query_row(
-            "SELECT value, updated_at FROM _app_metadata WHERE key = 'theme_preference'",
-            [],
-            |row| {
-                Ok(AppPreferences {
-                    theme: row.get(0)?,
-                    updated_at: row.get(1)?,
-                })
-            },
-        );
-
-        match result {
-            Ok(prefs) => Ok(prefs),
-            Err(_) => Ok(AppPreferences {
-                theme: "system".to_string(),
-                updated_at: Utc::now().to_rfc3339(),
-            }),
-        }
+        let read = |key: &str| -> Option<(String, String)> {
+            conn.query_row(
+                "SELECT value, updated_at FROM _app_metadata WHERE key = ?1",
+                params![key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok()
+        };
+        let theme = read("theme_preference");
+        // Un valor desconocido (por ejemplo, de una versión futura) vuelve al estilo por defecto.
+        let style = read("visual_style")
+            .map(|(v, _)| v)
+            .filter(|v| VALID_VISUAL_STYLES.contains(&v.as_str()))
+            .unwrap_or_else(default_visual_style);
+        Ok(AppPreferences {
+            theme: theme.as_ref().map(|(v, _)| v.clone()).unwrap_or_else(|| "system".to_string()),
+            visual_style: style,
+            updated_at: theme.map(|(_, u)| u).unwrap_or_else(|| Utc::now().to_rfc3339()),
+        })
     }
 
     /// Genera el informe técnico del estado actual de SQLite.
@@ -1766,6 +1792,11 @@ mod tests {
                 .set_theme_preference("dark")
                 .expect("Debe guardar preferencia de tema con sesión autenticada");
             assert_eq!(prefs.theme, "dark");
+            assert_eq!(prefs.visual_style, DEFAULT_VISUAL_STYLE);
+
+            let prefs = db.set_visual_style("Oceano").expect("Debe guardar el estilo visual");
+            assert_eq!((prefs.theme.as_str(), prefs.visual_style.as_str()), ("dark", "oceano"));
+            assert!(db.set_visual_style("neon").is_err());
         }
 
         // Sesión 2: Reapertura (simula cerrar y volver a abrir la aplicación)
@@ -1779,6 +1810,7 @@ mod tests {
             assert_eq!(overview_before_login.database.startup_count, 2);
             assert_eq!(overview_before_login.database.schema_version, target_schema_version());
             assert_eq!(overview_before_login.preferences.theme, "dark");
+            assert_eq!(overview_before_login.preferences.visual_style, "oceano");
             assert!(overview_before_login.has_admin_user);
             // Al reabrir la app, la sesión está cerrada y exige iniciar sesión nuevamente
             assert!(!overview_before_login.is_authenticated);

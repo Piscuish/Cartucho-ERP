@@ -27,7 +27,7 @@ import type {
   SearchHit,
   SystemOverview,
 } from "@cartucho/shared";
-import { ALL_MODULES } from "@cartucho/shared";
+import { ALL_MODULES, VISUAL_STYLES } from "@cartucho/shared";
 
 const KEY = "cartucho_erp_preview_v4";
 const SESSION_KEY = "cartucho_erp_preview_session";
@@ -36,6 +36,7 @@ interface Store {
   startupCount: number;
   firstInitializedAt: string;
   theme: string;
+  visualStyle?: string;
   company: CompanyProfile | null;
   admin: { id: number; fullName: string; username: string; passwordSha256: string; createdAt: string; lastLoginAt: string | null } | null;
   seq: Record<string, number>;
@@ -170,7 +171,11 @@ function overview(): SystemOverview {
     osPlatform: navigator.platform || "web",
     osArch: "—",
     runtimeMode: "browser-preview",
-    preferences: { theme: db.theme as SystemOverview["preferences"]["theme"], updatedAt: now() },
+    preferences: {
+      theme: db.theme as SystemOverview["preferences"]["theme"],
+      visualStyle: (db.visualStyle ?? "violeta") as SystemOverview["preferences"]["visualStyle"],
+      updatedAt: now(),
+    },
     database: {
       connected: true,
       engine: "SQLite",
@@ -285,7 +290,7 @@ function licenseStatus(): LicenseStatus {
 
 /** Comandos permitidos en modo restringido (como en Rust). */
 const RESTRICTED_ALLOWED = new Set([
-  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference",
+  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_visual_style",
   "list_invoices", "get_invoice", "list_payments", "get_dashboard", "global_search",
   "get_business_settings", "get_data_location", "export_backup", "create_manual_backup",
   "get_license_status", "activate_license_online", "activate_license_offline", "check_license_now",
@@ -578,6 +583,14 @@ const handlers: Record<string, Handler> = {
     if (i.newPassword.length < 8) fail("La nueva contraseña debe tener al menos 8 caracteres.");
     if (i.newPassword !== i.newPasswordConfirm) fail("La confirmación de la nueva contraseña no coincide.");
     db.admin!.passwordSha256 = await sha256(i.newPassword);
+    save();
+    return overview();
+  },
+  set_visual_style: ({ style }) => {
+    requireAuth();
+    const id = String(style ?? "").toLowerCase();
+    if (!VISUAL_STYLES.some((s) => s.id === id)) fail(`Estilo visual desconocido '${String(style)}'.`);
+    db.visualStyle = id;
     save();
     return overview();
   },

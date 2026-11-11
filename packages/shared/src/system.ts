@@ -55,8 +55,62 @@ export interface DatabaseStatusReport {
 
 export interface AppPreferences {
   theme: ThemePreference;
+  /** Estilo visual (paleta y forma). Ausente en versiones antiguas → "violeta". */
+  visualStyle?: VisualStyleId;
   updatedAt: string;
 }
+
+// ------------------------------------------------------------------ Estilos visuales
+
+export type VisualStyleId = "violeta" | "oceano" | "bosque" | "grafito" | "coral";
+
+export interface VisualStyleInfo {
+  id: VisualStyleId;
+  label: string;
+  description: string;
+  /** Colores para la miniatura: [menú, fondo, tarjeta, acento, línea] en claro y oscuro. */
+  preview: { light: [string, string, string, string, string]; dark: [string, string, string, string, string] };
+  /** Radio de esquinas de la miniatura (px). */
+  radius: number;
+}
+
+export const VISUAL_STYLES: VisualStyleInfo[] = [
+  {
+    id: "violeta",
+    label: "Violeta",
+    description: "El estilo original: limpio, con acento violeta.",
+    preview: { light: ["#ffffff", "#f4f5f8", "#ffffff", "#6d5dd3", "#d0d5dd"], dark: ["#0a0d13", "#0e1117", "#161b24", "#8b7ff0", "#262d3a"] },
+    radius: 6,
+  },
+  {
+    id: "oceano",
+    label: "Océano",
+    description: "Azul profesional con menú lateral azul marino.",
+    preview: { light: ["#0c1a33", "#f2f5f9", "#ffffff", "#1f6feb", "#cbd4e1"], dark: ["#070e1b", "#0b111d", "#121a29", "#4c9aff", "#223049"] },
+    radius: 6,
+  },
+  {
+    id: "bosque",
+    label: "Bosque",
+    description: "Verde y tonos cálidos, tranquilo para todo el día.",
+    preview: { light: ["#fbfbf8", "#f5f5f1", "#ffffff", "#1f7a4d", "#d3d2c8"], dark: ["#0b0e0c", "#0f1210", "#161a17", "#4cc38a", "#28302a"] },
+    radius: 6,
+  },
+  {
+    id: "grafito",
+    label: "Grafito",
+    description: "Blanco y negro, esquinas rectas y sin sombras.",
+    preview: { light: ["#fafafa", "#f6f6f6", "#ffffff", "#18181b", "#cfcfcf"], dark: ["#09090a", "#0c0c0d", "#141415", "#f4f4f5", "#27272a"] },
+    radius: 2,
+  },
+  {
+    id: "coral",
+    label: "Coral",
+    description: "Naranja cálido y bordes muy redondeados, amigable.",
+    preview: { light: ["#fffdfb", "#faf7f5", "#ffffff", "#e8590c", "#ddd0c7"], dark: ["#100d0c", "#141110", "#1c1816", "#ff8a4c", "#322a26"] },
+    radius: 10,
+  },
+];
 
 /**
  * Tipos MIME permitidos para el logotipo almacenado como BLOB en SQLite.
@@ -233,5 +287,6 @@ export const TAURI_COMMANDS = {
   CHANGE_USER_PASSWORD: "change_user_password",
   RECORD_PERSISTENCE_CHECK: "record_persistence_check",
   SET_THEME_PREFERENCE: "set_theme_preference",
+  SET_VISUAL_STYLE: "set_visual_style",
   SAVE_COMPANY_PROFILE: "save_company_profile",
 } as const;

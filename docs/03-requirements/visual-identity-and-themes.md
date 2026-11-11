@@ -51,3 +51,20 @@ Siempre en colores claros, con logotipo opcional. Plantilla completa para Carta,
 - Arrastrar la barra mueve la ventana; doble clic maximiza o restaura; los bordes siguen cambiando el tamaño.
 - Al perder el foco, el título y los botones se atenúan, como en Windows 11.
 - Los modales y paneles quedan debajo de la barra (`.window-content` con `contain: layout paint`), así siempre se puede cerrar o minimizar.
+
+## Estilos visuales intercambiables (noviembre 2026)
+
+Configuración › Apariencia › **Estilo visual** muestra una galería; el estilo se combina con claro/oscuro/sistema.
+
+| Estilo | Personalidad |
+|---|---|
+| Violeta | El original: limpio, acento violeta. |
+| Océano | Azul profesional, menú lateral azul marino (también en tema claro). |
+| Bosque | Verde con neutros cálidos. |
+| Grafito | Blanco y negro, esquinas rectas, sin sombras. |
+| Coral | Naranja cálido, bordes muy redondeados. |
+
+- Cada estilo es un bloque `[data-style="…"]` (y `[data-style="…"][data-theme="dark"]`) en `theme.css` que redefine variables.
+  Para agregar uno: el bloque CSS, una entrada en `VISUAL_STYLES` (`@cartucho/shared`) y su id en `VALID_VISUAL_STYLES` (Rust).
+- Se guarda en `_app_metadata` con la clave `visual_style` (sin migración). Un valor desconocido vuelve a «violeta».
+- Los colores sobre el acento usan `--on-accent`, para que funcionen acentos claros (Grafito oscuro, Bosque y Coral oscuros).

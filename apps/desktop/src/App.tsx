@@ -51,9 +51,20 @@ function AppInner() {
   const theme = useResolvedTheme(overview?.preferences.theme);
   useWindowTitle(overview?.company?.tradeName || "Cartucho ERP", overview?.company?.logoDataUrl ?? null);
 
+  const visualStyle = overview?.preferences.visualStyle ?? "violeta";
+
+  // Tema y estilo se aplican en <html>; el cambio se anima brevemente.
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    const root = document.documentElement;
+    if (root.dataset.theme === theme && root.dataset.style === visualStyle) return;
+    const animate = !!root.dataset.theme;
+    if (animate) root.classList.add("is-restyling");
+    root.dataset.theme = theme;
+    root.dataset.style = visualStyle;
+    if (!animate) return;
+    const t = window.setTimeout(() => root.classList.remove("is-restyling"), 320);
+    return () => window.clearTimeout(t);
+  }, [theme, visualStyle]);
 
   const load = useCallback(async () => {
     try {
