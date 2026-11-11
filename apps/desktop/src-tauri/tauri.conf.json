@@ -35,6 +35,22 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "Cartucho ERP",
+    "category": "Business",
+    "shortDescription": "Facturación y gestión para pequeñas empresas",
+    "longDescription": "Cartucho ERP: facturas, cotizaciones, catálogo, inventario, clientes y finanzas. Funciona sin Internet; los datos quedan en el equipo.",
+    "windows": {
+      "nsis": {
+        "languages": [
+          "Spanish"
+        ],
+        "displayLanguageSelector": false,
+        "installMode": "currentUser"
+      },
+      "wix": {
+        "language": "es-ES"
+      }
+    }
   }
 }
