@@ -1,28 +1,37 @@
-# Identidad Visual (Business Minimalist), Navegación y Sistema de Temas
+# Identidad Visual «Lateral oscuro», Navegación y Temas
 
-## 1. Dirección Visual Refinada
+## 1. Dirección visual
 
-La interfaz de escritorio de **Cartucho ERP** aplica una estética **Business Minimalist** sobria, limpia y orientada al negocio:
-- **Paleta neutral y monocromática:** Alto contraste legible tanto en modo claro como en modo oscuro, sin colores chillones, degradados ni efectos innecesarios.
-- **Tipografía e iconografía:** Fuente **Inter** e iconografía **Lucide** (`lucide-react`).
-- **Barras de desplazamiento discretas:** Scrollbars delgadas (`6px`), de bordes redondeados y colores integrados con los tokens `--scrollbar-thumb` y `--scrollbar-thumb-hover` en todos los contenedores con desplazamiento.
-- **Barra superior limpia y controles de ventana:** La barra superior muestra únicamente el contexto de la vista actual, el nombre de la empresa activa, el usuario autenticado, los botones de actualizar/cerrar sesión y los controles discretos de ventana de escritorio (*Minimizar*, *Maximizar/Restaurar* y *Cerrar*). El selector de apariencia reside exclusivamente en **Configuración > Apariencia**.
+Elegida por el propietario en noviembre de 2026 (opción C):
+- **Menú lateral oscuro** (`#161b26`) con acento **violeta** (`#6d5dd3` / `#8b7ff0` en tema oscuro) y **contenido claro** (`#f4f5f8`).
+- **Tema oscuro** completo para el área de trabajo; el menú siempre es oscuro. Preferencia: Claro, Oscuro o Según el sistema.
+- **Tipografía Inter** incluida en la aplicación (`@fontsource-variable/inter`), sin depender de Internet. Cifras tabulares para montos.
+- **Iconografía Lucide** (`lucide-react`).
+- **Movimiento suave:** transiciones de 160–240 ms con `cubic-bezier(0.2, 0.8, 0.2, 1)`; se respeta `prefers-reduced-motion`.
+- Montos en pesos colombianos sin decimales: `$ 1.250.000`.
 
----
+Los tokens viven en `apps/desktop/src/styles/theme.css` (`:root` y `[data-theme="dark"]`).
 
-## 2. Estructura de Navegación Categorizada y Dinámica
+## 2. Navegación
 
-El menú lateral izquierdo (`Sidebar`) organiza la aplicación en cuatro categorías claras:
+Menú lateral colapsable (Ctrl+B) con grupos:
 
-1. **GENERAL**
-   - **Inicio:** Espacio principal de trabajo de la empresa con cabecera de bienvenida (logotipo y nombre comercial real), tarjetas de acceso a áreas de gestión y resumen de la ficha empresarial.
-2. **EMPRESA**
-   - **Mi empresa:** Consulta y edición de los datos comerciales y del logotipo almacenado en SQLite.
-3. **GESTIÓN** *(Construida dinámicamente desde `moduleRegistry.ts`)*
-   - Muestra los espacios preparados para **Inventario**, **Ventas**, **Clientes** y **Otros módulos futuros**, distinguiendo claramente entre módulos habilitados (`enabled_modules_json`, inicialmente `[]`) y espacios en planificación.
-4. **APLICACIÓN**
-   - **Configuración** *(Submenú expandible/colapsable)*:
-     - **Apariencia:** Selección de tema Claro, Oscuro o Sistema Operativo.
-     - **Usuarios y acceso:** Datos del administrador autenticado, cierre de sesión y cambio seguro de contraseña verificando la contraseña actual con Argon2id.
-     - **Base de datos:** Estado del almacenamiento SQLite local, ruta de respaldos automáticos, comprobación de persistencia e historial de migraciones.
-     - **Acerca de:** Información general del producto y versión instalada.
+1. **General:** Inicio.
+2. **Ventas:** Nueva factura, Facturas, Cotizaciones, Clientes.
+3. **Productos:** Catálogo, Inventario (con contador de stock bajo).
+4. **Finanzas:** Resumen, Gastos.
+5. **Sistema:** Configuración (Mi empresa, Facturación e impresión, Apariencia, Usuario y seguridad, Base de datos y respaldos, Acerca de).
+
+Barra superior: búsqueda rápida (Ctrl+K), cambio de tema, «Cotización» y «Nueva factura» siempre visibles.
+
+## 3. Patrones de interfaz
+
+- Formularios en **paneles laterales** que se deslizan desde la derecha, sin cambiar de pantalla.
+- **Avisos breves** («Factura guardada») en lugar de ventanas que interrumpen.
+- **Estados vacíos** que invitan a actuar («Agrega tu primer producto»).
+- Estados con color: Pagada (verde), Pendiente (ámbar), Pago parcial (azul), Vencida (rojo), Anulada (gris).
+- Confirmación explícita, con texto claro, para acciones irreversibles (anular, restaurar, eliminar gasto).
+
+## 4. Documentos impresos
+
+Siempre en colores claros, con logotipo opcional. Plantilla completa para Carta, Media carta y A4; plantilla compacta monoespaciada para tirillas de 80 mm y 58 mm (el alto se ajusta al contenido). Todos indican que son documentos internos, no factura electrónica.
