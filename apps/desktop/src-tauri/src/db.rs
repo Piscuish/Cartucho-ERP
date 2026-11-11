@@ -255,11 +255,217 @@ const MIGRATIONS: &[Migration] = &[
         );
     ",
     },
+    Migration {
+        version: 4,
+        name: "0004_create_business_modules_catalog_sales_finance",
+        sql: "
+        CREATE TABLE IF NOT EXISTS categories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL CHECK (kind IN ('product', 'expense')),
+            name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+            created_at TEXT NOT NULL,
+            UNIQUE (kind, name COLLATE NOCASE)
+        );
+
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+            document_id TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            notes TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_customers_name ON customers (name COLLATE NOCASE);
+
+        CREATE TABLE IF NOT EXISTS products (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT COLLATE NOCASE UNIQUE,
+            name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+            description TEXT,
+            category_id INTEGER REFERENCES categories (id) ON DELETE SET NULL,
+            unit TEXT NOT NULL DEFAULT 'und',
+            price INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
+            cost INTEGER NOT NULL DEFAULT 0 CHECK (cost >= 0),
+            track_stock INTEGER NOT NULL DEFAULT 1 CHECK (track_stock IN (0, 1)),
+            stock_qty REAL NOT NULL DEFAULT 0,
+            min_stock REAL NOT NULL DEFAULT 0 CHECK (min_stock >= 0),
+            image_blob BLOB,
+            image_mime TEXT CHECK (
+                image_mime IS NULL OR image_mime IN ('image/png', 'image/jpeg', 'image/webp')
+            ),
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_products_name ON products (name COLLATE NOCASE);
+
+        CREATE TABLE IF NOT EXISTS inventory_movements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL REFERENCES products (id) ON DELETE RESTRICT,
+            kind TEXT NOT NULL CHECK (
+                kind IN ('initial', 'purchase', 'adjustment', 'sale', 'void_return')
+            ),
+            quantity REAL NOT NULL,
+            unit_cost INTEGER CHECK (unit_cost IS NULL OR unit_cost >= 0),
+            stock_after REAL NOT NULL,
+            reference_type TEXT,
+            reference_id INTEGER,
+            note TEXT,
+            created_by INTEGER REFERENCES app_users (id),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_movements_product ON inventory_movements (product_id, id);
+
+        CREATE TABLE IF NOT EXISTS document_sequences (
+            doc_type TEXT PRIMARY KEY NOT NULL CHECK (doc_type IN ('invoice', 'quote')),
+            prefix TEXT NOT NULL,
+            next_number INTEGER NOT NULL CHECK (next_number >= 1),
+            updated_at TEXT NOT NULL
+        );
+        INSERT OR IGNORE INTO document_sequences (doc_type, prefix, next_number, updated_at)
+            VALUES ('invoice', 'FAC-', 1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+        INSERT OR IGNORE INTO document_sequences (doc_type, prefix, next_number, updated_at)
+            VALUES ('quote', 'COT-', 1, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+
+        CREATE TABLE IF NOT EXISTS invoices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            number TEXT NOT NULL UNIQUE,
+            customer_id INTEGER REFERENCES customers (id) ON DELETE RESTRICT,
+            customer_name TEXT NOT NULL,
+            customer_document TEXT,
+            customer_phone TEXT,
+            customer_email TEXT,
+            customer_address TEXT,
+            issue_date TEXT NOT NULL,
+            due_date TEXT,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (
+                status IN ('pending', 'partial', 'paid', 'void')
+            ),
+            total INTEGER NOT NULL CHECK (total >= 0),
+            paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+            notes TEXT,
+            terms TEXT,
+            footer TEXT,
+            quote_id INTEGER REFERENCES quotes (id),
+            void_reason TEXT,
+            voided_at TEXT,
+            created_by INTEGER REFERENCES app_users (id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_invoices_issue_date ON invoices (issue_date);
+        CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices (customer_id);
+        CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices (status);
+
+        CREATE TABLE IF NOT EXISTS invoice_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL REFERENCES invoices (id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            product_id INTEGER REFERENCES products (id) ON DELETE SET NULL,
+            description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+            quantity REAL NOT NULL CHECK (quantity > 0),
+            unit_price INTEGER NOT NULL CHECK (unit_price >= 0),
+            unit_cost INTEGER NOT NULL DEFAULT 0 CHECK (unit_cost >= 0),
+            line_total INTEGER NOT NULL CHECK (line_total >= 0)
+        );
+        CREATE INDEX IF NOT EXISTS idx_invoice_lines_invoice ON invoice_lines (invoice_id);
+
+        CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL REFERENCES invoices (id) ON DELETE RESTRICT,
+            amount INTEGER NOT NULL CHECK (amount > 0),
+            method TEXT NOT NULL CHECK (method IN ('cash', 'transfer', 'card', 'other')),
+            paid_at TEXT NOT NULL,
+            note TEXT,
+            created_by INTEGER REFERENCES app_users (id),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments (invoice_id);
+        CREATE INDEX IF NOT EXISTS idx_payments_paid_at ON payments (paid_at);
+
+        CREATE TABLE IF NOT EXISTS quotes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            number TEXT NOT NULL UNIQUE,
+            customer_id INTEGER REFERENCES customers (id) ON DELETE RESTRICT,
+            customer_name TEXT NOT NULL,
+            customer_document TEXT,
+            customer_phone TEXT,
+            customer_email TEXT,
+            customer_address TEXT,
+            issue_date TEXT NOT NULL,
+            valid_until TEXT,
+            status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'converted', 'cancelled')),
+            total INTEGER NOT NULL CHECK (total >= 0),
+            notes TEXT,
+            terms TEXT,
+            footer TEXT,
+            converted_invoice_id INTEGER REFERENCES invoices (id),
+            created_by INTEGER REFERENCES app_users (id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_quotes_issue_date ON quotes (issue_date);
+
+        CREATE TABLE IF NOT EXISTS quote_lines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id INTEGER NOT NULL REFERENCES quotes (id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            product_id INTEGER REFERENCES products (id) ON DELETE SET NULL,
+            description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+            quantity REAL NOT NULL CHECK (quantity > 0),
+            unit_price INTEGER NOT NULL CHECK (unit_price >= 0),
+            line_total INTEGER NOT NULL CHECK (line_total >= 0)
+        );
+        CREATE INDEX IF NOT EXISTS idx_quote_lines_quote ON quote_lines (quote_id);
+
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL DEFAULT 'operating' CHECK (kind IN ('operating', 'inventory')),
+            category_id INTEGER REFERENCES categories (id) ON DELETE SET NULL,
+            description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+            amount INTEGER NOT NULL CHECK (amount > 0),
+            expense_date TEXT NOT NULL,
+            method TEXT NOT NULL DEFAULT 'cash' CHECK (method IN ('cash', 'transfer', 'card', 'other')),
+            supplier TEXT,
+            note TEXT,
+            product_id INTEGER REFERENCES products (id) ON DELETE SET NULL,
+            movement_id INTEGER REFERENCES inventory_movements (id) ON DELETE SET NULL,
+            created_by INTEGER REFERENCES app_users (id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses (expense_date);
+
+        INSERT OR IGNORE INTO categories (kind, name, created_at) VALUES
+            ('expense', 'Arriendo', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Servicios públicos (luz, agua, gas)', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Internet y teléfono', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Nómina y pagos a personal', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Transporte y envíos', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Mantenimiento y reparaciones', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Publicidad', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Impuestos y trámites', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Compras de inventario', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('expense', 'Otros gastos', strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('product', 'General', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+    ",
+    },
 ];
+
+/// Versión de esquema más reciente conocida por esta versión de la aplicación.
+pub fn target_schema_version() -> i64 {
+    MIGRATIONS.iter().map(|m| m.version).max().unwrap_or(0)
+}
 
 const VALID_THEMES: &[&str] = &["light", "dark", "system"];
 const ALLOWED_LOGO_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_SIZE_BYTES: usize = 2 * 1024 * 1024; // 2 MB
+const MAX_FAILED_LOGINS: u32 = 5;
+const LOGIN_LOCKOUT_SECONDS: u64 = 30;
 const UNAUTHORIZED_MSG: &str =
     "Acceso no autorizado: debes iniciar sesión con una cuenta válida para realizar esta operación.";
 
@@ -291,6 +497,16 @@ fn validate_and_decode_logo(
     base64_str: &str,
     mime_type: &str,
 ) -> Result<(Vec<u8>, String), String> {
+    validate_and_decode_image(base64_str, mime_type, MAX_LOGO_SIZE_BYTES, "El logotipo")
+}
+
+/// Decodifica una imagen Base64 validando tipo MIME permitido, tamaño máximo y firma de bytes.
+pub(crate) fn validate_and_decode_image(
+    base64_str: &str,
+    mime_type: &str,
+    max_bytes: usize,
+    label: &str,
+) -> Result<(Vec<u8>, String), String> {
     let normalized_mime = mime_type.trim().to_lowercase();
     if !ALLOWED_LOGO_MIMES.contains(&normalized_mime.as_str()) {
         return Err(
@@ -309,11 +525,15 @@ fn validate_and_decode_logo(
     })?;
 
     if bytes.is_empty() {
-        return Err("El archivo de imagen del logotipo está vacío.".to_string());
+        return Err(format!("{}: el archivo de imagen está vacío.", label));
     }
 
-    if bytes.len() > MAX_LOGO_SIZE_BYTES {
-        return Err("El logotipo supera el tamaño máximo permitido de 2 MB.".to_string());
+    if bytes.len() > max_bytes {
+        return Err(format!(
+            "{} supera el tamaño máximo permitido de {} KB.",
+            label,
+            max_bytes / 1024
+        ));
     }
 
     // Comprobación de firma mágica (Magic Bytes) para evitar archivos disfrazados
@@ -555,18 +775,28 @@ fn upsert_company_within_tx(
 
 /// Gestor centralizado de acceso a la base de datos SQLite local y estado de sesión en memoria.
 pub struct LocalDatabase {
-    db_path: PathBuf,
-    app_data_dir: PathBuf,
+    pub(crate) db_path: PathBuf,
+    pub(crate) app_data_dir: PathBuf,
+    /// Carpeta donde se guarda el puntero de ubicación personalizada de datos.
+    /// En la app es la carpeta predeterminada del sistema; en pruebas, una carpeta temporal.
+    pub(crate) pointer_dir: PathBuf,
     /// Identificador del usuario autenticado en la sesión actual (en memoria del proceso).
     /// Se reinicia automáticamente a `None` cuando se cierra y vuelve a abrir la aplicación.
     active_user_id: Option<i64>,
+    /// Intentos fallidos consecutivos de inicio de sesión (solo en memoria).
+    failed_login_attempts: u32,
+    /// Bloqueo temporal tras demasiados intentos fallidos (solo en memoria).
+    login_locked_until: Option<std::time::Instant>,
 }
 
 impl LocalDatabase {
     /// Inicializa la base de datos en el directorio estándar del sistema operativo.
     pub fn open_in_os_app_data() -> Result<Self, String> {
-        let app_data_dir = resolve_os_app_data_dir()?;
-        Self::open_in_dir(app_data_dir)
+        let default_dir = resolve_os_app_data_dir()?;
+        let effective_dir = crate::data_admin::resolve_effective_data_dir(&default_dir)?;
+        let mut db = Self::open_in_dir(effective_dir)?;
+        db.pointer_dir = default_dir;
+        Ok(db)
     }
 
     /// Inicializa la base de datos en un directorio específico.
@@ -578,8 +808,11 @@ impl LocalDatabase {
 
         let instance = Self {
             db_path,
+            pointer_dir: app_data_dir.clone(),
             app_data_dir,
             active_user_id: None,
+            failed_login_attempts: 0,
+            login_locked_until: None,
         };
         instance.initialize_and_migrate()?;
         Ok(instance)
@@ -593,11 +826,11 @@ impl LocalDatabase {
         self.app_data_dir.join("backups")
     }
 
-    fn connect(&self) -> Result<Connection, String> {
+    pub(crate) fn connect(&self) -> Result<Connection, String> {
         let conn = Connection::open(&self.db_path)
             .map_err(|e| format!("Error abriendo conexión SQLite en {:?}: {}", self.db_path, e))?;
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;",
+            "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;",
         )
         .map_err(|e| format!("Error configurando PRAGMAs de SQLite: {}", e))?;
         Ok(conn)
@@ -662,7 +895,7 @@ impl LocalDatabase {
 
     /// Ejecuta las migraciones pendientes dentro de transacciones atómicas, realizando un respaldo
     /// previo verificado si la base de datos ya tenía una versión anterior (AGENTS.md §3 y §9).
-    fn initialize_and_migrate(&self) -> Result<(), String> {
+    pub(crate) fn initialize_and_migrate(&self) -> Result<(), String> {
         let mut conn = self.connect()?;
 
         conn.execute_batch(
@@ -990,6 +1223,44 @@ impl LocalDatabase {
         if clean_username.is_empty() || password.is_empty() {
             return Err("Introduce tu nombre de usuario y contraseña.".to_string());
         }
+
+        if let Some(until) = self.login_locked_until {
+            let now_instant = std::time::Instant::now();
+            if now_instant < until {
+                let secs = (until - now_instant).as_secs() + 1;
+                return Err(format!(
+                    "Demasiados intentos fallidos. Espera {} segundos antes de volver a intentarlo.",
+                    secs
+                ));
+            }
+            self.login_locked_until = None;
+        }
+
+        let result = self.login_inner(clean_username, password);
+        match &result {
+            Ok(_) => {
+                self.failed_login_attempts = 0;
+            }
+            Err(msg) if msg.starts_with("Credenciales incorrectas") => {
+                self.failed_login_attempts += 1;
+                if self.failed_login_attempts >= MAX_FAILED_LOGINS {
+                    self.failed_login_attempts = 0;
+                    self.login_locked_until = Some(
+                        std::time::Instant::now()
+                            + Duration::from_secs(LOGIN_LOCKOUT_SECONDS),
+                    );
+                }
+            }
+            Err(_) => {}
+        }
+        result
+    }
+
+    fn login_inner(
+        &mut self,
+        clean_username: &str,
+        password: &str,
+    ) -> Result<AuthenticatedUserSummary, String> {
 
         let conn = self.connect()?;
         let row_opt: Option<(i64, String, i64)> = conn
@@ -1402,7 +1673,7 @@ impl LocalDatabase {
         Ok(SystemOverview {
             app_name: "Cartucho ERP".to_string(),
             app_version: env!("CARGO_PKG_VERSION").to_string(),
-            phase: "Fase 0 — Fundación Local-First".to_string(),
+            phase: "Fase 1 — Facturación y gestión local".to_string(),
             architecture_mode: "local-first".to_string(),
             os_platform: std::env::consts::OS.to_string(),
             os_arch: std::env::consts::ARCH.to_string(),
@@ -1462,9 +1733,9 @@ mod tests {
             assert_eq!(initial.engine, "SQLite");
             assert_eq!(initial.journal_mode.to_lowercase(), "wal");
             assert!(initial.foreign_keys_enabled);
-            assert_eq!(initial.schema_version, 3);
+            assert_eq!(initial.schema_version, target_schema_version());
             assert_eq!(initial.startup_count, 1);
-            assert_eq!(initial.applied_migrations.len(), 3);
+            assert_eq!(initial.applied_migrations.len() as i64, target_schema_version());
             assert_eq!(initial.recent_persistence_checks.len(), 1);
 
             // Inicialmente no hay empresa ni administrador configurados ni sesión activa
@@ -1499,7 +1770,7 @@ mod tests {
                 .expect("Debe generar overview tras reapertura");
 
             assert_eq!(overview_before_login.database.startup_count, 2);
-            assert_eq!(overview_before_login.database.schema_version, 3);
+            assert_eq!(overview_before_login.database.schema_version, target_schema_version());
             assert_eq!(overview_before_login.preferences.theme, "dark");
             assert!(overview_before_login.has_admin_user);
             // Al reabrir la app, la sesión está cerrada y exige iniciar sesión nuevamente
@@ -1650,7 +1921,7 @@ mod tests {
         let report = db.status_report().unwrap();
         let prefs = db.get_preferences().unwrap();
         let company = db.get_company_profile().unwrap().unwrap();
-        assert_eq!(report.schema_version, 3);
+        assert_eq!(report.schema_version, target_schema_version());
         assert_eq!(report.startup_count, 6);
         assert_eq!(prefs.theme, "dark");
         assert_eq!(company.trade_name, "Empresa Etapa 3");
@@ -1728,7 +1999,7 @@ mod tests {
         assert!(mig_result.is_err());
 
         let report = db.status_report().expect("Debe mantener estado íntegro");
-        assert_eq!(report.schema_version, 3);
+        assert_eq!(report.schema_version, target_schema_version());
     }
 
     #[test]
