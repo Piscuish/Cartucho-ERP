@@ -8,6 +8,8 @@ import { useAsync } from "../lib/hooks";
 import { fmtDate, fmtMonthLong, greeting, isOverdue, money, qty, todayISO } from "../lib/format";
 import { Alert, Button, EmptyState, InvoiceStatusBadge, SkeletonRows, StatCard } from "../components/ui";
 import { MonthlyBars } from "../components/charts";
+import { ChevronRight } from "lucide-react";
+import { NAV_DESCRIPTION, NAVIGATION } from "../config/moduleRegistry";
 
 export function DashboardPage({ navigate, overview }: PageProps) {
   const today = todayISO();
@@ -32,6 +34,9 @@ export function DashboardPage({ navigate, overview }: PageProps) {
         </div>
       </div>
 
+      {overview.preferences.appearance?.layout === "estudio" ? (
+        <ModuleTiles navigate={navigate} />
+      ) : (
       <div className="quick-actions">
         {access.canWrite("invoices") && (
         <button className="quick-action" onClick={() => navigate({ page: "invoice-new" })}>
@@ -78,6 +83,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
         </button>
         )}
       </div>
+      )}
 
       {error && <Alert tone="danger">{error}</Alert>}
 
@@ -402,5 +408,30 @@ function RestrictedDashboard({
         )}
       </div>
     </div>
+  );
+}
+
+/** Inicio del diseño Estudio: accesos grandes a cada módulo habilitado. */
+function ModuleTiles({ navigate }: { navigate: PageProps["navigate"] }) {
+  const access = useAccess();
+  const items = NAVIGATION.flatMap((g) => g.items).filter((i) => i.id !== "dashboard" && access.canOpen(i.route));
+  return (
+    <>
+      <h2 style={{ fontSize: 19, margin: "4px 0 2px" }}>Módulos</h2>
+      <p className="subtle" style={{ margin: "0 0 14px" }}>Gestiona las áreas de tu negocio desde aquí.</p>
+      <div className="module-tiles">
+        {items.map((i) => {
+          const Icon = i.icon;
+          return (
+            <button key={i.id} className="module-tile" onClick={() => navigate(i.route)}>
+              <Icon className="module-tile-icon" size={30} strokeWidth={1.6} />
+              <span className="module-tile-title">{i.label}</span>
+              <ChevronRight className="module-tile-arrow" size={18} />
+              <span className="module-tile-desc">{NAV_DESCRIPTION[i.id]}</span>
+            </button>
+          );
+        })}
+      </div>
+    </>
   );
 }

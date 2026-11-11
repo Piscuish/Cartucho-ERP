@@ -275,7 +275,7 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
 
 export function StatCard({ label, value, icon, tone = "accent", foot }: { label: string; value: ReactNode; icon: ReactNode; tone?: "accent" | "success" | "warning" | "danger" | "info"; foot?: ReactNode }) {
   return (
-    <div className="card stat">
+    <div className={`card stat stat-${tone}`}>
       <div className="stat-top">
         <span className="stat-label">{label}</span>
         <span className={`stat-icon ${tone !== "accent" ? `is-${tone}` : ""}`}>{icon}</span>

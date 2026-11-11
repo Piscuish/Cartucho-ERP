@@ -52,19 +52,24 @@ Siempre en colores claros, con logotipo opcional. Plantilla completa para Carta,
 - Al perder el foco, el título y los botones se atenúan, como en Windows 11.
 - Los modales y paneles quedan debajo de la barra (`.window-content` con `contain: layout paint`), así siempre se puede cerrar o minimizar.
 
-## Estilos visuales intercambiables (noviembre 2026)
+## Apariencia: diseño × fondo × color (noviembre 2026)
 
-Configuración › Apariencia › **Estilo visual** muestra una galería; el estilo se combina con claro/oscuro/sistema.
+Configuración › Apariencia tiene cinco partes que se combinan libremente:
 
-| Estilo | Personalidad |
-|---|---|
-| Violeta | El original: limpio, acento violeta. |
-| Océano | Azul profesional, menú lateral azul marino (también en tema claro). |
-| Bosque | Verde con neutros cálidos. |
-| Grafito | Blanco y negro, esquinas rectas, sin sombras. |
-| Coral | Naranja cálido, bordes muy redondeados. |
+1. **Combinaciones rápidas:** Violeta, Océano, Bosque, Coral, Neón, Panel, Medianoche, Estudio y Negro y azul. Aplican todo de una vez (incluido claro/oscuro).
+2. **Diseño** (estructura y forma):
+   - *Clásico*: menú con secciones y tarjetas limpias.
+   - *Neón*: fondo con brillo del acento y su color compañero, tarjetas de vidrio con borde de color, cifras en degradado.
+   - *Riel*: menú de íconos en cuadros de colores (cada sección con su color) y métricas en bloques de color sólidos.
+   - *Flotante*: la ventana flota sobre un degradado del acento; elemento activo en píldora brillante; tarjetas con tinte.
+   - *Estudio*: logo grande centrado, menú amplio sin secciones e inicio con accesos a cada módulo.
+3. **Tema:** claro, oscuro o según Windows.
+4. **Fondo:** oscuros (Pizarra, Grafito, Negro, Azul noche, Morado noche, Bosque noche) y claros (Blanco, Cálido, Hielo). Se guarda un fondo para cada tema.
+5. **Color de acento:** Violeta, Azul, Cian, Verde, Naranja, Rosa, Rojo, Ámbar y Blanco y negro, más el interruptor **Bordes del color de acento**.
 
-- Cada estilo es un bloque `[data-style="…"]` (y `[data-style="…"][data-theme="dark"]`) en `theme.css` que redefine variables.
-  Para agregar uno: el bloque CSS, una entrada en `VISUAL_STYLES` (`@cartucho/shared`) y su id en `VALID_VISUAL_STYLES` (Rust).
-- Se guarda en `_app_metadata` con la clave `visual_style` (sin migración). Un valor desconocido vuelve a «violeta».
-- Los colores sobre el acento usan `--on-accent`, para que funcionen acentos claros (Grafito oscuro, Bosque y Coral oscuros).
+Implementación:
+- Atributos en `<html>`: `data-theme`, `data-bg`, `data-accent`, `data-layout`, `data-borders`. Estilos en `styles/appearance.css`.
+- Las variantes suaves del acento se calculan con `color-mix()`; el texto sobre el acento usa `--on-accent`.
+- Se guarda como JSON en `_app_metadata` con la clave `appearance` (sin migración). Si no existe, se traduce el
+  `visual_style` de la versión anterior; un valor inválido vuelve a la apariencia por defecto.
+- Para agregar un fondo o acento: bloque CSS, entrada en `@cartucho/shared` (`LIGHT_BACKGROUNDS`, `DARK_BACKGROUNDS`, `ACCENTS`) y su id en las listas `VALID_*` de `db.rs`.

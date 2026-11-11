@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { CompleteInitialSetupInput, ResolvedTheme, SystemOverview, ThemePreference } from "@cartucho/shared";
+import { DEFAULT_APPEARANCE } from "@cartucho/shared";
 import { api, onLicenseChanged } from "./services/systemClient";
 import { AccessProvider, buildAccess } from "./lib/access";
 import { ActivationScreen } from "./components/license";
@@ -51,20 +52,27 @@ function AppInner() {
   const theme = useResolvedTheme(overview?.preferences.theme);
   useWindowTitle(overview?.company?.tradeName || "Cartucho ERP", overview?.company?.logoDataUrl ?? null);
 
-  const visualStyle = overview?.preferences.visualStyle ?? "violeta";
+  const appearance = overview?.preferences.appearance ?? DEFAULT_APPEARANCE;
 
-  // Tema y estilo se aplican en <html>; el cambio se anima brevemente.
+  // Tema, fondo, acento y diseño se aplican en <html>; el cambio se anima brevemente.
   useEffect(() => {
     const root = document.documentElement;
-    if (root.dataset.theme === theme && root.dataset.style === visualStyle) return;
+    const next: Record<string, string> = {
+      theme,
+      bg: theme === "dark" ? appearance.bgDark : appearance.bgLight,
+      accent: appearance.accent,
+      layout: appearance.layout,
+      borders: appearance.tintedBorders ? "accent" : "default",
+    };
+    const changed = Object.entries(next).some(([k, v]) => root.dataset[k] !== v);
+    if (!changed) return;
     const animate = !!root.dataset.theme;
     if (animate) root.classList.add("is-restyling");
-    root.dataset.theme = theme;
-    root.dataset.style = visualStyle;
+    Object.assign(root.dataset, next);
     if (!animate) return;
     const t = window.setTimeout(() => root.classList.remove("is-restyling"), 320);
     return () => window.clearTimeout(t);
-  }, [theme, visualStyle]);
+  }, [theme, appearance]);
 
   const load = useCallback(async () => {
     try {
@@ -192,6 +200,7 @@ function AppInner() {
       resolvedTheme={theme}
       onToggleTheme={toggleTheme}
       lowStockCount={access.can("inventory") ? lowStockCount : 0}
+      layout={appearance.layout}
       onLogout={async () => {
         setOverview(await api.logout());
         setHistory([]);

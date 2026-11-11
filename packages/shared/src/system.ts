@@ -55,61 +55,107 @@ export interface DatabaseStatusReport {
 
 export interface AppPreferences {
   theme: ThemePreference;
-  /** Estilo visual (paleta y forma). Ausente en versiones antiguas → "violeta". */
-  visualStyle?: VisualStyleId;
+  /** Diseño, fondos y color. Ausente en versiones antiguas → DEFAULT_APPEARANCE. */
+  appearance?: Appearance;
   updatedAt: string;
 }
 
-// ------------------------------------------------------------------ Estilos visuales
+// ------------------------------------------------------------------ Apariencia
 
-export type VisualStyleId = "violeta" | "oceano" | "bosque" | "grafito" | "coral";
+/** Diseño: estructura y forma (menú, tarjetas, esquinas). */
+export type LayoutId = "clasico" | "neon" | "riel" | "flotante" | "estudio";
+/** Fondos para el tema claro. */
+export type LightBgId = "blanco" | "calido" | "hielo";
+/** Fondos para el tema oscuro. */
+export type DarkBgId = "pizarra" | "grafito" | "negro" | "noche" | "morado" | "bosque";
+/** Color de botones, bordes activos y resaltados. */
+export type AccentId = "violeta" | "azul" | "cian" | "verde" | "naranja" | "rosa" | "rojo" | "ambar" | "mono";
 
-export interface VisualStyleInfo {
-  id: VisualStyleId;
-  label: string;
-  description: string;
-  /** Colores para la miniatura: [menú, fondo, tarjeta, acento, línea] en claro y oscuro. */
-  preview: { light: [string, string, string, string, string]; dark: [string, string, string, string, string] };
-  /** Radio de esquinas de la miniatura (px). */
-  radius: number;
+export interface Appearance {
+  layout: LayoutId;
+  bgLight: LightBgId;
+  bgDark: DarkBgId;
+  accent: AccentId;
+  /** Bordes de tarjetas y campos teñidos con el color de acento. */
+  tintedBorders: boolean;
 }
 
-export const VISUAL_STYLES: VisualStyleInfo[] = [
-  {
-    id: "violeta",
-    label: "Violeta",
-    description: "El estilo original: limpio, con acento violeta.",
-    preview: { light: ["#ffffff", "#f4f5f8", "#ffffff", "#6d5dd3", "#d0d5dd"], dark: ["#0a0d13", "#0e1117", "#161b24", "#8b7ff0", "#262d3a"] },
-    radius: 6,
-  },
-  {
-    id: "oceano",
-    label: "Océano",
-    description: "Azul profesional con menú lateral azul marino.",
-    preview: { light: ["#0c1a33", "#f2f5f9", "#ffffff", "#1f6feb", "#cbd4e1"], dark: ["#070e1b", "#0b111d", "#121a29", "#4c9aff", "#223049"] },
-    radius: 6,
-  },
-  {
-    id: "bosque",
-    label: "Bosque",
-    description: "Verde y tonos cálidos, tranquilo para todo el día.",
-    preview: { light: ["#fbfbf8", "#f5f5f1", "#ffffff", "#1f7a4d", "#d3d2c8"], dark: ["#0b0e0c", "#0f1210", "#161a17", "#4cc38a", "#28302a"] },
-    radius: 6,
-  },
-  {
-    id: "grafito",
-    label: "Grafito",
-    description: "Blanco y negro, esquinas rectas y sin sombras.",
-    preview: { light: ["#fafafa", "#f6f6f6", "#ffffff", "#18181b", "#cfcfcf"], dark: ["#09090a", "#0c0c0d", "#141415", "#f4f4f5", "#27272a"] },
-    radius: 2,
-  },
-  {
-    id: "coral",
-    label: "Coral",
-    description: "Naranja cálido y bordes muy redondeados, amigable.",
-    preview: { light: ["#fffdfb", "#faf7f5", "#ffffff", "#e8590c", "#ddd0c7"], dark: ["#100d0c", "#141110", "#1c1816", "#ff8a4c", "#322a26"] },
-    radius: 10,
-  },
+export const DEFAULT_APPEARANCE: Appearance = { layout: "clasico", bgLight: "blanco", bgDark: "pizarra", accent: "violeta", tintedBorders: false };
+
+export interface LayoutInfo {
+  id: LayoutId;
+  label: string;
+  description: string;
+}
+
+export const LAYOUTS: LayoutInfo[] = [
+  { id: "clasico", label: "Clásico", description: "Menú con secciones y tarjetas limpias." },
+  { id: "neon", label: "Neón", description: "Fondo con brillo de color y tarjetas de vidrio." },
+  { id: "riel", label: "Riel", description: "Menú de íconos de colores y métricas en bloques de color." },
+  { id: "flotante", label: "Flotante", description: "La ventana flota sobre un degradado; menú con píldora brillante." },
+  { id: "estudio", label: "Estudio", description: "Logo grande, menú amplio e inicio con módulos." },
+];
+
+/** Colores de muestra: fondo, tarjeta, menú lateral, línea y texto. */
+export interface BackgroundInfo<T extends string> {
+  id: T;
+  label: string;
+  swatch: { bg: string; surface: string; sidebar: string; line: string; text: string };
+}
+
+export const LIGHT_BACKGROUNDS: BackgroundInfo<LightBgId>[] = [
+  { id: "blanco", label: "Blanco", swatch: { bg: "#f4f5f8", surface: "#ffffff", sidebar: "#ffffff", line: "#e4e7ec", text: "#161b26" } },
+  { id: "calido", label: "Cálido", swatch: { bg: "#f6f4f0", surface: "#ffffff", sidebar: "#fbfaf7", line: "#e7e3da", text: "#1f1b16" } },
+  { id: "hielo", label: "Hielo", swatch: { bg: "#eef3f9", surface: "#ffffff", sidebar: "#f7faff", line: "#dde5f0", text: "#0f1a2b" } },
+];
+
+export const DARK_BACKGROUNDS: BackgroundInfo<DarkBgId>[] = [
+  { id: "pizarra", label: "Pizarra", swatch: { bg: "#0e1117", surface: "#161b24", sidebar: "#0a0d13", line: "#262d3a", text: "#e8ebf2" } },
+  { id: "grafito", label: "Grafito", swatch: { bg: "#18181a", surface: "#222225", sidebar: "#141416", line: "#2f2f33", text: "#ececee" } },
+  { id: "negro", label: "Negro", swatch: { bg: "#070708", surface: "#111113", sidebar: "#000000", line: "#232327", text: "#f2f2f3" } },
+  { id: "noche", label: "Azul noche", swatch: { bg: "#0b1220", surface: "#121b2d", sidebar: "#081022", line: "#223049", text: "#e6ecf5" } },
+  { id: "morado", label: "Morado noche", swatch: { bg: "#120d1f", surface: "#1a1430", sidebar: "#0d0919", line: "#2c2347", text: "#efeaf8" } },
+  { id: "bosque", label: "Bosque noche", swatch: { bg: "#0f1210", surface: "#161a17", sidebar: "#0b0e0c", line: "#28302a", text: "#e7ebe6" } },
+];
+
+export interface AccentInfo {
+  id: AccentId;
+  label: string;
+  light: string;
+  dark: string;
+}
+
+export const ACCENTS: AccentInfo[] = [
+  { id: "violeta", label: "Violeta", light: "#6d5dd3", dark: "#8b7ff0" },
+  { id: "azul", label: "Azul", light: "#1f6feb", dark: "#4c9aff" },
+  { id: "cian", label: "Cian", light: "#0891b2", dark: "#22d3ee" },
+  { id: "verde", label: "Verde", light: "#1f7a4d", dark: "#4cc38a" },
+  { id: "naranja", label: "Naranja", light: "#e8590c", dark: "#ff8a4c" },
+  { id: "rosa", label: "Rosa", light: "#d6336c", dark: "#f472b6" },
+  { id: "rojo", label: "Rojo", light: "#d92d20", dark: "#f87171" },
+  { id: "ambar", label: "Ámbar", light: "#b45309", dark: "#fbbf24" },
+  { id: "mono", label: "Blanco y negro", light: "#18181b", dark: "#f4f4f5" },
+];
+
+/** Combinaciones rápidas: aplican diseño, fondos, acento y tema de una vez. */
+export interface AppearancePreset {
+  id: string;
+  label: string;
+  description: string;
+  theme: "light" | "dark";
+  appearance: Appearance;
+}
+
+export const APPEARANCE_PRESETS: AppearancePreset[] = [
+  { id: "violeta", label: "Violeta", description: "El original.", theme: "light", appearance: { ...DEFAULT_APPEARANCE } },
+  { id: "oceano", label: "Océano", description: "Azul profesional.", theme: "light", appearance: { layout: "clasico", bgLight: "hielo", bgDark: "noche", accent: "azul", tintedBorders: false } },
+  { id: "bosque", label: "Bosque", description: "Verde y cálido.", theme: "light", appearance: { layout: "clasico", bgLight: "calido", bgDark: "bosque", accent: "verde", tintedBorders: false } },
+  { id: "coral", label: "Coral", description: "Naranja amigable.", theme: "light", appearance: { layout: "flotante", bgLight: "calido", bgDark: "grafito", accent: "naranja", tintedBorders: false } },
+  { id: "neon", label: "Neón", description: "Morado con brillo rosa.", theme: "dark", appearance: { layout: "neon", bgLight: "blanco", bgDark: "morado", accent: "rosa", tintedBorders: true } },
+  { id: "panel", label: "Panel", description: "Íconos de colores, azul noche.", theme: "dark", appearance: { layout: "riel", bgLight: "hielo", bgDark: "noche", accent: "azul", tintedBorders: false } },
+  { id: "medianoche", label: "Medianoche", description: "Negro con píldora violeta.", theme: "dark", appearance: { layout: "flotante", bgLight: "blanco", bgDark: "negro", accent: "violeta", tintedBorders: false } },
+  { id: "estudio", label: "Estudio", description: "Grafito y blanco, sobrio.", theme: "dark", appearance: { layout: "estudio", bgLight: "blanco", bgDark: "grafito", accent: "mono", tintedBorders: false } },
+  { id: "negro-azul", label: "Negro y azul", description: "Fondo negro, botones y bordes azules.", theme: "dark", appearance: { layout: "clasico", bgLight: "hielo", bgDark: "negro", accent: "azul", tintedBorders: true } },
 ];
 
 /**
@@ -287,6 +333,6 @@ export const TAURI_COMMANDS = {
   CHANGE_USER_PASSWORD: "change_user_password",
   RECORD_PERSISTENCE_CHECK: "record_persistence_check",
   SET_THEME_PREFERENCE: "set_theme_preference",
-  SET_VISUAL_STYLE: "set_visual_style",
+  SET_APPEARANCE: "set_appearance",
   SAVE_COMPANY_PROFILE: "save_company_profile",
 } as const;

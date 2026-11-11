@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { CSSProperties, useEffect, useState } from "react";
 import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, BadgeCheck, Check, Save, ShieldCheck } from "lucide-react";
 import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
-import { VISUAL_STYLES } from "@cartucho/shared";
+import { ACCENTS, APPEARANCE_PRESETS, DARK_BACKGROUNDS, DEFAULT_APPEARANCE, LAYOUTS, LIGHT_BACKGROUNDS } from "@cartucho/shared";
+import type { AccentId, Appearance, AppearancePreset, LayoutId } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { SETTINGS_TABS, SettingsTab } from "../config/moduleRegistry";
 import { api, isDesktop, pickBackupFile, pickFolder } from "../services/systemClient";
@@ -246,98 +247,217 @@ function BillingSettings() {
 
 // ------------------------------------------------------------------ Apariencia
 
+function LayoutMini({ layout, colors, accent }: { layout: LayoutId; colors: { bg: string; surface: string; sidebar: string; line: string; text: string }; accent: string }) {
+  const vars = {
+    "--m-bg": colors.bg,
+    "--m-surface": colors.surface,
+    "--m-side": colors.sidebar,
+    "--m-line": colors.line,
+    "--m-text": colors.text,
+    "--m-accent": accent,
+  } as CSSProperties;
+  const body = (
+    <>
+      <div className="lm-side">
+        <div className="lm-logo" />
+        <div className="lm-item on" />
+        <div className="lm-item" />
+        <div className="lm-item" />
+        <div className="lm-item" />
+      </div>
+      <div className="lm-main">
+        <div className="lm-row">
+          <div className="lm-top" />
+          <div className="lm-btn" />
+        </div>
+        <div className="lm-row">
+          <div className="lm-card" />
+          <div className="lm-card" />
+          <div className="lm-card" />
+        </div>
+        <div className="lm-card big" />
+      </div>
+    </>
+  );
+  return (
+    <div className={`lm is-${layout}`} style={vars}>
+      {layout === "flotante" ? <div className="lm-inner">{body}</div> : body}
+    </div>
+  );
+}
+
 function AppearanceSettings({ overview, setOverview }: PageProps) {
   const toast = useToast();
   const current = overview.preferences.theme;
+  const ap = overview.preferences.appearance ?? DEFAULT_APPEARANCE;
+  const dark = document.documentElement.dataset.theme === "dark";
+  const accentOf = (id: AccentId, isDark: boolean) => {
+    const a = ACCENTS.find((x) => x.id === id) ?? ACCENTS[0];
+    return isDark ? a.dark : a.light;
+  };
+  const swatchNow = dark
+    ? (DARK_BACKGROUNDS.find((b) => b.id === ap.bgDark) ?? DARK_BACKGROUNDS[0]).swatch
+    : (LIGHT_BACKGROUNDS.find((b) => b.id === ap.bgLight) ?? LIGHT_BACKGROUNDS[0]).swatch;
+
+  const save = async (patch: Partial<Appearance>, theme?: ThemePreference) => {
+    try {
+      setOverview(await api.setAppearance({ ...ap, ...patch }, theme));
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
+
   const options: { id: ThemePreference; label: string; light: boolean | null }[] = [
     { id: "light", label: "Claro", light: true },
     { id: "dark", label: "Oscuro", light: false },
     { id: "system", label: "Según el sistema", light: null },
   ];
-  const style = overview.preferences.visualStyle ?? "violeta";
-  const dark = document.documentElement.dataset.theme === "dark";
+  const presetActive = (p: AppearancePreset) =>
+    p.appearance.layout === ap.layout &&
+    p.appearance.accent === ap.accent &&
+    p.appearance.tintedBorders === ap.tintedBorders &&
+    (p.theme === "dark" ? p.appearance.bgDark === ap.bgDark && dark : p.appearance.bgLight === ap.bgLight && !dark);
+
   return (
     <>
-    <Section title="Estilo visual" desc="Colores, menú lateral y forma de toda la aplicación. Se combina con el tema claro u oscuro.">
-      <div className="style-gallery">
-        {VISUAL_STYLES.map((s) => {
-          const [side, bg, card, accent, line] = dark ? s.preview.dark : s.preview.light;
-          const r = s.radius;
-          return (
+      <Section title="Combinaciones rápidas" desc="Un clic aplica diseño, fondo y color. Después puedes ajustar cada parte por separado.">
+        <div className="ap-grid">
+          {APPEARANCE_PRESETS.map((p) => {
+            const isDark = p.theme === "dark";
+            const sw = isDark
+              ? DARK_BACKGROUNDS.find((b) => b.id === p.appearance.bgDark)!.swatch
+              : LIGHT_BACKGROUNDS.find((b) => b.id === p.appearance.bgLight)!.swatch;
+            const on = presetActive(p);
+            return (
+              <button key={p.id} type="button" className={`ap-card ${on ? "is-active" : ""}`} onClick={() => save(p.appearance, p.theme)}>
+                <LayoutMini layout={p.appearance.layout} colors={sw} accent={accentOf(p.appearance.accent, isDark)} />
+                <div className="ap-card-name">
+                  {p.label}
+                  {on && <Check size={16} color="var(--accent)" />}
+                </div>
+                <div className="ap-card-desc">{p.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section title="Diseño" desc="La forma del menú, las tarjetas y las esquinas.">
+        <div className="ap-grid">
+          {LAYOUTS.map((l) => (
+            <button key={l.id} type="button" className={`ap-card ${ap.layout === l.id ? "is-active" : ""}`} onClick={() => ap.layout !== l.id && save({ layout: l.id })}>
+              <LayoutMini layout={l.id} colors={swatchNow} accent={accentOf(ap.accent, dark)} />
+              <div className="ap-card-name">
+                {l.label}
+                {ap.layout === l.id && <Check size={16} color="var(--accent)" />}
+              </div>
+              <div className="ap-card-desc">{l.description}</div>
+            </button>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Tema" desc="Claro, oscuro o según la configuración de Windows. Cada uno usa su fondo elegido abajo.">
+        <div className="theme-options">
+          {options.map((o) => (
             <button
-              key={s.id}
-              type="button"
-              className={`style-card ${style === s.id ? "is-active" : ""}`}
+              key={o.id}
+              className={`theme-option ${current === o.id ? "is-active" : ""}`}
               onClick={async () => {
-                if (style === s.id) return;
                 try {
-                  setOverview(await api.setVisualStyle(s.id));
+                  setOverview(await api.setTheme(o.id));
                 } catch (e) {
                   toast(errorMessage(e), "error");
                 }
               }}
             >
-              <div className="style-mini" style={{ borderRadius: r + 3, background: bg }}>
-                <div className="style-mini-side" style={{ background: side, borderRight: `1px solid ${line}` }}>
-                  <div className="bar" style={{ width: "70%", background: accent }} />
-                  <div className="bar" style={{ width: "85%", background: line, opacity: 0.8 }} />
-                  <div className="bar" style={{ width: "60%", background: line, opacity: 0.8 }} />
-                  <div className="bar" style={{ width: "75%", background: line, opacity: 0.8 }} />
-                </div>
-                <div className="style-mini-main">
-                  <div className="style-mini-row">
-                    <div className="bar" style={{ flex: 1, background: line }} />
-                    <div style={{ width: 26, height: 10, borderRadius: Math.min(r, 5), background: accent }} />
-                  </div>
-                  <div className="style-mini-row">
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="style-mini-card" style={{ background: card, borderRadius: r, border: `1px solid ${line}` }} />
-                    ))}
-                  </div>
-                  <div className="style-mini-card" style={{ flex: "none", height: 22, background: card, borderRadius: r, border: `1px solid ${line}` }} />
+              <div className="theme-swatch">
+                <div className="s1" style={{ background: o.light === null ? "linear-gradient(180deg,#ffffff 50%,#0a0d13 50%)" : o.light ? "#ffffff" : "#0a0d13", borderRight: "1px solid #e4e7ec" }} />
+                <div className="s2" style={{ background: o.light === null ? "linear-gradient(90deg,#f4f5f8 50%,#0e1117 50%)" : o.light ? "#f4f5f8" : "#0e1117" }}>
+                  <div className="ln" style={{ width: "60%", background: "var(--accent)" }} />
+                  <div className="ln" style={{ width: "80%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
+                  <div className="ln" style={{ width: "45%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
                 </div>
               </div>
-              <div className="style-card-name">
-                {s.label}
-                {style === s.id && <Check size={16} color="var(--accent)" />}
-              </div>
-              <div className="style-card-desc">{s.description}</div>
+              <span style={{ fontWeight: 500 }}>{o.label}</span>
             </button>
-          );
-        })}
-      </div>
-    </Section>
-    <Section title="Tema" desc="Claro, oscuro o según la configuración de Windows.">
-      <div className="theme-options">
-        {options.map((o) => (
-          <button
-            key={o.id}
-            className={`theme-option ${current === o.id ? "is-active" : ""}`}
-            onClick={async () => {
-              try {
-                setOverview(await api.setTheme(o.id));
-              } catch (e) {
-                toast(errorMessage(e), "error");
-              }
-            }}
-          >
-            <div className="theme-swatch">
-              <div className="s1" style={{ background: o.light === null ? "linear-gradient(180deg,#ffffff 50%,#0a0d13 50%)" : o.light ? "#ffffff" : "#0a0d13", borderRight: "1px solid #e4e7ec" }} />
-              <div className="s2" style={{ background: o.light === null ? "linear-gradient(90deg,#f4f5f8 50%,#0e1117 50%)" : o.light ? "#f4f5f8" : "#0e1117" }}>
-                <div className="ln" style={{ width: "60%", background: "var(--accent)" }} />
-                <div className="ln" style={{ width: "80%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
-                <div className="ln" style={{ width: "45%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
-              </div>
-            </div>
-            <span style={{ fontWeight: 500 }}>{o.label}</span>
-          </button>
-        ))}
-      </div>
-      <p className="subtle mt-16" style={{ fontSize: 12.5 }}>
-        Atajos: Ctrl K para buscar · Ctrl B para contraer el menú.
-      </p>
-    </Section>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Fondo" desc="El color de la pantalla, las tarjetas y el menú. Al elegir uno se cambia al tema correspondiente.">
+        <div className="ap-subtitle">Oscuros</div>
+        <div className="swatch-row mb-16">
+          {DARK_BACKGROUNDS.map((b) => (
+            <BgSwatch key={b.id} label={b.label} sw={b.swatch} accent={accentOf(ap.accent, true)} active={ap.bgDark === b.id && dark} onClick={() => save({ bgDark: b.id }, dark ? undefined : "dark")} />
+          ))}
+        </div>
+        <div className="ap-subtitle">Claros</div>
+        <div className="swatch-row">
+          {LIGHT_BACKGROUNDS.map((b) => (
+            <BgSwatch key={b.id} label={b.label} sw={b.swatch} accent={accentOf(ap.accent, false)} active={ap.bgLight === b.id && !dark} onClick={() => save({ bgLight: b.id }, dark ? "light" : undefined)} />
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Color de acento" desc="Botones, elemento activo del menú, enlaces y resaltados.">
+        <div className="swatch-row">
+          {ACCENTS.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className={`accent-dot ${ap.accent === a.id ? "is-active" : ""}`}
+              style={{ background: dark ? a.dark : a.light }}
+              title={a.label}
+              aria-label={a.label}
+              onClick={() => ap.accent !== a.id && save({ accent: a.id })}
+            >
+              {ap.accent === a.id && <Check size={16} color={a.id === "mono" && dark ? "#111" : a.id === "ambar" && dark ? "#1c1302" : "#fff"} strokeWidth={3} />}
+            </button>
+          ))}
+        </div>
+        <div className="mt-16">
+          <Switch
+            checked={ap.tintedBorders}
+            onChange={(v) => save({ tintedBorders: v })}
+            label="Bordes del color de acento"
+            description="Tarjetas, campos y menú con bordes teñidos (por ejemplo, fondo negro con bordes azules)."
+          />
+        </div>
+        <p className="subtle mt-16" style={{ fontSize: 12.5 }}>
+          Atajos: Ctrl K para buscar · Ctrl B para contraer el menú.
+        </p>
+      </Section>
     </>
+  );
+}
+
+function BgSwatch({
+  label,
+  sw,
+  accent,
+  active,
+  onClick,
+}: {
+  label: string;
+  sw: { bg: string; surface: string; sidebar: string; line: string };
+  accent: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" className={`bg-swatch ${active ? "is-active" : ""}`} onClick={onClick}>
+      <span className="bg-swatch-box" style={{ background: sw.bg }}>
+        <span style={{ width: "30%", background: sw.sidebar, borderRight: `1px solid ${sw.line}`, display: "flex", flexDirection: "column", gap: 4, padding: "8px 5px" }}>
+          <span style={{ height: 4, borderRadius: 2, background: accent }} />
+          <span style={{ height: 4, borderRadius: 2, background: sw.line }} />
+        </span>
+        <span style={{ flex: 1, padding: 7 }}>
+          <span style={{ display: "block", height: "100%", borderRadius: 5, background: sw.surface, border: `1px solid ${sw.line}` }} />
+        </span>
+      </span>
+      {label}
+    </button>
   );
 }
 
