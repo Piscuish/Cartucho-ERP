@@ -4,6 +4,11 @@
   "description": "Permisos predeterminados para la ventana principal de Cartucho ERP",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
   ]
 }

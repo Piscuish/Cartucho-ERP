@@ -29,15 +29,30 @@ export function Button({
 }
 
 /* ==========================================================================
+   Divider
+   ========================================================================== */
+
+export function Divider() {
+  return <hr className="ui-divider" />;
+}
+
+/* ==========================================================================
    Input
    ========================================================================== */
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   helperText?: string;
+  errorText?: string;
 }
 
-export function Input({ label, helperText, id, ...props }: InputProps) {
+export function Input({
+  label,
+  helperText,
+  errorText,
+  id,
+  ...props
+}: InputProps) {
   return (
     <div className="ui-field">
       {label && (
@@ -46,7 +61,11 @@ export function Input({ label, helperText, id, ...props }: InputProps) {
         </label>
       )}
       <input id={id} className="ui-input" {...props} />
-      {helperText && <span className="ui-helper">{helperText}</span>}
+      {errorText ? (
+        <span className="ui-field-error">{errorText}</span>
+      ) : (
+        helperText && <span className="ui-helper">{helperText}</span>
+      )}
     </div>
   );
 }
@@ -63,12 +82,14 @@ export interface SelectOption {
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   helperText?: string;
+  errorText?: string;
   options: SelectOption[];
 }
 
 export function Select({
   label,
   helperText,
+  errorText,
   options,
   id,
   ...props
@@ -87,7 +108,11 @@ export function Select({
           </option>
         ))}
       </select>
-      {helperText && <span className="ui-helper">{helperText}</span>}
+      {errorText ? (
+        <span className="ui-field-error">{errorText}</span>
+      ) : (
+        helperText && <span className="ui-helper">{helperText}</span>
+      )}
     </div>
   );
 }
@@ -163,12 +188,7 @@ export function DataTable<T>({
   emptyMessage = "Sin registros disponibles.",
 }: DataTableProps<T>) {
   if (data.length === 0) {
-    return (
-      <EmptyState
-        title="Sin registros"
-        description={emptyMessage}
-      />
-    );
+    return <EmptyState title="Sin registros" description={emptyMessage} />;
   }
 
   return (
@@ -298,15 +318,17 @@ export function ToastRegion({ toasts, onDismiss }: ToastRegionProps) {
 export function EmptyState({
   title,
   description,
+  icon,
   action,
 }: {
   title: string;
   description: string;
+  icon?: React.ReactNode;
   action?: React.ReactNode;
 }) {
   return (
     <div className="ui-state-box">
-      <Inbox size={22} color="var(--text-secondary)" />
+      {icon ?? <Inbox size={22} color="var(--text-secondary)" />}
       <h3 className="ui-state-title">{title}</h3>
       <p className="ui-state-description">{description}</p>
       {action && <div style={{ marginTop: 6 }}>{action}</div>}
@@ -314,7 +336,11 @@ export function EmptyState({
   );
 }
 
-export function LoadingState({ message = "Cargando información del sistema..." }: { message?: string }) {
+export function LoadingState({
+  message = "Cargando espacio de trabajo...",
+}: {
+  message?: string;
+}) {
   return (
     <div className="ui-state-box" style={{ margin: "48px auto", maxWidth: 460 }}>
       <Loader2 size={22} color="var(--text-secondary)" />

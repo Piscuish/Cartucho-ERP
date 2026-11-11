@@ -1,9 +1,16 @@
+use argon2::{Algorithm, Argon2, Params, Version};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
 use chrono::Utc;
 use directories::ProjectDirs;
-use rusqlite::{params, Connection};
+use password_hash::rand_core::OsRng;
+use password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use rusqlite::backup::Backup;
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Registro de una migración aplicada en SQLite.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -51,7 +58,92 @@ pub struct AppPreferences {
     pub updated_at: String,
 }
 
-/// Estado general de diagnóstico del sistema devuelto por la capa nativa Rust.
+/// Perfil de la única empresa configurada en la instalación.
+/// Separa conceptualmente: tipo de negocio, módulos habilitados, plan comercial y complementos.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompanyProfile {
+    pub trade_name: String,
+    pub legal_name: Option<String>,
+    pub tax_id: Option<String>,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub logo_data_url: Option<String>,
+    pub logo_mime_type: Option<String>,
+    pub business_profile_key: String,
+    pub commercial_plan_key: String,
+    pub enabled_module_keys: Vec<String>,
+    pub enabled_addon_keys: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Datos de entrada para crear o actualizar la empresa.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveCompanyProfileInput {
+    pub trade_name: String,
+    pub legal_name: Option<String>,
+    pub tax_id: Option<String>,
+    pub address: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub logo_base64: Option<String>,
+    pub logo_mime_type: Option<String>,
+    #[serde(default)]
+    pub remove_logo: bool,
+}
+
+/// Datos de entrada para registrar al primer administrador durante la configuración inicial.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateInitialAdminInput {
+    pub full_name: String,
+    pub username: String,
+    pub password: String,
+    pub password_confirm: String,
+}
+
+/// Entrada atómica para completar la configuración inicial (Empresa + Primer Administrador).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CompleteInitialSetupInput {
+    pub company: SaveCompanyProfileInput,
+    pub admin: CreateInitialAdminInput,
+}
+
+/// Datos de entrada para iniciar sesión local.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginInput {
+    pub username: String,
+    pub password: String,
+}
+
+/// Datos de entrada para cambiar la contraseña del usuario autenticado.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangePasswordInput {
+    pub current_password: String,
+    pub new_password: String,
+    pub new_password_confirm: String,
+}
+
+/// Resumen seguro del usuario autenticado (jamás incluye `password_hash` ni secretos).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthenticatedUserSummary {
+    pub id: i64,
+    pub full_name: String,
+    pub username: String,
+    pub role: String,
+    pub permissions: Vec<String>,
+    pub created_at: String,
+    pub last_login_at: Option<String>,
+}
+
+/// Estado general de diagnóstico y configuración del sistema devuelto por la capa nativa Rust.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemOverview {
@@ -64,6 +156,10 @@ pub struct SystemOverview {
     pub runtime_mode: String,
     pub preferences: AppPreferences,
     pub database: DatabaseStatusReport,
+    pub company: Option<CompanyProfile>,
+    pub has_admin_user: bool,
+    pub is_authenticated: bool,
+    pub current_user: Option<AuthenticatedUserSummary>,
 }
 
 /// Resuelve el directorio de datos de aplicación nativo del sistema operativo:
@@ -91,10 +187,13 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "0001_init_system_metadata_preferences_and_persistence_checks",
-    sql: "
+/// Lista ordenada e inmutable de migraciones de esquema SQLite.
+/// IMPORTANTE (AGENTS.md §3.2): Las migraciones publicadas jamás deben modificarse ni renombrarse.
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "0001_init_system_metadata_preferences_and_persistence_checks",
+        sql: "
         CREATE TABLE IF NOT EXISTS _app_metadata (
             key TEXT PRIMARY KEY NOT NULL,
             value TEXT NOT NULL,
@@ -107,14 +206,360 @@ const MIGRATIONS: &[Migration] = &[Migration {
             created_at TEXT NOT NULL
         );
     ",
-}];
+    },
+    Migration {
+        version: 2,
+        name: "0002_create_company_profile_and_installation_entitlements",
+        sql: "
+        CREATE TABLE IF NOT EXISTS company_profile (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            trade_name TEXT NOT NULL CHECK (length(trim(trade_name)) > 0),
+            legal_name TEXT,
+            tax_id TEXT,
+            address TEXT,
+            phone TEXT,
+            email TEXT,
+            logo_blob BLOB,
+            logo_mime_type TEXT CHECK (
+                logo_mime_type IS NULL OR logo_mime_type IN ('image/png', 'image/jpeg', 'image/webp')
+            ),
+            business_profile_key TEXT NOT NULL DEFAULT 'general',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS installation_entitlements (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            commercial_plan_key TEXT NOT NULL DEFAULT 'local-standard',
+            enabled_modules_json TEXT NOT NULL DEFAULT '[]',
+            enabled_addons_json TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL
+        );
+    ",
+    },
+    Migration {
+        version: 3,
+        name: "0003_create_app_users_and_permissions",
+        sql: "
+        CREATE TABLE IF NOT EXISTS app_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(username)) >= 3),
+            full_name TEXT NOT NULL CHECK (length(trim(full_name)) > 0),
+            password_hash TEXT NOT NULL CHECK (length(password_hash) > 0),
+            role_key TEXT NOT NULL DEFAULT 'admin' CHECK (length(trim(role_key)) > 0),
+            permissions_json TEXT NOT NULL DEFAULT '[\"*\"]',
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_login_at TEXT
+        );
+    ",
+    },
+];
 
 const VALID_THEMES: &[&str] = &["light", "dark", "system"];
+const ALLOWED_LOGO_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp"];
+const MAX_LOGO_SIZE_BYTES: usize = 2 * 1024 * 1024; // 2 MB
+const UNAUTHORIZED_MSG: &str =
+    "Acceso no autorizado: debes iniciar sesión con una cuenta válida para realizar esta operación.";
 
-/// Gestor centralizado de acceso a la base de datos SQLite local.
+fn normalize_optional_field(
+    val: &Option<String>,
+    max_len: usize,
+    field_label: &str,
+) -> Result<Option<String>, String> {
+    match val {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else if trimmed.chars().count() > max_len {
+                Err(format!(
+                    "El campo '{}' no puede superar los {} caracteres.",
+                    field_label, max_len
+                ))
+            } else {
+                Ok(Some(trimmed.to_string()))
+            }
+        }
+        None => Ok(None),
+    }
+}
+
+/// Valida que el tipo MIME y la firma mágica de bytes correspondan realmente a PNG, JPEG o WEBP.
+fn validate_and_decode_logo(
+    base64_str: &str,
+    mime_type: &str,
+) -> Result<(Vec<u8>, String), String> {
+    let normalized_mime = mime_type.trim().to_lowercase();
+    if !ALLOWED_LOGO_MIMES.contains(&normalized_mime.as_str()) {
+        return Err(
+            "Formato de logotipo no permitido. Utiliza únicamente imágenes PNG, JPEG o WEBP."
+                .to_string(),
+        );
+    }
+
+    let clean_b64 = match base64_str.find(",") {
+        Some(idx) => &base64_str[idx + 1..],
+        None => base64_str.trim(),
+    };
+
+    let bytes = BASE64_STANDARD.decode(clean_b64).map_err(|_| {
+        "El archivo de imagen seleccionado no tiene una codificación Base64 válida.".to_string()
+    })?;
+
+    if bytes.is_empty() {
+        return Err("El archivo de imagen del logotipo está vacío.".to_string());
+    }
+
+    if bytes.len() > MAX_LOGO_SIZE_BYTES {
+        return Err("El logotipo supera el tamaño máximo permitido de 2 MB.".to_string());
+    }
+
+    // Comprobación de firma mágica (Magic Bytes) para evitar archivos disfrazados
+    let matches_signature = match normalized_mime.as_str() {
+        "image/png" => bytes.len() >= 8 && &bytes[0..8] == b"\x89PNG\r\n\x1a\n",
+        "image/jpeg" => bytes.len() >= 3 && &bytes[0..3] == b"\xFF\xD8\xFF",
+        "image/webp" => {
+            bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP"
+        }
+        _ => false,
+    };
+
+    if !matches_signature {
+        return Err(
+            "El contenido binario del archivo no coincide con el formato de imagen declarado (PNG, JPEG o WEBP)."
+                .to_string(),
+        );
+    }
+
+    Ok((bytes, normalized_mime))
+}
+
+struct ValidatedCompanyFields {
+    trade_name: String,
+    legal_name: Option<String>,
+    tax_id: Option<String>,
+    address: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
+    decoded_logo: Option<(Vec<u8>, String)>,
+    remove_logo: bool,
+}
+
+fn validate_company_input(input: &SaveCompanyProfileInput) -> Result<ValidatedCompanyFields, String> {
+    let trade_name = input.trade_name.trim();
+    if trade_name.is_empty() {
+        return Err("El nombre comercial de la empresa es obligatorio.".to_string());
+    }
+    if trade_name.chars().count() > 120 {
+        return Err("El nombre comercial no puede exceder los 120 caracteres.".to_string());
+    }
+
+    let legal_name = normalize_optional_field(&input.legal_name, 160, "Razón social")?;
+    let tax_id =
+        normalize_optional_field(&input.tax_id, 50, "Identificación tributaria / NIT")?;
+    let address = normalize_optional_field(&input.address, 220, "Dirección")?;
+    let phone = normalize_optional_field(&input.phone, 40, "Teléfono")?;
+    let email = normalize_optional_field(&input.email, 120, "Correo electrónico")?;
+
+    if let Some(ref mail) = email {
+        if !mail.contains('@') || mail.starts_with('@') || mail.ends_with('@') {
+            return Err(
+                "El correo electrónico de la empresa no tiene un formato válido.".to_string(),
+            );
+        }
+    }
+
+    let decoded_logo: Option<(Vec<u8>, String)> =
+        match (&input.logo_base64, &input.logo_mime_type) {
+            (Some(b64), Some(mime)) if !b64.trim().is_empty() => {
+                Some(validate_and_decode_logo(b64, mime)?)
+            }
+            _ => None,
+        };
+
+    Ok(ValidatedCompanyFields {
+        trade_name: trade_name.to_string(),
+        legal_name,
+        tax_id,
+        address,
+        phone,
+        email,
+        decoded_logo,
+        remove_logo: input.remove_logo,
+    })
+}
+
+struct ValidatedAdminFields {
+    full_name: String,
+    username: String,
+    password_hash: String,
+}
+
+/// Genera un hash seguro de contraseña usando Argon2id (v19) con sal aleatoria criptográfica.
+/// Cumple estrictamente AGENTS.md §6.1, §6.2 y §6.3.
+fn hash_password_argon2id(plain_password: &str) -> Result<String, String> {
+    let salt = SaltString::generate(&mut OsRng);
+    let params = Params::default();
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let hash = argon2
+        .hash_password(plain_password.as_bytes(), &salt)
+        .map_err(|_| "Error interno al generar el hash seguro de la contraseña.".to_string())?;
+    Ok(hash.to_string())
+}
+
+/// Verifica una contraseña contra un hash Argon2id almacenado sin filtrar detalles internos.
+fn verify_password_argon2id(plain_password: &str, stored_hash: &str) -> bool {
+    let parsed_hash = match PasswordHash::new(stored_hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default());
+    argon2
+        .verify_password(plain_password.as_bytes(), &parsed_hash)
+        .is_ok()
+}
+
+fn validate_and_hash_admin_input(
+    input: &CreateInitialAdminInput,
+) -> Result<ValidatedAdminFields, String> {
+    let full_name = input.full_name.trim();
+    if full_name.is_empty() {
+        return Err("El nombre del administrador es obligatorio.".to_string());
+    }
+    if full_name.chars().count() > 120 {
+        return Err(
+            "El nombre del administrador no puede superar los 120 caracteres.".to_string(),
+        );
+    }
+
+    let username = input.username.trim();
+    if username.chars().count() < 3 {
+        return Err(
+            "El nombre de usuario debe tener al menos 3 caracteres.".to_string(),
+        );
+    }
+    if username.chars().count() > 40 {
+        return Err(
+            "El nombre de usuario no puede superar los 40 caracteres.".to_string(),
+        );
+    }
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+    {
+        return Err(
+            "El nombre de usuario solo puede contener letras, números, puntos, guiones o guiones bajos (sin espacios)."
+                .to_string(),
+        );
+    }
+
+    let password_len = input.password.chars().count();
+    if password_len < 8 {
+        return Err("La contraseña debe tener al menos 8 caracteres.".to_string());
+    }
+    if password_len > 128 {
+        return Err("La contraseña no puede superar los 128 caracteres.".to_string());
+    }
+    if input.password != input.password_confirm {
+        return Err("La confirmación de la contraseña no coincide.".to_string());
+    }
+
+    let password_hash = hash_password_argon2id(&input.password)?;
+
+    Ok(ValidatedAdminFields {
+        full_name: full_name.to_string(),
+        username: username.to_string(),
+        password_hash,
+    })
+}
+
+fn upsert_company_within_tx(
+    tx: &Transaction<'_>,
+    fields: &ValidatedCompanyFields,
+    now: &str,
+) -> Result<(), String> {
+    let existing: Option<(Option<Vec<u8>>, Option<String>, String)> = tx
+        .query_row(
+            "SELECT logo_blob, logo_mime_type, created_at FROM company_profile WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| format!("Error consultando perfil de empresa existente: {}", e))?;
+
+    let (final_logo_blob, final_logo_mime, created_at) = match existing {
+        Some((prev_blob, prev_mime, prev_created)) => {
+            if fields.remove_logo {
+                (None, None, prev_created)
+            } else if let Some((ref new_bytes, ref new_mime)) = fields.decoded_logo {
+                (Some(new_bytes.clone()), Some(new_mime.clone()), prev_created)
+            } else {
+                (prev_blob, prev_mime, prev_created)
+            }
+        }
+        None => {
+            if let Some((ref new_bytes, ref new_mime)) = fields.decoded_logo {
+                (
+                    Some(new_bytes.clone()),
+                    Some(new_mime.clone()),
+                    now.to_string(),
+                )
+            } else {
+                (None, None, now.to_string())
+            }
+        }
+    };
+
+    tx.execute(
+        "INSERT INTO company_profile (
+            id, trade_name, legal_name, tax_id, address, phone, email,
+            logo_blob, logo_mime_type, business_profile_key, created_at, updated_at
+         )
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'general', ?9, ?10)
+         ON CONFLICT(id) DO UPDATE SET
+            trade_name = excluded.trade_name,
+            legal_name = excluded.legal_name,
+            tax_id = excluded.tax_id,
+            address = excluded.address,
+            phone = excluded.phone,
+            email = excluded.email,
+            logo_blob = excluded.logo_blob,
+            logo_mime_type = excluded.logo_mime_type,
+            updated_at = excluded.updated_at",
+        params![
+            &fields.trade_name,
+            &fields.legal_name,
+            &fields.tax_id,
+            &fields.address,
+            &fields.phone,
+            &fields.email,
+            final_logo_blob,
+            final_logo_mime,
+            created_at,
+            now
+        ],
+    )
+    .map_err(|e| format!("Error guardando los datos de la empresa en SQLite: {}", e))?;
+
+    tx.execute(
+        "INSERT OR IGNORE INTO installation_entitlements (id, commercial_plan_key, enabled_modules_json, enabled_addons_json, updated_at)
+         VALUES (1, 'local-standard', '[]', '[]', ?1)",
+        params![now],
+    )
+    .map_err(|e| format!("Error asegurando installation_entitlements: {}", e))?;
+
+    Ok(())
+}
+
+/// Gestor centralizado de acceso a la base de datos SQLite local y estado de sesión en memoria.
 pub struct LocalDatabase {
     db_path: PathBuf,
     app_data_dir: PathBuf,
+    /// Identificador del usuario autenticado en la sesión actual (en memoria del proceso).
+    /// Se reinicia automáticamente a `None` cuando se cierra y vuelve a abrir la aplicación.
+    active_user_id: Option<i64>,
 }
 
 impl LocalDatabase {
@@ -134,6 +579,7 @@ impl LocalDatabase {
         let instance = Self {
             db_path,
             app_data_dir,
+            active_user_id: None,
         };
         instance.initialize_and_migrate()?;
         Ok(instance)
@@ -143,17 +589,108 @@ impl LocalDatabase {
         &self.db_path
     }
 
+    pub fn backups_dir(&self) -> PathBuf {
+        self.app_data_dir.join("backups")
+    }
+
     fn connect(&self) -> Result<Connection, String> {
         let conn = Connection::open(&self.db_path)
             .map_err(|e| format!("Error abriendo conexión SQLite en {:?}: {}", self.db_path, e))?;
-        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;")
-            .map_err(|e| format!("Error configurando PRAGMAs de SQLite: {}", e))?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;",
+        )
+        .map_err(|e| format!("Error configurando PRAGMAs de SQLite: {}", e))?;
         Ok(conn)
     }
 
-    /// Ejecuta las migraciones pendientes dentro de transacciones atómicas y actualiza metadatos de inicio.
+    /// Crea una copia de seguridad consistente utilizando la API Online Backup de SQLite
+    /// y comprueba que supere `PRAGMA integrity_check` (AGENTS.md §4.1, §4.2, §4.3).
+    pub fn create_verified_backup(&self, reason_tag: &str) -> Result<PathBuf, String> {
+        let src_conn = self.connect()?;
+        let backups_dir = self.backups_dir();
+        fs::create_dir_all(&backups_dir).map_err(|e| {
+            format!(
+                "No se pudo crear el directorio de copias de seguridad {:?}: {}",
+                backups_dir, e
+            )
+        })?;
+
+        let timestamp = Utc::now().format("%Y%m%d_%H%M%S_%f");
+        let file_name = format!("cartucho_erp_{}_{}.sqlite3", reason_tag, timestamp);
+        let backup_path = backups_dir.join(file_name);
+
+        {
+            let mut dst_conn = Connection::open(&backup_path).map_err(|e| {
+                format!(
+                    "No se pudo abrir archivo de respaldo destino {:?}: {}",
+                    backup_path, e
+                )
+            })?;
+            let backup = Backup::new(&src_conn, &mut dst_conn).map_err(|e| {
+                format!("No se pudo inicializar el motor de respaldo de SQLite: {}", e)
+            })?;
+            backup
+                .run_to_completion(100, Duration::from_millis(10), None)
+                .map_err(|e| format!("Error ejecutando Online Backup de SQLite: {}", e))?;
+        }
+
+        // Verificar que la copia pueda abrirse y supere PRAGMA integrity_check
+        let verify_conn = Connection::open(&backup_path).map_err(|e| {
+            format!(
+                "Error reabriendo copia de seguridad para verificación: {}",
+                e
+            )
+        })?;
+        let integrity: String = verify_conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .map_err(|e| {
+                format!(
+                    "Error ejecutando PRAGMA integrity_check en respaldo: {}",
+                    e
+                )
+            })?;
+
+        if integrity.to_lowercase() != "ok" {
+            return Err(format!(
+                "La copia de seguridad generada no superó la prueba de integridad: {}",
+                integrity
+            ));
+        }
+
+        Ok(backup_path)
+    }
+
+    /// Ejecuta las migraciones pendientes dentro de transacciones atómicas, realizando un respaldo
+    /// previo verificado si la base de datos ya tenía una versión anterior (AGENTS.md §3 y §9).
     fn initialize_and_migrate(&self) -> Result<(), String> {
         let mut conn = self.connect()?;
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS _schema_migrations (
+                version INTEGER PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            );",
+        )
+        .map_err(|e| format!("Error asegurando tabla _schema_migrations: {}", e))?;
+
+        let current_version: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM _schema_migrations",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Error consultando versión actual de esquema: {}", e))?;
+
+        let target_version = MIGRATIONS.iter().map(|m| m.version).max().unwrap_or(0);
+
+        // Si ya existía una versión previa (> 0) y hay migraciones nuevas pendientes,
+        // crear primero una copia de seguridad verificada antes de migrar.
+        if current_version > 0 && current_version < target_version {
+            let reason = format!("pre_migration_v{}_to_v{}", current_version, target_version);
+            self.create_verified_backup(&reason)?;
+        }
+
         Self::apply_migrations_slice(&mut conn, MIGRATIONS)?;
 
         let now = Utc::now().to_rfc3339();
@@ -171,6 +708,14 @@ impl LocalDatabase {
             params![&now],
         )
         .map_err(|e| format!("Error inicializando theme_preference: {}", e))?;
+
+        // Asegurar fila única en installation_entitlements (con lista de módulos vacía '[]' por defecto)
+        conn.execute(
+            "INSERT OR IGNORE INTO installation_entitlements (id, commercial_plan_key, enabled_modules_json, enabled_addons_json, updated_at)
+             VALUES (1, 'local-standard', '[]', '[]', ?1)",
+            params![&now],
+        )
+        .map_err(|e| format!("Error inicializando installation_entitlements: {}", e))?;
 
         // Incrementar contador de aperturas (startup_count)
         let current_count: i64 = conn
@@ -220,7 +765,10 @@ impl LocalDatabase {
         Ok(())
     }
 
-    fn apply_migrations_slice(conn: &mut Connection, migrations: &[Migration]) -> Result<(), String> {
+    fn apply_migrations_slice(
+        conn: &mut Connection,
+        migrations: &[Migration],
+    ) -> Result<(), String> {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS _schema_migrations (
                 version INTEGER PRIMARY KEY NOT NULL,
@@ -239,36 +787,419 @@ impl LocalDatabase {
                     params![migration.version],
                     |row| row.get(0),
                 )
-                .map_err(|e| format!("Error consultando migración {}: {}", migration.version, e))?;
+                .map_err(|e| {
+                    format!(
+                        "Error consultando migración {}: {}",
+                        migration.version, e
+                    )
+                })?;
 
             if !already_applied {
-                let tx = conn
-                    .transaction()
-                    .map_err(|e| format!("Error abriendo transacción para migración {}: {}", migration.name, e))?;
+                let tx = conn.transaction().map_err(|e| {
+                    format!(
+                        "Error abriendo transacción para migración {}: {}",
+                        migration.name, e
+                    )
+                })?;
                 tx.execute_batch(migration.sql).map_err(|e| {
-                    format!("Error ejecutando SQL en migración {}: {}", migration.name, e)
+                    format!(
+                        "Error ejecutando SQL en migración {}: {}",
+                        migration.name, e
+                    )
                 })?;
                 tx.execute(
                     "INSERT INTO _schema_migrations (version, name, applied_at) VALUES (?1, ?2, ?3)",
                     params![migration.version, migration.name, &now],
                 )
-                .map_err(|e| format!("Error registrando migración {}: {}", migration.name, e))?;
-                tx.commit()
-                    .map_err(|e| format!("Error confirmando transacción de migración {}: {}", migration.name, e))?;
+                .map_err(|e| {
+                    format!(
+                        "Error registrando migración {}: {}",
+                        migration.name, e
+                    )
+                })?;
+                tx.commit().map_err(|e| {
+                    format!(
+                        "Error confirmando transacción de migración {}: {}",
+                        migration.name, e
+                    )
+                })?;
             }
         }
 
         Ok(())
     }
 
+    /// Indica si ya existe al menos un usuario administrador activo en la base de datos.
+    pub fn has_admin_user(&self) -> Result<bool, String> {
+        let conn = self.connect()?;
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM app_users WHERE role_key = 'admin' AND is_active = 1)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Error consultando existencia de administrador: {}", e))?;
+        Ok(exists)
+    }
+
+    /// Obtiene el resumen seguro del usuario autenticado actualmente en memoria, si existe y está activo.
+    pub fn get_authenticated_user(&self) -> Result<Option<AuthenticatedUserSummary>, String> {
+        let user_id = match self.active_user_id {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+
+        let conn = self.connect()?;
+        self.fetch_user_summary_by_id(&conn, user_id)
+    }
+
+    fn fetch_user_summary_by_id(
+        &self,
+        conn: &Connection,
+        user_id: i64,
+    ) -> Result<Option<AuthenticatedUserSummary>, String> {
+        conn.query_row(
+            "SELECT id, full_name, username, role_key, permissions_json, created_at, last_login_at
+             FROM app_users
+             WHERE id = ?1 AND is_active = 1",
+            params![user_id],
+            |row| {
+                let perms_raw: String = row.get(4)?;
+                let permissions: Vec<String> =
+                    serde_json::from_str(&perms_raw).unwrap_or_else(|_| vec!["*".to_string()]);
+                Ok(AuthenticatedUserSummary {
+                    id: row.get(0)?,
+                    full_name: row.get(1)?,
+                    username: row.get(2)?,
+                    role: row.get(3)?,
+                    permissions,
+                    created_at: row.get(5)?,
+                    last_login_at: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Error consultando usuario autenticado: {}", e))
+    }
+
+    /// Verifica obligatoriamente que exista una sesión autenticada válida en el backend Rust.
+    pub fn require_authenticated_user(&self) -> Result<AuthenticatedUserSummary, String> {
+        match self.get_authenticated_user()? {
+            Some(user) => Ok(user),
+            None => Err(UNAUTHORIZED_MSG.to_string()),
+        }
+    }
+
+    /// Completa de manera ATÓMICA la configuración inicial de la instalación:
+    /// registra los datos de la empresa y crea el primer administrador dentro de una sola
+    /// transacción SQLite, e inicia sesión automáticamente.
+    ///
+    /// Reglas de seguridad:
+    /// - Si ya existe un administrador registrado, rechaza la operación (impide crear un segundo
+    ///   administrador por esta vía).
+    /// - Si falla cualquier validación o inserción, toda la transacción se revierte para que
+    ///   jamás quede una empresa configurada sin administrador.
+    pub fn complete_initial_setup(
+        &mut self,
+        input: &CompleteInitialSetupInput,
+    ) -> Result<AuthenticatedUserSummary, String> {
+        // Comprobación previa antes de calcular el hash Argon2id
+        if self.has_admin_user()? {
+            return Err(
+                "Operación denegada: la configuración inicial ya fue completada y ya existe un administrador registrado."
+                    .to_string(),
+            );
+        }
+
+        // Validar datos de empresa y de administrador antes de abrir la transacción de escritura
+        let validated_company = validate_company_input(&input.company)?;
+        let validated_admin = validate_and_hash_admin_input(&input.admin)?;
+
+        let mut conn = self.connect()?;
+        let tx = conn.transaction().map_err(|e| {
+            format!(
+                "Error iniciando transacción atómica de configuración inicial: {}",
+                e
+            )
+        })?;
+
+        // Comprobación dentro de la transacción para garantizar atomicidad frente a concurrencia
+        let admin_already_exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM app_users WHERE role_key = 'admin')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Error verificando administrador en transacción: {}", e))?;
+
+        if admin_already_exists {
+            return Err(
+                "Operación denegada: ya existe un administrador registrado en esta instalación."
+                    .to_string(),
+            );
+        }
+
+        let now = Utc::now().to_rfc3339();
+
+        // 1. Guardar perfil de empresa e inicializar installation_entitlements dentro de la transacción
+        upsert_company_within_tx(&tx, &validated_company, &now)?;
+
+        // 2. Insertar el primer administrador con su hash Argon2id dentro de la misma transacción
+        tx.execute(
+            "INSERT INTO app_users (
+                username, full_name, password_hash, role_key, permissions_json,
+                is_active, created_at, updated_at, last_login_at
+             )
+             VALUES (?1, ?2, ?3, 'admin', '[\"*\"]', 1, ?4, ?4, ?4)",
+            params![
+                &validated_admin.username,
+                &validated_admin.full_name,
+                &validated_admin.password_hash,
+                &now
+            ],
+        )
+        .map_err(|e| {
+            format!(
+                "Error registrando el administrador principal en SQLite: {}",
+                e
+            )
+        })?;
+
+        let admin_id = tx.last_insert_rowid();
+
+        tx.commit().map_err(|e| {
+            format!(
+                "Error confirmando transacción de configuración inicial: {}",
+                e
+            )
+        })?;
+
+        // Activar sesión en memoria para el administrador recién creado
+        self.active_user_id = Some(admin_id);
+
+        self.require_authenticated_user()
+    }
+
+    /// Inicia sesión verificando las credenciales con Argon2id sin revelar información sensible.
+    pub fn login(
+        &mut self,
+        username: &str,
+        password: &str,
+    ) -> Result<AuthenticatedUserSummary, String> {
+        let clean_username = username.trim();
+        if clean_username.is_empty() || password.is_empty() {
+            return Err("Introduce tu nombre de usuario y contraseña.".to_string());
+        }
+
+        let conn = self.connect()?;
+        let row_opt: Option<(i64, String, i64)> = conn
+            .query_row(
+                "SELECT id, password_hash, is_active
+                 FROM app_users
+                 WHERE username = ?1 COLLATE NOCASE",
+                params![clean_username],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|_| "Error interno al verificar credenciales de acceso.".to_string())?;
+
+        let (user_id, stored_hash, is_active) = match row_opt {
+            Some(tuple) => tuple,
+            None => {
+                return Err(
+                    "Credenciales incorrectas. Verifica tu usuario y contraseña.".to_string(),
+                )
+            }
+        };
+
+        if is_active != 1 || !verify_password_argon2id(password, &stored_hash) {
+            return Err("Credenciales incorrectas. Verifica tu usuario y contraseña.".to_string());
+        }
+
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE app_users SET last_login_at = ?1, updated_at = ?1 WHERE id = ?2",
+            params![&now, user_id],
+        )
+        .map_err(|_| "Error actualizando marca de inicio de sesión.".to_string())?;
+
+        self.active_user_id = Some(user_id);
+
+        self.require_authenticated_user()
+    }
+
+    /// Cierra la sesión activa en memoria del proceso.
+    pub fn logout(&mut self) {
+        self.active_user_id = None;
+    }
+
+    /// Cambia la contraseña del usuario actualmente autenticado.
+    /// OPERACIÓN PROTEGIDA: Requiere sesión autenticada en Rust y verifica primero
+    /// `current_password` contra el hash almacenado mediante Argon2id.
+    pub fn change_authenticated_user_password(
+        &self,
+        input: &ChangePasswordInput,
+    ) -> Result<(), String> {
+        let user = self.require_authenticated_user()?;
+
+        if input.current_password.is_empty() {
+            return Err("Debes introducir tu contraseña actual.".to_string());
+        }
+
+        let new_len = input.new_password.chars().count();
+        if new_len < 8 {
+            return Err("La nueva contraseña debe tener al menos 8 caracteres.".to_string());
+        }
+        if new_len > 128 {
+            return Err("La nueva contraseña no puede superar los 128 caracteres.".to_string());
+        }
+        if input.new_password != input.new_password_confirm {
+            return Err("La confirmación de la nueva contraseña no coincide.".to_string());
+        }
+        if input.new_password == input.current_password {
+            return Err(
+                "La nueva contraseña debe ser diferente de la contraseña actual.".to_string(),
+            );
+        }
+
+        let mut conn = self.connect()?;
+        let stored_hash: String = conn
+            .query_row(
+                "SELECT password_hash FROM app_users WHERE id = ?1 AND is_active = 1",
+                params![user.id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "No fue posible verificar la cuenta activa.".to_string())?;
+
+        if !verify_password_argon2id(&input.current_password, &stored_hash) {
+            return Err("La contraseña actual introducida es incorrecta.".to_string());
+        }
+
+        let new_hash = hash_password_argon2id(&input.new_password)?;
+        let now = Utc::now().to_rfc3339();
+
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Error iniciando transacción para cambio de contraseña: {}", e))?;
+
+        tx.execute(
+            "UPDATE app_users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3",
+            params![&new_hash, &now, user.id],
+        )
+        .map_err(|_| "Error al actualizar la contraseña en la base de datos local.".to_string())?;
+
+        tx.commit()
+            .map_err(|_| "Error confirmando actualización de contraseña.".to_string())?;
+
+        Ok(())
+    }
+
+    /// Actualiza la información de la única empresa de la instalación (`id = 1`).
+    /// OPERACIÓN PROTEGIDA: Requiere sesión autenticada en Rust.
+    pub fn save_company_profile(
+        &self,
+        input: &SaveCompanyProfileInput,
+    ) -> Result<CompanyProfile, String> {
+        self.require_authenticated_user()?;
+
+        let validated = validate_company_input(input)?;
+        let mut conn = self.connect()?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Error iniciando transacción para guardar empresa: {}", e))?;
+
+        let now = Utc::now().to_rfc3339();
+        upsert_company_within_tx(&tx, &validated, &now)?;
+
+        tx.commit()
+            .map_err(|e| format!("Error confirmando transacción de empresa: {}", e))?;
+
+        self.get_company_profile()?.ok_or_else(|| {
+            "Error recuperando el perfil de la empresa recién guardado.".to_string()
+        })
+    }
+
+    /// Obtiene el perfil de la empresa configurada en la instalación, si existe.
+    pub fn get_company_profile(&self) -> Result<Option<CompanyProfile>, String> {
+        let conn = self.connect()?;
+
+        let entitlements: (String, String, String) = conn
+            .query_row(
+                "SELECT commercial_plan_key, enabled_modules_json, enabled_addons_json
+                 FROM installation_entitlements WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or_else(|_| {
+                (
+                    "local-standard".to_string(),
+                    "[]".to_string(),
+                    "[]".to_string(),
+                )
+            });
+
+        let enabled_module_keys: Vec<String> =
+            serde_json::from_str(&entitlements.1).unwrap_or_default();
+        let enabled_addon_keys: Vec<String> =
+            serde_json::from_str(&entitlements.2).unwrap_or_default();
+
+        let row_opt = conn
+            .query_row(
+                "SELECT trade_name, legal_name, tax_id, address, phone, email,
+                        logo_blob, logo_mime_type, business_profile_key, created_at, updated_at
+                 FROM company_profile WHERE id = 1",
+                [],
+                |row| {
+                    let blob: Option<Vec<u8>> = row.get(6)?;
+                    let mime: Option<String> = row.get(7)?;
+                    let logo_data_url = match (&blob, &mime) {
+                        (Some(bytes), Some(m)) if !bytes.is_empty() => Some(format!(
+                            "data:{};base64,{}",
+                            m,
+                            BASE64_STANDARD.encode(bytes)
+                        )),
+                        _ => None,
+                    };
+
+                    Ok(CompanyProfile {
+                        trade_name: row.get(0)?,
+                        legal_name: row.get(1)?,
+                        tax_id: row.get(2)?,
+                        address: row.get(3)?,
+                        phone: row.get(4)?,
+                        email: row.get(5)?,
+                        logo_data_url,
+                        logo_mime_type: mime,
+                        business_profile_key: row.get(8)?,
+                        commercial_plan_key: entitlements.0.clone(),
+                        enabled_module_keys: enabled_module_keys.clone(),
+                        enabled_addon_keys: enabled_addon_keys.clone(),
+                        created_at: row.get(9)?,
+                        updated_at: row.get(10)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| format!("Error leyendo company_profile desde SQLite: {}", e))?;
+
+        Ok(row_opt)
+    }
+
     /// Inserta un nuevo registro en la tabla técnica `_persistence_checks`.
+    /// OPERACIÓN PROTEGIDA: Requiere sesión autenticada en Rust.
     pub fn record_persistence_check(&self, note: &str) -> Result<PersistenceCheckRecord, String> {
+        self.require_authenticated_user()?;
+
         let trimmed = note.trim();
         if trimmed.is_empty() {
-            return Err("La nota de verificación de persistencia no puede estar vacía.".to_string());
+            return Err(
+                "La nota de verificación de persistencia no puede estar vacía.".to_string(),
+            );
         }
         if trimmed.len() > 280 {
-            return Err("La nota de verificación no puede exceder los 280 caracteres.".to_string());
+            return Err(
+                "La nota de verificación no puede exceder los 280 caracteres.".to_string(),
+            );
         }
 
         let conn = self.connect()?;
@@ -290,7 +1221,10 @@ impl LocalDatabase {
     }
 
     /// Guarda la preferencia de tema ('light', 'dark' o 'system') en SQLite.
+    /// OPERACIÓN PROTEGIDA: Requiere sesión autenticada en Rust.
     pub fn set_theme_preference(&self, theme: &str) -> Result<AppPreferences, String> {
+        self.require_authenticated_user()?;
+
         let normalized = theme.trim().to_lowercase();
         if !VALID_THEMES.contains(&normalized.as_str()) {
             return Err(format!(
@@ -412,7 +1346,12 @@ impl LocalDatabase {
             .prepare(
                 "SELECT id, note, created_at FROM _persistence_checks ORDER BY id DESC LIMIT 12",
             )
-            .map_err(|e| format!("Error preparando consulta de pruebas de persistencia: {}", e))?;
+            .map_err(|e| {
+                format!(
+                    "Error preparando consulta de pruebas de persistencia: {}",
+                    e
+                )
+            })?;
 
         let recent_persistence_checks = stmt_checks
             .query_map([], |row| {
@@ -426,9 +1365,7 @@ impl LocalDatabase {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Error mapeando registros de persistencia: {}", e))?;
 
-        let database_size_bytes = fs::metadata(&self.db_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let database_size_bytes = fs::metadata(&self.db_path).map(|m| m.len()).unwrap_or(0);
 
         Ok(DatabaseStatusReport {
             connected: true,
@@ -449,9 +1386,18 @@ impl LocalDatabase {
     }
 
     /// Construye el resumen integral del sistema leyendo el estado real desde SQLite.
+    /// Si la sesión no está autenticada, oculta los registros internos de operaciones.
     pub fn build_system_overview(&self) -> Result<SystemOverview, String> {
-        let database = self.status_report()?;
+        let mut database = self.status_report()?;
         let preferences = self.get_preferences()?;
+        let company = self.get_company_profile()?;
+        let has_admin_user = self.has_admin_user()?;
+        let current_user = self.get_authenticated_user()?;
+        let is_authenticated = current_user.is_some();
+
+        if !is_authenticated {
+            database.recent_persistence_checks.clear();
+        }
 
         Ok(SystemOverview {
             app_name: "Cartucho ERP".to_string(),
@@ -463,6 +1409,10 @@ impl LocalDatabase {
             runtime_mode: "tauri-desktop".to_string(),
             preferences,
             database,
+            company,
+            has_admin_user,
+            is_authenticated,
+            current_user,
         })
     }
 }
@@ -472,14 +1422,39 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    // Imagen PNG 1x1 válida en Base64 para pruebas de BLOB
+    const SAMPLE_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    fn sample_setup_input() -> CompleteInitialSetupInput {
+        CompleteInitialSetupInput {
+            company: SaveCompanyProfileInput {
+                trade_name: "Imprenta Central".to_string(),
+                legal_name: Some("Imprenta Central S.A.S.".to_string()),
+                tax_id: Some("901.234.567-8".to_string()),
+                address: Some("Calle 10 #20-30".to_string()),
+                phone: Some("+57 300 123 4567".to_string()),
+                email: Some("contacto@imprentacentral.local".to_string()),
+                logo_base64: Some(SAMPLE_PNG_BASE64.to_string()),
+                logo_mime_type: Some("image/png".to_string()),
+                remove_logo: false,
+            },
+            admin: CreateInitialAdminInput {
+                full_name: "Carlos Administrador".to_string(),
+                username: "carlos_admin".to_string(),
+                password: "ClaveSegura#2026".to_string(),
+                password_confirm: "ClaveSegura#2026".to_string(),
+            },
+        }
+    }
+
     #[test]
     fn test_sqlite_creation_write_read_and_reopen_persistence() {
         let temp_dir = TempDir::new().expect("Debe crear directorio temporal");
         let data_path = temp_dir.path().to_path_buf();
 
-        // Sesión 1: Inicialización, migración automática e inserción de un registro de prueba
+        // Sesión 1: Inicialización desde cero (aplica v1, v2 y v3)
         {
-            let db = LocalDatabase::open_in_dir(&data_path).expect("Debe inicializar SQLite");
+            let mut db = LocalDatabase::open_in_dir(&data_path).expect("Debe inicializar SQLite");
             assert!(db.database_path().exists());
 
             let initial = db.status_report().expect("Debe obtener reporte inicial");
@@ -487,59 +1462,262 @@ mod tests {
             assert_eq!(initial.engine, "SQLite");
             assert_eq!(initial.journal_mode.to_lowercase(), "wal");
             assert!(initial.foreign_keys_enabled);
-            assert_eq!(initial.schema_version, 1);
+            assert_eq!(initial.schema_version, 3);
             assert_eq!(initial.startup_count, 1);
-            assert_eq!(initial.applied_migrations.len(), 1);
+            assert_eq!(initial.applied_migrations.len(), 3);
             assert_eq!(initial.recent_persistence_checks.len(), 1);
+
+            // Inicialmente no hay empresa ni administrador configurados ni sesión activa
+            assert!(db.get_company_profile().unwrap().is_none());
+            assert!(!db.has_admin_user().unwrap());
+            assert!(db.get_authenticated_user().unwrap().is_none());
+
+            // Completar configuración inicial atómica (crea empresa + primer admin e inicia sesión)
+            let admin = db
+                .complete_initial_setup(&sample_setup_input())
+                .expect("Debe completar configuración inicial atómica");
+            assert_eq!(admin.username, "carlos_admin");
+            assert_eq!(admin.role, "admin");
 
             let inserted = db
                 .record_persistence_check("Verificación de escritura en Sesión 1")
-                .expect("Debe insertar registro de prueba");
+                .expect("Debe insertar registro de prueba con sesión autenticada");
             assert_eq!(inserted.note, "Verificación de escritura en Sesión 1");
 
             let prefs = db
                 .set_theme_preference("dark")
-                .expect("Debe guardar preferencia de tema");
+                .expect("Debe guardar preferencia de tema con sesión autenticada");
             assert_eq!(prefs.theme, "dark");
         }
 
-        // Sesión 2: Cerrar y volver a abrir sobre la misma ruta para comprobar persistencia real en disco
+        // Sesión 2: Reapertura (simula cerrar y volver a abrir la aplicación)
         {
-            let db_reopened =
+            let mut db_reopened =
                 LocalDatabase::open_in_dir(&data_path).expect("Debe reabrir SQLite existente");
-            let report = db_reopened
-                .status_report()
-                .expect("Debe leer estado tras reapertura");
-            let prefs = db_reopened
-                .get_preferences()
-                .expect("Debe leer preferencias tras reapertura");
+            let overview_before_login = db_reopened
+                .build_system_overview()
+                .expect("Debe generar overview tras reapertura");
 
-            assert_eq!(report.startup_count, 2);
-            assert_eq!(report.schema_version, 1);
-            assert_eq!(report.applied_migrations.len(), 1);
+            assert_eq!(overview_before_login.database.startup_count, 2);
+            assert_eq!(overview_before_login.database.schema_version, 3);
+            assert_eq!(overview_before_login.preferences.theme, "dark");
+            assert!(overview_before_login.has_admin_user);
+            // Al reabrir la app, la sesión está cerrada y exige iniciar sesión nuevamente
+            assert!(!overview_before_login.is_authenticated);
+            assert!(overview_before_login.current_user.is_none());
+
+            // Mientras no inicie sesión, las operaciones protegidas son rechazadas por Rust
+            assert!(db_reopened
+                .record_persistence_check("Intento sin login")
+                .is_err());
+
+            // Al iniciar sesión con las credenciales creadas en la Sesión 1, se recupera el acceso
+            let logged = db_reopened
+                .login("carlos_admin", "ClaveSegura#2026")
+                .expect("Debe autenticar tras reiniciar");
+            assert_eq!(logged.full_name, "Carlos Administrador");
+
+            let report = db_reopened.status_report().unwrap();
             assert_eq!(report.recent_persistence_checks.len(), 2);
-            assert_eq!(
-                report.recent_persistence_checks[0].note,
-                "Verificación de escritura en Sesión 1"
-            );
-            assert_eq!(prefs.theme, "dark");
         }
+    }
+
+    #[test]
+    fn test_atomic_initial_setup_and_security_controls() {
+        let temp_dir = TempDir::new().expect("Debe crear directorio temporal");
+        let mut db = LocalDatabase::open_in_dir(temp_dir.path()).expect("Debe inicializar SQLite");
+
+        // 1. Sin sesión autenticada, todas las operaciones protegidas deben fallar en Rust
+        assert!(db
+            .save_company_profile(&SaveCompanyProfileInput {
+                trade_name: "Intento Directo Sin Auth".to_string(),
+                ..Default::default()
+            })
+            .is_err());
+        assert!(db.record_persistence_check("Nota sin sesión").is_err());
+        assert!(db.set_theme_preference("dark").is_err());
+
+        // 2. Atomicidad: si falla la validación del administrador (ej. contraseñas no coinciden
+        //    o contraseña corta), NO debe guardarse la empresa en SQLite
+        let mut bad_setup = sample_setup_input();
+        bad_setup.admin.password_confirm = "OtraClaveDistinta123".to_string();
+        let err_mismatch = db.complete_initial_setup(&bad_setup);
+        assert!(err_mismatch.is_err());
+        assert!(
+            db.get_company_profile().unwrap().is_none(),
+            "No debe quedar empresa configurada si falla la creación del administrador"
+        );
+        assert!(!db.has_admin_user().unwrap());
+
+        // 3. Configuración inicial válida: guarda empresa + admin en una sola transacción
+        let admin = db
+            .complete_initial_setup(&sample_setup_input())
+            .expect("Debe completar configuración inicial");
+        assert_eq!(admin.username, "carlos_admin");
+        assert!(db.has_admin_user().unwrap());
+        assert!(db.get_company_profile().unwrap().is_some());
+
+        // Verificar en SQLite que la contraseña se guardó como hash Argon2id y nunca en texto plano
+        let conn = db.connect().unwrap();
+        let stored_hash: String = conn
+            .query_row(
+                "SELECT password_hash FROM app_users WHERE username = 'carlos_admin'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stored_hash.starts_with("$argon2id$"));
+        assert!(!stored_hash.contains("ClaveSegura#2026"));
+
+        // 4. Imposibilidad de crear un segundo administrador mediante configuración inicial
+        let mut second_admin_attempt = sample_setup_input();
+        second_admin_attempt.admin.username = "segundo_admin".to_string();
+        let second_err = db.complete_initial_setup(&second_admin_attempt);
+        assert!(
+            second_err.is_err(),
+            "No debe permitir crear un segundo administrador por configuración inicial"
+        );
+
+        // 5. Cierre de sesión (logout) invalida inmediatamente las operaciones protegidas
+        db.logout();
+        let overview_after_logout = db.build_system_overview().unwrap();
+        assert!(!overview_after_logout.is_authenticated);
+        assert!(overview_after_logout.current_user.is_none());
+        assert!(db
+            .save_company_profile(&SaveCompanyProfileInput {
+                trade_name: "Cambio tras logout".to_string(),
+                ..Default::default()
+            })
+            .is_err());
+
+        // 6. Inicio de sesión fallido (contraseña o usuario incorrecto) sin revelar hashes
+        let bad_pass_err = db.login("carlos_admin", "ClaveIncorrecta999").unwrap_err();
+        assert!(!bad_pass_err.contains("$argon2id$"));
+        let bad_user_err = db.login("usuario_inexistente", "ClaveSegura#2026").unwrap_err();
+        assert_eq!(bad_pass_err, bad_user_err);
+    }
+
+    #[test]
+    fn test_upgrade_from_v1_and_v2_creates_verified_backup_and_preserves_data() {
+        let temp_dir = TempDir::new().expect("Debe crear directorio temporal");
+        let data_path = temp_dir.path().to_path_buf();
+        let db_file = data_path.join("cartucho_erp.sqlite3");
+
+        // 1. Simular una base de datos creada en Etapa 3 (Esquema v2 con empresa registrada)
+        {
+            let mut conn = Connection::open(&db_file).expect("Debe crear base v2");
+            conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+                .unwrap();
+            LocalDatabase::apply_migrations_slice(&mut conn, &MIGRATIONS[0..2])
+                .expect("Debe aplicar migraciones v1 y v2");
+
+            let now = "2026-11-10T10:00:00Z";
+            conn.execute(
+                "INSERT INTO _app_metadata (key, value, updated_at) VALUES ('theme_preference', 'dark', ?1)",
+                params![now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO _app_metadata (key, value, updated_at) VALUES ('startup_count', '5', ?1)",
+                params![now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO _persistence_checks (note, created_at) VALUES ('Dato histórico previo', ?1)",
+                params![now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO company_profile (id, trade_name, business_profile_key, created_at, updated_at)
+                 VALUES (1, 'Empresa Etapa 3', 'general', ?1, ?1)",
+                params![now],
+            )
+            .unwrap();
+        }
+
+        // 2. Abrir con LocalDatabase actual (Esquema v3): debe crear backup verificado v2->v3 y conservar todo
+        let db = LocalDatabase::open_in_dir(&data_path)
+            .expect("Debe actualizar desde v2 a v3 limpiamente");
+
+        let backups_dir = db.backups_dir();
+        assert!(backups_dir.exists());
+        let backup_files: Vec<_> = fs::read_dir(&backups_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(backup_files.len(), 1);
+
+        let report = db.status_report().unwrap();
+        let prefs = db.get_preferences().unwrap();
+        let company = db.get_company_profile().unwrap().unwrap();
+        assert_eq!(report.schema_version, 3);
+        assert_eq!(report.startup_count, 6);
+        assert_eq!(prefs.theme, "dark");
+        assert_eq!(company.trade_name, "Empresa Etapa 3");
+        assert_eq!(
+            report.recent_persistence_checks[0].note,
+            "Dato histórico previo"
+        );
+    }
+
+    #[test]
+    fn test_company_profile_blob_logo_and_default_empty_modules() {
+        let temp_dir = TempDir::new().expect("Debe crear directorio temporal");
+        let mut db = LocalDatabase::open_in_dir(temp_dir.path()).expect("Debe inicializar SQLite");
+
+        // Completar configuración inicial para tener sesión autenticada
+        db.complete_initial_setup(&sample_setup_input())
+            .expect("Debe configurar empresa y admin");
+
+        // Actualizar empresa con logotipo PNG como BLOB
+        let saved = db
+            .save_company_profile(&SaveCompanyProfileInput {
+                trade_name: "Restaurante Jesús".to_string(),
+                legal_name: Some("Restaurante Jesús S.A.S.".to_string()),
+                tax_id: Some("900.123.456-7".to_string()),
+                address: Some("Calle Principal 123".to_string()),
+                phone: Some("+57 300 000 0000".to_string()),
+                email: Some("contacto@restaurantejesus.local".to_string()),
+                logo_base64: Some(SAMPLE_PNG_BASE64.to_string()),
+                logo_mime_type: Some("image/png".to_string()),
+                remove_logo: false,
+            })
+            .expect("Debe guardar perfil empresarial con logo BLOB");
+
+        assert_eq!(saved.trade_name, "Restaurante Jesús");
+        assert_eq!(saved.logo_mime_type.as_deref(), Some("image/png"));
+        assert!(saved
+            .logo_data_url
+            .as_ref()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+        // Verificar que enabled_module_keys inicia vacío ("[]") por defecto
+        assert!(saved.enabled_module_keys.is_empty());
+
+        // Rechazar SVG en esta etapa
+        let svg_err = db.save_company_profile(&SaveCompanyProfileInput {
+            trade_name: "Restaurante Jesús".to_string(),
+            logo_base64: Some("PHN2Zz48L3N2Zz4=".to_string()),
+            logo_mime_type: Some("image/svg+xml".to_string()),
+            ..Default::default()
+        });
+        assert!(svg_err.is_err());
     }
 
     #[test]
     fn test_validation_and_migration_rollback_error_handling() {
         let temp_dir = TempDir::new().expect("Debe crear directorio temporal");
-        let db = LocalDatabase::open_in_dir(temp_dir.path()).expect("Debe inicializar SQLite");
+        let mut db = LocalDatabase::open_in_dir(temp_dir.path()).expect("Debe inicializar SQLite");
 
-        // Validar rechazo de notas vacías
+        db.complete_initial_setup(&sample_setup_input())
+            .expect("Debe autenticar admin inicial");
+
         let empty_err = db.record_persistence_check("   ");
         assert!(empty_err.is_err());
 
-        // Validar rechazo de tema inválido
         let theme_err = db.set_theme_preference("neon-purple");
         assert!(theme_err.is_err());
 
-        // Validar que una migración con SQL inválido hace rollback y devuelve error controlado
         let mut conn = db.connect().expect("Debe conectar");
         let bad_migrations = [Migration {
             version: 99,
@@ -549,16 +1727,58 @@ mod tests {
         let mig_result = LocalDatabase::apply_migrations_slice(&mut conn, &bad_migrations);
         assert!(mig_result.is_err());
 
-        // La versión de esquema debe continuar en 1 (sin aplicar la migración 99 fallida)
-        let report = db.status_report().expect("Debe seguir operativa");
-        assert_eq!(report.schema_version, 1);
+        let report = db.status_report().expect("Debe mantener estado íntegro");
+        assert_eq!(report.schema_version, 3);
+    }
+
+    #[test]
+    fn test_change_password_verifies_current_argon2id_and_updates_hash() {
+        let temp_dir = TempDir::new().expect("Debe crear directorio temporal");
+        let mut db = LocalDatabase::open_in_dir(temp_dir.path()).expect("Debe inicializar SQLite");
+
+        db.complete_initial_setup(&sample_setup_input())
+            .expect("Debe crear admin inicial");
+
+        // 1. Contraseña actual incorrecta debe fallar
+        let wrong_current = db.change_authenticated_user_password(&ChangePasswordInput {
+            current_password: "ClaveIncorrecta123".to_string(),
+            new_password: "NuevaClaveSegura#2027".to_string(),
+            new_password_confirm: "NuevaClaveSegura#2027".to_string(),
+        });
+        assert!(wrong_current.is_err());
+
+        // 2. Confirmación distinta debe fallar
+        let mismatch = db.change_authenticated_user_password(&ChangePasswordInput {
+            current_password: "ClaveSegura#2026".to_string(),
+            new_password: "NuevaClaveSegura#2027".to_string(),
+            new_password_confirm: "OtraConfirmacion#2027".to_string(),
+        });
+        assert!(mismatch.is_err());
+
+        // 3. Cambio válido verifica la actual con Argon2id y actualiza el hash
+        db.change_authenticated_user_password(&ChangePasswordInput {
+            current_password: "ClaveSegura#2026".to_string(),
+            new_password: "NuevaClaveSegura#2027".to_string(),
+            new_password_confirm: "NuevaClaveSegura#2027".to_string(),
+        })
+        .expect("Debe actualizar la contraseña con Argon2id");
+
+        // 4. Al cerrar sesión, la contraseña antigua ya no funciona y la nueva sí autentica
+        db.logout();
+        assert!(db.login("carlos_admin", "ClaveSegura#2026").is_err());
+        let relogged = db
+            .login("carlos_admin", "NuevaClaveSegura#2027")
+            .expect("Debe autenticar con la nueva contraseña");
+        assert_eq!(relogged.username, "carlos_admin");
     }
 
     #[test]
     fn test_os_app_data_dir_is_outside_repository() {
-        let app_data_dir =
-            resolve_os_app_data_dir().expect("Debe resolver directorio de datos del SO");
-        let current_repo_dir = std::env::current_dir().expect("Debe obtener directorio actual");
-        assert!(!app_data_dir.starts_with(&current_repo_dir));
+        let app_data_dir = resolve_os_app_data_dir().expect("Debe resolver AppDataDir del SO");
+        let current_dir = std::env::current_dir().expect("Debe obtener directorio actual");
+        assert!(
+            !app_data_dir.starts_with(&current_dir),
+            "La base de datos no debe ubicarse dentro del repositorio del proyecto"
+        );
     }
 }

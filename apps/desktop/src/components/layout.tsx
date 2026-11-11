@@ -1,204 +1,465 @@
-import React from "react";
+import React, { useState } from "react";
 import {
+  Blocks,
+  Building2,
+  ChevronDown,
+  ChevronRight,
   Database,
-  HardDrive,
   Home,
   Info,
   Layers,
-  Moon,
+  LogOut,
+  Minus,
+  Package,
+  Palette,
+  ReceiptText,
   RefreshCw,
-  SlidersHorizontal,
-  Sun,
+  Settings,
+  ShieldCheck,
+  Square,
+  Users,
+  X,
 } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
+  CompanyProfile,
+  ErpModuleDescriptor,
   NavigationSectionId,
   ResolvedTheme,
   SystemOverview,
   ThemePreference,
 } from "@cartucho/shared";
-import { Badge, Button } from "./ui";
+import { Button } from "./ui";
 
 /* ==========================================================================
-   Sidebar
+   Iconos por Clave de Módulo Dinámico
    ========================================================================== */
 
-interface NavItem {
+function getModuleIcon(moduleKey: string): React.ReactNode {
+  switch (moduleKey) {
+    case "inventory":
+      return <Package size={15} />;
+    case "sales":
+      return <ReceiptText size={15} />;
+    case "customers":
+      return <Users size={15} />;
+    default:
+      return <Blocks size={15} />;
+  }
+}
+
+/* ==========================================================================
+   Sidebar Reorganizado con Categorías y Submenús Expandibles
+   ========================================================================== */
+
+interface SettingsSubItem {
   id: NavigationSectionId;
   label: string;
   icon: React.ReactNode;
 }
 
-const GENERAL_NAV: NavItem[] = [
-  { id: "home", label: "Inicio", icon: <Home size={16} /> },
-];
-
-const APP_NAV: NavItem[] = [
-  { id: "storage", label: "Almacenamiento", icon: <HardDrive size={16} /> },
-  { id: "preferences", label: "Preferencias", icon: <SlidersHorizontal size={16} /> },
-  { id: "about", label: "Acerca de", icon: <Info size={16} /> },
+const SETTINGS_SUBMENU: SettingsSubItem[] = [
+  { id: "settings-appearance", label: "Apariencia", icon: <Palette size={14} /> },
+  {
+    id: "settings-users",
+    label: "Usuarios y acceso",
+    icon: <ShieldCheck size={14} />,
+  },
+  { id: "settings-database", label: "Base de datos", icon: <Database size={14} /> },
+  { id: "settings-about", label: "Acerca de", icon: <Info size={14} /> },
 ];
 
 export interface SidebarProps {
   activeSection: NavigationSectionId;
   onSelectSection: (section: NavigationSectionId) => void;
   appVersion: string;
+  company: CompanyProfile | null;
+  managementModules: ErpModuleDescriptor[];
 }
 
 export function Sidebar({
   activeSection,
   onSelectSection,
   appVersion,
+  company,
+  managementModules,
 }: SidebarProps) {
+  const isSettingsSection = activeSection.startsWith("settings-");
+  const [settingsExpanded, setSettingsExpanded] = useState<boolean>(true);
+  const [managementExpanded, setManagementExpanded] = useState<boolean>(true);
+
+  const handleToggleSettings = () => {
+    setSettingsExpanded((prev) => !prev);
+  };
+
+  const handleToggleManagement = () => {
+    setManagementExpanded((prev) => !prev);
+  };
+
   return (
     <aside className="app-sidebar" aria-label="Navegación principal">
-      <div>
+      <div className="sidebar-top">
         <div className="brand-header">
           <div className="brand-mark" aria-hidden="true">
-            <Layers size={18} />
+            {company?.logoDataUrl ? (
+              <img src={company.logoDataUrl} alt={company.tradeName} />
+            ) : (
+              <Layers size={17} />
+            )}
           </div>
           <div className="brand-text">
-            <span className="brand-title">CARTUCHO</span>
-            <span className="brand-descriptor">ERP · LOCAL-FIRST</span>
+            <span className="brand-title">
+              {company?.tradeName ? company.tradeName : "CARTUCHO"}
+            </span>
+            <span className="brand-descriptor">
+              {company?.tradeName ? "Cartucho ERP" : "ERP · Espacio de Trabajo"}
+            </span>
           </div>
         </div>
 
         <nav className="nav-groups">
-          <div>
+          {/* Categoría: GENERAL */}
+          <div className="nav-group">
             <div className="nav-group-label">General</div>
             <ul className="nav-list">
-              {GENERAL_NAV.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className={`nav-item-btn ${
-                      activeSection === item.id ? "active" : ""
-                    }`}
-                    onClick={() => onSelectSection(item.id)}
-                    aria-current={activeSection === item.id ? "page" : undefined}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </button>
-                </li>
-              ))}
+              <li>
+                <button
+                  type="button"
+                  className={`nav-item-btn ${
+                    activeSection === "home" ? "active" : ""
+                  }`}
+                  onClick={() => onSelectSection("home")}
+                  aria-current={activeSection === "home" ? "page" : undefined}
+                >
+                  <span className="nav-item-main">
+                    <Home size={15} />
+                    <span>Inicio</span>
+                  </span>
+                </button>
+              </li>
             </ul>
           </div>
 
-          <div>
+          {/* Categoría: EMPRESA */}
+          <div className="nav-group">
+            <div className="nav-group-label">Empresa</div>
+            <ul className="nav-list">
+              <li>
+                <button
+                  type="button"
+                  className={`nav-item-btn ${
+                    activeSection === "company" ? "active" : ""
+                  }`}
+                  onClick={() => onSelectSection("company")}
+                  aria-current={activeSection === "company" ? "page" : undefined}
+                >
+                  <span className="nav-item-main">
+                    <Building2 size={15} />
+                    <span>Mi empresa</span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          {/* Categoría: GESTIÓN (Construida dinámicamente según módulos habilitados) */}
+          <div className="nav-group">
+            <button
+              type="button"
+              className="nav-item-btn"
+              style={{ padding: "2px 10px" }}
+              onClick={handleToggleManagement}
+              aria-expanded={managementExpanded}
+            >
+              <span className="nav-group-label" style={{ padding: 0, margin: 0 }}>
+                Gestión
+              </span>
+              {managementExpanded ? (
+                <ChevronDown size={13} color="var(--text-secondary)" />
+              ) : (
+                <ChevronRight size={13} color="var(--text-secondary)" />
+              )}
+            </button>
+
+            {managementExpanded && (
+              <ul className="nav-list">
+                {managementModules.map((mod) => (
+                  <li key={mod.id}>
+                    <button
+                      type="button"
+                      className={`nav-item-btn ${
+                        activeSection === mod.id ? "active" : ""
+                      }`}
+                      onClick={() => onSelectSection(mod.id)}
+                      aria-current={
+                        activeSection === mod.id ? "page" : undefined
+                      }
+                    >
+                      <span className="nav-item-main">
+                        {getModuleIcon(mod.key)}
+                        <span>{mod.label}</span>
+                      </span>
+                      {mod.status === "planned" && (
+                        <span className="nav-tag-planned">Próximo</span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Categoría: APLICACIÓN -> Submenú Configuración */}
+          <div className="nav-group">
             <div className="nav-group-label">Aplicación</div>
             <ul className="nav-list">
-              {APP_NAV.map((item) => (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className={`nav-item-btn ${
-                      activeSection === item.id ? "active" : ""
-                    }`}
-                    onClick={() => onSelectSection(item.id)}
-                    aria-current={activeSection === item.id ? "page" : undefined}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </button>
-                </li>
-              ))}
+              <li>
+                <button
+                  type="button"
+                  className={`nav-item-btn ${
+                    isSettingsSection ? "active" : ""
+                  }`}
+                  onClick={handleToggleSettings}
+                  aria-expanded={settingsExpanded}
+                >
+                  <span className="nav-item-main">
+                    <Settings size={15} />
+                    <span>Configuración</span>
+                  </span>
+                  {settingsExpanded ? (
+                    <ChevronDown size={14} />
+                  ) : (
+                    <ChevronRight size={14} />
+                  )}
+                </button>
+
+                {settingsExpanded && (
+                  <ul className="nav-sublist">
+                    {SETTINGS_SUBMENU.map((sub) => (
+                      <li key={sub.id}>
+                        <button
+                          type="button"
+                          className={`nav-subitem-btn ${
+                            activeSection === sub.id ? "active" : ""
+                          }`}
+                          onClick={() => onSelectSection(sub.id)}
+                          aria-current={
+                            activeSection === sub.id ? "page" : undefined
+                          }
+                        >
+                          {sub.icon}
+                          <span>{sub.label}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
             </ul>
           </div>
         </nav>
       </div>
 
       <div className="sidebar-footer">
-        <span>Versión v{appVersion}</span>
-        <span>Fase 0</span>
+        <span>Cartucho ERP</span>
+        <span className="mono">v{appVersion}</span>
       </div>
     </aside>
   );
 }
 
 /* ==========================================================================
-   Topbar
+   Topbar Sencilla y Profesional + Controles Discretos de Ventana
    ========================================================================== */
 
-const SECTION_TITLES: Record<NavigationSectionId, { title: string; subtitle: string }> = {
+const SECTION_META: Record<
+  NavigationSectionId,
+  { category: string; title: string; subtitle: string }
+> = {
   home: {
+    category: "General",
     title: "Inicio",
-    subtitle: "Resumen operativo y estado de la instalación local",
+    subtitle: "Espacio principal de trabajo",
   },
-  storage: {
-    title: "Almacenamiento",
-    subtitle: "Motor SQLite local, migraciones y comprobación de persistencia",
+  company: {
+    category: "Empresa",
+    title: "Mi empresa",
+    subtitle: "Información e identidad de la empresa registrada",
   },
-  preferences: {
-    title: "Preferencias",
-    subtitle: "Apariencia visual y configuración de la aplicación",
+  "module-inventory": {
+    category: "Gestión",
+    title: "Inventario",
+    subtitle: "Espacio preparado para gestión de productos y existencias",
   },
-  about: {
+  "module-sales": {
+    category: "Gestión",
+    title: "Ventas",
+    subtitle: "Espacio preparado para documentos de venta internos y pagos manuales",
+  },
+  "module-customers": {
+    category: "Gestión",
+    title: "Clientes",
+    subtitle: "Espacio preparado para directorio de clientes",
+  },
+  "module-future": {
+    category: "Gestión",
+    title: "Módulos personalizables",
+    subtitle: "Arquitectura preparada para distintos tipos de negocio",
+  },
+  "settings-appearance": {
+    category: "Configuración",
+    title: "Apariencia",
+    subtitle: "Preferencia de tema visual de la aplicación",
+  },
+  "settings-users": {
+    category: "Configuración",
+    title: "Usuarios y acceso",
+    subtitle: "Administrador de la instalación y seguridad de acceso",
+  },
+  "settings-database": {
+    category: "Configuración",
+    title: "Base de datos",
+    subtitle: "Estado de almacenamiento local y persistencia",
+  },
+  "settings-about": {
+    category: "Configuración",
     title: "Acerca de",
-    subtitle: "Información de versión, arquitectura y hoja de ruta",
+    subtitle: "Información del producto y versión instalada",
   },
 };
 
 export interface TopbarProps {
   activeSection: NavigationSectionId;
-  overview: SystemOverview;
-  resolvedTheme: ResolvedTheme;
-  onQuickToggleTheme: () => void;
+  companyName: string | null;
+  currentUserName: string | null;
   onRefresh: () => void;
+  onLogout: () => void;
   refreshing: boolean;
 }
 
 export function Topbar({
   activeSection,
-  overview,
-  resolvedTheme,
-  onQuickToggleTheme,
+  companyName,
+  currentUserName,
   onRefresh,
+  onLogout,
   refreshing,
 }: TopbarProps) {
-  const meta = SECTION_TITLES[activeSection];
+  const meta = SECTION_META[activeSection];
+  const inTauri = isTauri();
+
+  const handleMinimize = async () => {
+    if (!inTauri) return;
+    await getCurrentWindow().minimize();
+  };
+
+  const handleToggleMaximize = async () => {
+    if (!inTauri) return;
+    await getCurrentWindow().toggleMaximize();
+  };
+
+  const handleClose = async () => {
+    if (!inTauri) return;
+    await getCurrentWindow().close();
+  };
 
   return (
-    <header className="app-topbar">
-      <div className="topbar-left">
+    <header className="app-topbar" data-tauri-drag-region>
+      <div className="topbar-left" data-tauri-drag-region>
+        <span className="topbar-breadcrumb">{meta.category} /</span>
         <h1 className="topbar-section-title">{meta.title}</h1>
         <span className="topbar-subtitle">{meta.subtitle}</span>
       </div>
 
       <div className="topbar-right">
-        <Badge variant={overview.database.connected ? "success" : "error"}>
-          <Database size={12} />
-          <span>
-            {overview.database.connected
-              ? `SQLite ${overview.database.sqliteVersion}`
-              : "SQLite Desconectado"}
+        {companyName && (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              color: "var(--text-secondary)",
+              padding: "4px 10px",
+              borderRadius: "var(--radius-sm)",
+              backgroundColor: "var(--bg-subtle)",
+              border: "1px solid var(--border-default)",
+            }}
+          >
+            {companyName}
           </span>
-        </Badge>
+        )}
 
-        <Button
-          variant="secondary"
-          onClick={onQuickToggleTheme}
-          title="Alternar tema Claro / Oscuro"
-          aria-label="Alternar tema"
-          icon={resolvedTheme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-        >
-          {resolvedTheme === "dark" ? "Oscuro" : "Claro"}
-        </Button>
+        {currentUserName && (
+          <span
+            style={{
+              fontSize: 12,
+              color: "var(--text-secondary)",
+            }}
+          >
+            {currentUserName}
+          </span>
+        )}
 
         <Button
           variant="ghost"
           onClick={onRefresh}
           disabled={refreshing}
-          title="Actualizar estado del sistema"
-          aria-label="Actualizar estado del sistema"
+          title="Actualizar vista"
+          aria-label="Actualizar vista"
           icon={<RefreshCw size={14} />}
         />
+
+        <Button
+          variant="ghost"
+          onClick={onLogout}
+          title="Cerrar sesión"
+          aria-label="Cerrar sesión"
+          icon={<LogOut size={14} />}
+        >
+          Salir
+        </Button>
+
+        {inTauri && (
+          <div
+            className="window-controls"
+            aria-label="Controles de ventana"
+          >
+            <button
+              type="button"
+              className="win-ctrl-btn"
+              onClick={handleMinimize}
+              title="Minimizar"
+              aria-label="Minimizar ventana"
+            >
+              <Minus size={14} />
+            </button>
+            <button
+              type="button"
+              className="win-ctrl-btn"
+              onClick={handleToggleMaximize}
+              title="Maximizar o restaurar"
+              aria-label="Maximizar o restaurar ventana"
+            >
+              <Square size={12} />
+            </button>
+            <button
+              type="button"
+              className="win-ctrl-btn"
+              onClick={handleClose}
+              title="Cerrar"
+              aria-label="Cerrar ventana"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );
 }
 
 /* ==========================================================================
-   Statusbar
+   Statusbar Discreta
    ========================================================================== */
 
 export interface StatusbarProps {
@@ -229,19 +490,16 @@ export function Statusbar({
             className={`status-dot ${database.connected ? "online" : "offline"}`}
           />
           <span>
-            {database.connected ? "Almacenamiento Local Activo" : "Sin conexión SQLite"}
+            {database.connected
+              ? "Almacenamiento local activo"
+              : "Almacenamiento desconectado"}
           </span>
-        </span>
-        <span className="statusbar-item mono">
-          Esquema v{database.schemaVersion} · Modo {database.journalMode.toUpperCase()}
         </span>
       </div>
 
       <div className="statusbar-group">
-        <span className="statusbar-item">Tema: {themeLabel}</span>
-        <span className="statusbar-item mono">
-          {overview.osPlatform}/{overview.osArch}
-        </span>
+        <span className="statusbar-item">Apariencia: {themeLabel}</span>
+        <span className="statusbar-item mono">v{overview.appVersion}</span>
       </div>
     </footer>
   );

@@ -17,7 +17,10 @@ desktop-tauri = ["dep:tauri", "dep:tauri-build"]
 tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+base64 = "0.22"
+argon2 = { version = "0.5", features = ["std"] }
+password-hash = { version = "0.5", features = ["rand_core"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
