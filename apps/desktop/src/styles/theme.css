@@ -589,9 +589,13 @@ a {
   background: var(--surface);
 }
 
-.topbar-search span {
+.topbar-search > span:not(.kbd) {
   flex: 1;
+  min-width: 0;
   text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .kbd {
@@ -2140,7 +2144,7 @@ a {
 
 .editor {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 360px);
   gap: 20px;
   align-items: start;
 }
@@ -2156,6 +2160,10 @@ a {
 .lines-table td {
   padding: 8px 10px;
   vertical-align: top;
+}
+
+.lines-table td.money {
+  white-space: nowrap;
 }
 
 .lines-table th {

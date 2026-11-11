@@ -184,10 +184,10 @@ export function DocumentEditorPage({ navigate, goBack, kind, customerId }: PageP
               <table className="table lines-table">
                 <thead>
                   <tr>
-                    <th style={{ width: "48%" }}>Descripción</th>
-                    <th style={{ width: 110 }}>Cantidad</th>
-                    <th style={{ width: 160 }}>Precio unitario</th>
-                    <th className="t-right" style={{ width: 130 }}>
+                    <th>Descripción</th>
+                    <th style={{ width: 92 }}>Cantidad</th>
+                    <th style={{ width: 150 }}>Precio unitario</th>
+                    <th className="t-right" style={{ width: 120 }}>
                       Total
                     </th>
                     <th style={{ width: 44 }} />

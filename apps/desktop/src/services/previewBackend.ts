@@ -912,10 +912,10 @@ export async function seedDemo(): Promise<void> {
   const servicios = cat("Servicios");
   const mk = (name: string, sku: string, price: number, cost: number, stock: number, min: number, categoryId: number, track = true) =>
     (handlers.save_product({ input: { name, sku, price, cost, initialStock: stock, minStock: min, categoryId, trackStock: track, unit: track ? "und" : "serv" } }) as Product).id;
-  const p1 = mk("Resma papel carta 75 g", "PAP-001", 22000, 16500, 34, 10, papeleria);
-  const p2 = mk("Cartucho HP 664 negro", "TIN-664N", 68000, 49000, 3, 4, tinta);
-  const p3 = mk("Cuaderno argollado 100 h", "PAP-014", 9500, 5800, 52, 15, papeleria);
-  const p4 = mk("Tóner Brother TN-1060", "TIN-1060", 95000, 61000, 2, 3, tinta);
+  const p1 = mk("Resma papel carta 75 g", "PAP-001", 22000, 16500, 380, 40, papeleria);
+  const p2 = mk("Cartucho HP 664 negro", "TIN-664N", 68000, 49000, 9, 6, tinta);
+  const p3 = mk("Cuaderno argollado 100 h", "PAP-014", 9500, 5800, 320, 30, papeleria);
+  const p4 = mk("Tóner Brother TN-1060", "TIN-1060", 95000, 61000, 4, 3, tinta);
   const p5 = mk("Impresión láser B/N", "SRV-IMP", 300, 90, 0, 0, servicios, false);
   const p6 = mk("Recarga de cartucho", "SRV-REC", 25000, 9000, 0, 0, servicios, false);
   const cust = (name: string, documentId: string, phone: string) => (handlers.save_customer({ input: { name, documentId, phone } }) as Customer).id;
@@ -936,18 +936,23 @@ export async function seedDemo(): Promise<void> {
       lines: lines.map(([productId, quantity, unitPrice]) => ({ productId, description: "", quantity, unitPrice })),
       initialPayment: pay === 0 ? null : { amount: pay === "all" ? lines.reduce((s, l) => s + l[1] * l[2], 0) : pay, method, paidAt: date },
     });
+  const op = (categoryId: number, description: string, amount: number, date: string, supplier: string, method: Expense["method"] = "transfer") =>
+    db.expenses.unshift({ id: nextId("expense"), kind: "operating", categoryId, categoryName: null, description, amount, expenseDate: date, method, supplier, note: null, productId: null, createdAt: now() });
   for (let m = 5; m >= 1; m--) {
-    inv(c1, d(m * 30 + 3), [[p1, 10 + m, 22000], [p3, 20, 9500]], "all", "transfer");
-    inv(null, d(m * 30 + 9), [[p5, 120, 300], [p6, 2, 25000]], "all");
-    db.expenses.unshift({ id: nextId("expense"), kind: "operating", categoryId: 1, categoryName: "Arriendo", description: "Arriendo local", amount: 1800000, expenseDate: d(m * 30 + 1), method: "transfer", supplier: "Inmobiliaria Centro", note: null, productId: null, createdAt: now() });
-    db.expenses.unshift({ id: nextId("expense"), kind: "operating", categoryId: 2, categoryName: null, description: "Energía", amount: 210000 + m * 9000, expenseDate: d(m * 30 + 6), method: "cash", supplier: "Enel", note: null, productId: null, createdAt: now() });
+    inv(c1, d(m * 30 + 3), [[p1, 30 + m * 2, 22000], [p3, 25, 9500]], "all", "transfer");
+    inv(null, d(m * 30 + 9), [[p5, 1800 + m * 120, 300], [p6, 18 + m, 25000]], "all");
+    inv(c2, d(m * 30 + 15), [[p6, 6, 25000], [p3, 4, 9500]], "all", "card");
+    op(1, "Arriendo local", 1800000, d(m * 30 + 1), "Inmobiliaria Centro");
+    op(2, "Energía eléctrica", 210000 + m * 9000, d(m * 30 + 6), "Enel", "cash");
+    op(3, "Internet fibra", 95000, d(m * 30 + 7), "Claro");
   }
   inv(c3, d(12), [[p2, 4, 68000], [p4, 2, 95000]], 200000, "transfer", d(2));
-  inv(c2, d(4), [[p6, 1, 25000], [p3, 3, 9500]], "all", "cash");
-  inv(c1, d(2), [[p1, 15, 22000]], 0, "cash", addDaysLocal(td, 15));
-  inv(null, td, [[p5, 45, 300], [p3, 1, 9500]], "all", "cash");
-  handlers.adjust_stock({ input: { productId: p1, kind: "purchase", quantity: 20, unitCost: 16500, recordExpense: true, expenseDate: d(8), method: "transfer", supplier: "Distribuidora Andina" } });
-  db.expenses.unshift({ id: nextId("expense"), kind: "operating", categoryId: 1, categoryName: "Arriendo", description: "Arriendo local", amount: 1800000, expenseDate: `${td.slice(0, 7)}-01`, method: "transfer", supplier: "Inmobiliaria Centro", note: null, productId: null, createdAt: now() });
+  inv(c2, d(4), [[p6, 3, 25000], [p3, 3, 9500]], "all", "cash");
+  inv(c1, d(2), [[p1, 25, 22000], [p3, 30, 9500]], 0, "cash", addDaysLocal(td, 15));
+  inv(null, d(1), [[p5, 900, 300], [p6, 8, 25000]], "all", "cash");
+  inv(null, td, [[p5, 450, 300], [p3, 2, 9500]], "all", "cash");
+  handlers.adjust_stock({ input: { productId: p1, kind: "purchase", quantity: 60, unitCost: 16500, recordExpense: true, expenseDate: d(8), method: "transfer", supplier: "Distribuidora Andina" } });
+  op(1, "Arriendo local", 1800000, `${td.slice(0, 7)}-01`, "Inmobiliaria Centro");
   handlers.create_quote({ input: { customerId: c3, issueDate: d(1), validUntil: addDaysLocal(td, 14), lines: [{ productId: p4, description: "", quantity: 6, unitPrice: 92000 }] } });
   save();
 }
