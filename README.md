@@ -4,21 +4,35 @@
 
 ---
 
-## 1. Objetivo y Alcance Actual (Fase 0 Completada)
+## 1. Qué hace hoy
 
-En su estado actual (**Fase 0 — Fundación Local-First**), el proyecto establece los cimientos arquitectónicos, de persistencia y de interfaz visual sobre los que se construirán progresivamente los módulos del ERP:
+Programa de **facturación y gestión para pequeñas empresas**. Funciona sin Internet: toda la información queda en un archivo SQLite en el equipo.
 
-- **Qué está implementado y operativo hoy:**
-  - Monorepo configurado con **`pnpm workspaces`** (`apps/desktop` y `packages/shared`).
-  - Aplicación de escritorio integrada con **Tauri 2**, **Rust**, **React 19**, **TypeScript 5** y **Vite 6**.
-  - Motor de base de datos **SQLite 3 (`3.46.0` embebido)** gestionado desde Rust en modo `WAL` (`Write-Ahead Logging`) con integridad referencial activa (`PRAGMA foreign_keys = ON`).
-  - Resolución automática del directorio de datos de aplicación nativo del sistema operativo (fuera de la carpeta de instalación y del repositorio Git).
-  - Sistema transaccional de **migraciones de esquema** (`_schema_migrations`) y tablas técnicas iniciales (`_app_metadata` y `_persistence_checks`).
-  - Comunicación tipada **React ↔ Tauri IPC (`invoke`)** para consultar el estado real del sistema, registrar pruebas de persistencia en SQLite y guardar preferencias de usuario.
-  - Interfaz de escritorio completa bajo la identidad visual **Business Minimalist** con soporte para **Tema Claro**, **Tema Oscuro** y **Tema del Sistema Operativo**, persistiendo la elección en SQLite entre reinicios.
-- **Qué NO forma parte de la Fase 0 (Planificado para fases posteriores):**
-  - Aún no se incluyen módulos comerciales (clientes, productos, inventario, ventas, compras ni contabilidad).
-  - No requiere ni implementa servicios en la nube, sincronización remota, pasarelas de pago ni facturación electrónica fiscal (DIAN).
+| Área | Funciones |
+| :--- | :--- |
+| **Acceso** | Asistente de primera ejecución (empresa, logo, administrador y contraseña) y pantalla de inicio de sesión con el logo y el nombre de la empresa. Contraseñas con Argon2id; bloqueo de 30 s tras 5 intentos fallidos. |
+| **Inicio** | Ventas, dinero recibido, gastos y balance del mes; ingresos vs. gastos (6 meses); facturas vencidas; stock bajo; más vendidos; accesos rápidos. |
+| **Facturas** | Editor con buscador de productos, líneas libres, notas, condiciones y pie de página; pago inicial opcional; historial con filtros; abonos (pagos parciales); anulación con motivo (no se borra, devuelve inventario); impresión en **Carta, Media carta, A4 y tirilla térmica de 80 mm o 58 mm** (o «Guardar como PDF»). |
+| **Cotizaciones** | Se imprimen igual que las facturas y se convierten en factura con un clic. |
+| **Clientes** | Directorio con total comprado y saldo pendiente; archivar sin perder historial. |
+| **Catálogo** | Productos y servicios con foto de referencia, descripción, precio, costo, margen y categorías. |
+| **Inventario** | Existencias, compras (opcionalmente registradas como gasto), ajustes por conteo y movimientos. |
+| **Finanzas** | Ventas, dinero recibido, gastos operativos (arriendo, luz, internet, nómina…), compras de inventario, balance de caja, ganancia bruta estimada, gráficos y exportación CSV para Excel. |
+| **Datos** | Exportar copia (por ejemplo, a una USB), crear respaldo, restaurar, mover la carpeta de datos, usar una carpeta traída de otro equipo y respaldo automático diario. |
+| **Interfaz** | Estilo «lateral oscuro» con acento violeta, tema claro/oscuro, menú colapsable (Ctrl+B) y búsqueda rápida (Ctrl+K). |
+
+**Fuera del alcance actual:** facturación electrónica DIAN e impuestos (las facturas son documentos internos), varios usuarios con roles, trabajo en red local y nube. La arquitectura está preparada para red local y nube (ver `docs/01-architecture/adr/0003-lan-and-cloud-readiness.md`).
+
+### Actualizar desde la versión anterior
+
+1. Cierra la aplicación.
+2. En la carpeta del proyecto ejecuta `pnpm install` (hay dependencias nuevas: tipografía Inter local y diálogos nativos).
+3. Ejecuta `pnpm tauri:dev` o `pnpm tauri:build`.
+4. Al abrir, la base de datos pasa de la versión 3 a la 4. Antes de cambiar nada se crea automáticamente un respaldo verificado en `backups/cartucho_erp_pre_migration_v3_to_v4_*.sqlite3`. Tus datos (empresa, logo y usuario) se conservan.
+
+### Vista previa en el navegador
+
+`pnpm dev` abre la interfaz en `http://localhost:1420` con un backend de demostración que guarda datos en el navegador (no en SQLite). Para cargar datos de ejemplo, abre la consola del navegador y ejecuta `__cartuchoDemo()` (usuario `admin`, contraseña `demo1234`).
 
 ---
 
@@ -26,11 +40,14 @@ En su estado actual (**Fase 0 — Fundación Local-First**), el proyecto estable
 
 | Capa | Tecnología | Versión | Propósito |
 | :--- | :--- | :--- | :--- |
-| **Contenedor de Escritorio** | **Tauri** (`@tauri-apps/cli`, `@tauri-apps/api`) | `2.x` (`2.12.4`) | Empaquetado nativo multiplataforma e IPC seguro |
-| **Capa Nativa y Acceso a Datos** | **Rust** (`rustc` / `cargo`) | `1.99.1` (Edition 2021) | Lógica del sistema, gestión de archivos y acceso a SQLite |
-| **Motor de Base de Datos** | **SQLite** (`rusqlite` con feature `bundled`) | `0.32.1` (SQLite `3.46.0`) | Base de datos relacional local por instalación |
+| **Contenedor de Escritorio** | **Tauri** (`@tauri-apps/cli`, `@tauri-apps/api`) | `2.x` (`2.12.4`) | Empaquetado nativo multiplataforma, controles de ventana e IPC seguro |
+| **Capa Nativa y Acceso a Datos** | **Rust** (`rustc` / `cargo`) | `1.99.1` (Edition 2021) | Lógica del sistema, validación de sesión, respaldos y acceso a SQLite |
+| **Motor de Base de Datos** | **SQLite** (`rusqlite` con features `bundled`, `backup`) | `0.32.1` (SQLite `3.46.0`) | Base de datos relacional local y respaldos Online Backup |
+| **Seguridad de Contraseñas** | **Argon2id** (`argon2`, `password-hash`) | `0.5.3` | Hashing seguro de contraseñas con sal aleatoria (`OsRng`) |
 | **Interfaz de Usuario (UI)** | **React + TypeScript + Vite** | React `19.0.0`, TS `5.7.2`, Vite `6.4.6` | Interfaz de escritorio reactiva y tipada |
 | **Iconografía** | **Lucide React** (`lucide-react`) | `0.468.0` | Iconografía geométrica minimalista |
+| **Diálogos nativos** | `tauri-plugin-dialog` / `@tauri-apps/plugin-dialog` | `2.x` | Elegir carpetas y archivos para respaldos y exportaciones |
+| **Tipografía** | `@fontsource-variable/inter` | `5.x` | Fuente Inter incluida en la app (funciona sin Internet) |
 | **Gestor de Paquetes** | **pnpm** (Workspaces) | `12.18.0` (compatible `>=9.0.0`) | Gestión del monorepo y dependencias |
 
 ---
@@ -40,7 +57,9 @@ En su estado actual (**Fase 0 — Fundación Local-First**), el proyecto estable
 ```mermaid
 flowchart LR
     subgraph UI["Frontend (React 19 + TypeScript + Vite)"]
-        Views["Vistas Fase 0\n(Inicio, Almacenamiento, Preferencias, Acerca de)"]
+        Onboarding["Configuración Inicial Atómica\ny Login Local (onboarding.tsx)"]
+        Views["Espacio Principal\n(Inicio, Mi Empresa, Gestión, Configuración)"]
+        Registry["Catálogo Modular Dinámico\n(src/config/moduleRegistry.ts)"]
         Client["Cliente IPC Tipado\n(src/services/systemClient.ts)"]
     end
 
@@ -49,19 +68,28 @@ flowchart LR
     end
 
     subgraph Core["Núcleo Nativo (Tauri 2 + Rust)"]
-        Commands["Comandos Tauri IPC\n(src-tauri/src/lib.rs)"]
-        DBLayer["Gestor LocalDatabase y Migraciones\n(src-tauri/src/db.rs)"]
+        Commands["Comandos Tauri IPC + Sesión en Memoria\n(src-tauri/src/lib.rs)"]
+        DBLayer["LocalDatabase, Argon2id, Online Backup\ny Migraciones v1..v4 (src-tauri/src/db.rs)"]
+        ERP["Módulos de negocio\n(src-tauri/src/erp/*)"]
+        DataAdmin["Respaldos, restaurar y mover datos\n(src-tauri/src/data_admin.rs)"]
     end
 
     subgraph OSData["Directorio de Datos del Sistema Operativo"]
-        SQLite[("cartucho_erp.sqlite3\n(Modo WAL)")]
+        SQLite[("cartucho_erp.sqlite3\n(Modo WAL + BLOB Logo)")]
+        Backups[("backups/\n(Copias verificadas pre-migración)")]
     end
 
+    Onboarding --> Client
     Views --> Client
-    Views -.-> Contracts
+    Views --> Registry
     Client <-->|"invoke()"| Commands
     Commands --> DBLayer
+    Commands --> ERP
+    Commands --> DataAdmin
+    ERP --> DBLayer
+    DataAdmin --> DBLayer
     DBLayer <-->|"rusqlite (bundled)"| SQLite
+    DBLayer -->|"Online Backup API"| Backups
 ```
 
 ---
@@ -95,7 +123,7 @@ pnpm install
 
 ---
 
-## 6. Ejecución en Modo Desarrollo
+## 6. Ejecución en Modo Desarrollo y Pruebas
 
 ### Ejecutar la aplicación de escritorio Tauri 2 (Ventana Nativa + SQLite)
 ```bash
@@ -129,15 +157,15 @@ Los artefactos compilados se generan en:
 
 ---
 
-## 8. Ubicación de la Base de Datos según el Sistema Operativo
+## 8. Ubicación de la Base de Datos y Copias de Seguridad según el Sistema Operativo
 
-Cartucho ERP almacena su archivo `cartucho_erp.sqlite3` en el directorio estándar de datos locales del usuario (resuelto mediante `directories::ProjectDirs::from("com", "cartucho", "cartucho-erp")`), nunca dentro de la carpeta de instalación ni en el repositorio Git:
+Cartucho ERP almacena su archivo `cartucho_erp.sqlite3` y la subcarpeta de respaldos verificados `backups/` en el directorio estándar de datos locales del usuario (resuelto mediante `directories::ProjectDirs::from("com", "cartucho", "cartucho-erp")`), nunca dentro de la carpeta de instalación ni en el repositorio Git:
 
-| Sistema Operativo | Ruta del Archivo SQLite |
-| :--- | :--- |
-| **Windows 10 / 11** | `C:\Users\<Usuario>\AppData\Local\cartucho\cartucho-erp\data\cartucho_erp.sqlite3` |
-| **Linux** | `/home/<usuario>/.local/share/cartucho-erp/cartucho_erp.sqlite3` |
-| **macOS** | `/Users/<Usuario>/Library/Application Support/com.cartucho.cartucho-erp/cartucho_erp.sqlite3` |
+| Sistema Operativo | Ruta del Archivo SQLite | Carpeta de Respaldos Automáticos |
+| :--- | :--- | :--- |
+| **Windows 10 / 11** | `C:\Users\<Usuario>\AppData\Local\cartucho\cartucho-erp\data\cartucho_erp.sqlite3` | `...\data\backups\` |
+| **Linux** | `/home/<usuario>/.local/share/cartucho-erp/cartucho_erp.sqlite3` | `~/.local/share/cartucho-erp/backups/` |
+| **macOS** | `/Users/<Usuario>/Library/Application Support/com.cartucho.cartucho-erp/cartucho_erp.sqlite3` | `.../com.cartucho.cartucho-erp/backups/` |
 
 ---
 
@@ -145,61 +173,25 @@ Cartucho ERP almacena su archivo `cartucho_erp.sqlite3` en el directorio estánd
 
 ```text
 Cartucho-ERP/
-├── .editorconfig                         # Reglas de formato consistentes entre Windows, Linux y macOS
-├── .gitattributes                        # Normalización de saltos de línea (LF / CRLF)
-├── .gitignore                            # Exclusiones de Git (node_modules, target, *.sqlite3, etc.)
-├── .github/
-│   └── pull_request_template.md          # Plantilla de verificación para Pull Requests
-├── package.json                          # Scripts globales del monorepo
-├── pnpm-workspace.yaml                   # Configuración de workspaces de pnpm
-├── README.md                             # Documentación principal del repositorio
-│
-├── apps/
-│   └── desktop/                          # Aplicación principal de escritorio (@cartucho/desktop)
-│       ├── index.html                    # Entrada HTML de Vite
-│       ├── package.json                  # Dependencias y scripts de @cartucho/desktop
-│       ├── tsconfig.json                 # Configuración TypeScript estricta del frontend
-│       ├── vite.config.ts                # Configuración de Vite sincronizada con Tauri 2 (puerto 1420)
-│       ├── src/                          # Código fuente del frontend (React 19 + TypeScript)
-│       │   ├── main.tsx                  # Punto de montaje de React
-│       │   ├── App.tsx                   # Orquestador de estado, tema persistente y navegación
-│       │   ├── vite-env.d.ts             # Tipos de entorno Vite
-│       │   ├── components/
-│       │   │   ├── layout.tsx            # Sidebar, Topbar y Statusbar de escritorio
-│       │   │   ├── ui.tsx                # Componentes reutilizables (Button, Input, Select, Card, Badge, Table, Dialog, Toast, States)
-│       │   │   └── views.tsx             # Vistas de Fase 0 (Inicio, Almacenamiento, Preferencias, Acerca de)
-│       │   ├── services/
-│       │   │   └── systemClient.ts       # Cliente tipado de comunicación con los comandos IPC de Tauri
-│       │   └── styles/
-│       │       └── theme.css             # Tokens semánticos Business Minimalist (Light + Dark) y estilos base
-│       │
-│       └── src-tauri/                    # Núcleo nativo de escritorio (Tauri 2 + Rust + SQLite)
-│           ├── Cargo.toml                # Manifiesto de dependencias Rust (tauri, rusqlite bundled, serde, directories)
-│           ├── Cargo.lock                # Versiones exactas bloqueadas de crates de Rust
-│           ├── build.rs                  # Script de construcción de Tauri 2
-│           ├── tauri.conf.json           # Configuración de ventana, seguridad y bundle de Tauri 2
-│           ├── capabilities/
-│           │   └── default.json          # Permisos nativos de Tauri 2 (core:default)
-│           ├── icons/                    # Iconos multiplataforma (.png, .ico, .icns)
-│           └── src/
-│               ├── db.rs                 # Gestor SQLite local, migraciones, preferencias y pruebas unitarias
-│               ├── lib.rs                # Estado compartido AppState y comandos #[tauri::command]
-│               └── main.rs               # Punto de entrada del binario nativo
-│
-├── packages/
-│   └── shared/                           # Paquete compartido de contratos (@cartucho/shared)
-│       ├── package.json
-│       ├── tsconfig.json
-│       └── src/
-│           ├── index.ts                  # Exportación principal
-│           └── system.ts                 # Tipos e interfaces compartidas (SystemOverview, DatabaseStatusReport, etc.)
-│
-└── docs/                                 # Documentación técnica detallada
-    ├── README.md                         # Índice maestro de la documentación
-    ├── 01-architecture/                  # Arquitectura técnica, IPC, evolución futura y ADRs
-    ├── 02-database/                      # Administración de SQLite, migraciones y ubicación de datos
-    ├── 03-requirements/                  # Visión del producto, alcance, diseño visual y requisitos
-    ├── 04-coding-standards/              # Estándares de código y flujo de trabajo Git
-    ├── 05-roadmap/                       # Hoja de ruta evolutiva por fases
-    └── 06-setup/                         # Guía detallada de instalación y compilación en Windows, Linux y macOS
+├── AGENTS.md                        # Reglas obligatorias de protección de datos
+├── apps/desktop/
+│   ├── src/                         # Interfaz (React 19 + TypeScript)
+│   │   ├── App.tsx                  # Arranque, asistente, login, tema y navegación
+│   │   ├── components/              # layout (menú y Ctrl+K), onboarding, ui, print, charts, categories, views
+│   │   ├── pages/                   # Dashboard, Invoices, InvoiceDetail, DocumentEditor, Quotes,
+│   │   │                            # Customers, Catalog, Inventory, Finance, Expenses, Settings
+│   │   ├── config/moduleRegistry.ts # Menú lateral y rutas
+│   │   ├── services/systemClient.ts # Cliente tipado de comandos Tauri
+│   │   ├── services/previewBackend.ts # Backend de demostración para `pnpm dev`
+│   │   ├── lib/                     # Formatos (pesos, fechas), hooks e imágenes
+│   │   └── styles/theme.css         # Sistema visual «lateral oscuro» (claro y oscuro)
+│   └── src-tauri/src/
+│       ├── db.rs                    # Conexión, migraciones v1..v4, sesión y empresa
+│       ├── data_admin.rs            # Exportar, restaurar, mover datos, respaldo diario
+│       ├── erp/                     # customers, catalog (productos e inventario), sales
+│       │                            # (facturas, pagos, cotizaciones), finance, settings, tests
+│       ├── lib.rs                   # Comandos IPC
+│       └── main.rs
+├── packages/shared/src/             # Contratos compartidos (system.ts, erp.ts)
+└── docs/                            # Arquitectura, base de datos, requisitos, roadmap
 ```

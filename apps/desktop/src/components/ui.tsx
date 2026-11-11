@@ -1,350 +1,492 @@
-import React, { useEffect } from "react";
-import { AlertCircle, CheckCircle2, Inbox, Loader2, X } from "lucide-react";
+/**
+ * Componentes de interfaz reutilizables del estilo "Lateral oscuro".
+ */
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  InputHTMLAttributes,
+  ButtonHTMLAttributes,
+} from "react";
+import { createPortal } from "react-dom";
+import { AlertCircle, CheckCircle2, ImagePlus, Info, Loader2, Search, Trash2, X } from "lucide-react";
+import type { InvoiceStatus, QuoteStatus } from "@cartucho/shared";
+import { INVOICE_STATUS, QUOTE_STATUS, errorMessage, money, parseMoney } from "../lib/format";
+import { readImageFile } from "../lib/image";
 
-/* ==========================================================================
-   Button
-   ========================================================================== */
+// ------------------------------------------------------------------ Botones
 
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost";
-  icon?: React.ReactNode;
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "danger-solid";
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant;
+  size?: "sm" | "md" | "lg";
+  icon?: ReactNode;
+  loading?: boolean;
+  block?: boolean;
 }
 
-export function Button({
-  variant = "primary",
-  icon,
-  children,
-  className = "",
-  ...props
-}: ButtonProps) {
+export function Button({ variant = "secondary", size = "md", icon, loading, block, className = "", children, disabled, ...rest }: ButtonProps) {
+  const cls = [
+    "btn",
+    variant === "primary" && "btn-primary",
+    variant === "ghost" && "btn-ghost",
+    variant === "danger" && "btn-danger",
+    variant === "danger-solid" && "btn-danger-solid",
+    size === "sm" && "btn-sm",
+    size === "lg" && "btn-lg",
+    block && "btn-block",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <button
-      className={`ui-btn ui-btn-${variant} ${className}`.trim()}
-      {...props}
-    >
-      {icon}
+    <button type="button" className={cls} disabled={disabled || loading} {...rest}>
+      {loading ? <Loader2 size={16} className="spin" /> : icon}
       {children}
     </button>
   );
 }
 
-/* ==========================================================================
-   Input
-   ========================================================================== */
-
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
-  helperText?: string;
-}
-
-export function Input({ label, helperText, id, ...props }: InputProps) {
+export function IconButton({ label, danger, children, className = "", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean }) {
   return (
-    <div className="ui-field">
-      {label && (
-        <label className="ui-label" htmlFor={id}>
-          {label}
-        </label>
-      )}
-      <input id={id} className="ui-input" {...props} />
-      {helperText && <span className="ui-helper">{helperText}</span>}
-    </div>
+    <button type="button" className={`icon-btn ${danger ? "is-danger" : ""} ${className}`} aria-label={label} title={label} {...rest}>
+      {children}
+    </button>
   );
 }
 
-/* ==========================================================================
-   Select
-   ========================================================================== */
+// ------------------------------------------------------------------ Formularios
 
-export interface SelectOption {
-  value: string;
-  label: string;
-}
-
-export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string;
-  helperText?: string;
-  options: SelectOption[];
-}
-
-export function Select({
+export function Field({
   label,
-  helperText,
-  options,
-  id,
-  ...props
-}: SelectProps) {
+  hint,
+  error,
+  optional,
+  children,
+  className = "",
+}: {
+  label?: string;
+  hint?: ReactNode;
+  error?: string | null;
+  optional?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="ui-field">
+    <label className={`field ${className}`}>
       {label && (
-        <label className="ui-label" htmlFor={id}>
-          {label}
-        </label>
-      )}
-      <select id={id} className="ui-select" {...props}>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      {helperText && <span className="ui-helper">{helperText}</span>}
-    </div>
-  );
-}
-
-/* ==========================================================================
-   Badge
-   ========================================================================== */
-
-export interface BadgeProps {
-  variant?: "success" | "warning" | "error" | "neutral";
-  children: React.ReactNode;
-}
-
-export function Badge({ variant = "neutral", children }: BadgeProps) {
-  return <span className={`ui-badge ui-badge-${variant}`}>{children}</span>;
-}
-
-/* ==========================================================================
-   Card
-   ========================================================================== */
-
-export interface CardProps {
-  title?: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}
-
-export function Card({ title, subtitle, icon, action, children }: CardProps) {
-  return (
-    <section className="ui-card">
-      {(title || subtitle || action) && (
-        <header className="ui-card-header">
-          <div>
-            {title && (
-              <h2 className="ui-card-title">
-                {icon}
-                <span>{title}</span>
-              </h2>
-            )}
-            {subtitle && <p className="ui-card-subtitle">{subtitle}</p>}
-          </div>
-          {action && <div>{action}</div>}
-        </header>
+        <span className="field-label">
+          {label} {optional && <span className="opt">(opcional)</span>}
+        </span>
       )}
       {children}
-    </section>
+      {error ? <span className="field-error">{error}</span> : hint ? <span className="field-hint">{hint}</span> : null}
+    </label>
   );
 }
 
-/* ==========================================================================
-   Table
-   ========================================================================== */
-
-export interface TableColumn<T> {
-  key: string;
-  header: string;
-  render: (row: T) => React.ReactNode;
-}
-
-export interface DataTableProps<T> {
-  columns: TableColumn<T>[];
-  data: T[];
-  rowKey: (row: T) => string | number;
-  emptyMessage?: string;
-}
-
-export function DataTable<T>({
-  columns,
-  data,
-  rowKey,
-  emptyMessage = "Sin registros disponibles.",
-}: DataTableProps<T>) {
-  if (data.length === 0) {
-    return (
-      <EmptyState
-        title="Sin registros"
-        description={emptyMessage}
-      />
-    );
-  }
-
-  return (
-    <div className="ui-table-container">
-      <table className="ui-table">
-        <thead>
-          <tr>
-            {columns.map((col) => (
-              <th key={col.key}>{col.header}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row) => (
-            <tr key={rowKey(row)}>
-              {columns.map((col) => (
-                <td key={col.key}>{col.render(row)}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/* ==========================================================================
-   Dialog / Modal
-   ========================================================================== */
-
-export interface DialogProps {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
-}
-
-export function Dialog({ open, title, onClose, children, footer }: DialogProps) {
+/** Campo de dinero que muestra separadores de miles mientras se escribe. */
+export function MoneyInput({
+  value,
+  onChange,
+  className = "",
+  ...rest
+}: { value: number; onChange: (v: number) => void } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
+  const [text, setText] = useState(value ? value.toLocaleString("es-CO") : "");
+  const focused = useRef(false);
   useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
+    if (!focused.current) setText(value ? value.toLocaleString("es-CO") : "");
+  }, [value]);
   return (
-    <div
-      className="ui-dialog-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="dialog-title"
-      onClick={onClose}
-    >
-      <div className="ui-dialog" onClick={(e) => e.stopPropagation()}>
-        <header className="ui-dialog-header">
-          <h3 id="dialog-title" className="ui-dialog-title">
-            {title}
-          </h3>
-          <Button
-            variant="ghost"
-            onClick={onClose}
-            aria-label="Cerrar diálogo"
-            icon={<X size={16} />}
-          />
-        </header>
-        <div>{children}</div>
-        {footer && <footer className="ui-dialog-footer">{footer}</footer>}
-      </div>
+    <div className="input-group">
+      <span style={{ position: "absolute", left: 12, color: "var(--text-3)", pointerEvents: "none" }}>$</span>
+      <input
+        className={`input input-money ${className}`}
+        style={{ paddingLeft: 24 }}
+        inputMode="numeric"
+        value={text}
+        placeholder="0"
+        onFocus={(e) => {
+          focused.current = true;
+          e.currentTarget.select();
+        }}
+        onBlur={() => {
+          focused.current = false;
+          setText(value ? value.toLocaleString("es-CO") : "");
+        }}
+        onChange={(e) => {
+          const n = parseMoney(e.target.value);
+          setText(e.target.value === "" ? "" : n.toLocaleString("es-CO"));
+          onChange(n);
+        }}
+        {...rest}
+      />
     </div>
   );
 }
 
-/* ==========================================================================
-   Toast Notification
-   ========================================================================== */
-
-export interface ToastMessage {
-  id: number;
-  type: "success" | "error";
-  text: string;
-}
-
-export interface ToastRegionProps {
-  toasts: ToastMessage[];
-  onDismiss: (id: number) => void;
-}
-
-export function ToastRegion({ toasts, onDismiss }: ToastRegionProps) {
-  if (toasts.length === 0) return null;
-
+export function SearchBox({ value, onChange, placeholder = "Buscar…", autoFocus }: { value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean }) {
   return (
-    <div className="ui-toast-region" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.id} className="ui-toast">
-          {t.type === "success" ? (
-            <CheckCircle2 size={16} color="var(--status-success-text)" />
-          ) : (
-            <AlertCircle size={16} color="var(--status-error-text)" />
-          )}
-          <span style={{ flex: 1 }}>{t.text}</span>
-          <button
-            type="button"
-            className="ui-btn ui-btn-ghost"
-            style={{ padding: "2px 4px" }}
-            onClick={() => onDismiss(t.id)}
-            aria-label="Cerrar notificación"
-          >
+    <div className="input-group">
+      <Search size={16} />
+      <input className="input" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoFocus={autoFocus} />
+      {value && (
+        <span className="input-suffix">
+          <IconButton label="Limpiar búsqueda" onClick={() => onChange("")} style={{ width: 26, height: 26 }}>
             <X size={14} />
-          </button>
-        </div>
+          </IconButton>
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function Switch({ checked, onChange, label, description }: { checked: boolean; onChange: (v: boolean) => void; label?: string; description?: string }) {
+  return (
+    <label className="row-between" style={{ cursor: "pointer", gap: 16 }}>
+      {(label || description) && (
+        <span>
+          {label && <span style={{ fontWeight: 500, display: "block" }}>{label}</span>}
+          {description && <span className="muted" style={{ fontSize: 13 }}>{description}</span>}
+        </span>
+      )}
+      <span className="switch">
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span />
+      </span>
+    </label>
+  );
+}
+
+export function Segmented<T extends string>({ options, value, onChange }: { options: { value: T; label: ReactNode }[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div className="segmented" role="tablist">
+      {options.map((o) => (
+        <button key={o.value} type="button" role="tab" aria-selected={value === o.value} className={value === o.value ? "is-active" : ""} onClick={() => onChange(o.value)}>
+          {o.label}
+        </button>
       ))}
     </div>
   );
 }
 
-/* ==========================================================================
-   Empty, Loading & Error States
-   ========================================================================== */
+/** Selector de imagen con vista previa; reduce la foto antes de guardarla. */
+export function ImagePicker({
+  value,
+  onChange,
+  onRemove,
+  maxSide = 800,
+  label = "Subir imagen",
+  preferPng = false,
+  size = 96,
+}: {
+  value: string | null;
+  onChange: (img: { base64: string; mime: string; dataUrl: string }) => void;
+  onRemove: () => void;
+  maxSide?: number;
+  label?: string;
+  preferPng?: boolean;
+  size?: number;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="logo-picker">
+      <div className="logo-drop" style={{ width: size, height: size }} onClick={() => ref.current?.click()} role="button" tabIndex={0} aria-label={label}>
+        {value ? <img src={value} alt="" /> : <ImagePlus size={26} />}
+      </div>
+      <div className="stack" style={{ gap: 6 }}>
+        <div className="row">
+          <Button size="sm" onClick={() => ref.current?.click()}>
+            {value ? "Cambiar" : label}
+          </Button>
+          {value && (
+            <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} onClick={onRemove}>
+              Quitar
+            </Button>
+          )}
+        </div>
+        <span className="field-hint">PNG, JPG o WEBP. Se ajusta automáticamente.</span>
+        {error && <span className="field-error">{error}</span>}
+      </div>
+      <input
+        ref={ref}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        hidden
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          try {
+            setError(null);
+            onChange(await readImageFile(f, maxSide, preferPng ? "image/png" : "image/webp"));
+          } catch (err) {
+            setError(errorMessage(err));
+          }
+        }}
+      />
+    </div>
+  );
+}
 
-export function EmptyState({
+// ------------------------------------------------------------------ Presentación
+
+export function Badge({ tone = "neutral", children, dot = true }: { tone?: string; children: ReactNode; dot?: boolean }) {
+  return <span className={`badge ${tone !== "neutral" ? `badge-${tone}` : ""} ${dot ? "" : "no-dot"}`}>{children}</span>;
+}
+
+export function InvoiceStatusBadge({ status, overdue }: { status: InvoiceStatus; overdue?: boolean }) {
+  if (overdue) return <Badge tone="danger">Vencida</Badge>;
+  const s = INVOICE_STATUS[status];
+  return <Badge tone={s.tone}>{s.label}</Badge>;
+}
+
+export function QuoteStatusBadge({ status }: { status: QuoteStatus }) {
+  const s = QUOTE_STATUS[status];
+  return <Badge tone={s.tone}>{s.label}</Badge>;
+}
+
+export function Money({ value, className = "" }: { value: number; className?: string }) {
+  return <span className={`money ${className}`}>{money(value)}</span>;
+}
+
+export function PageHeader({ title, subtitle, actions, back }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; back?: { label: string; onClick: () => void } }) {
+  return (
+    <div className="page-header">
+      <div>
+        {back && (
+          <button className="back-link" onClick={back.onClick}>
+            ← {back.label}
+          </button>
+        )}
+        <h1>{title}</h1>
+        {subtitle && <p className="page-subtitle">{subtitle}</p>}
+      </div>
+      {actions && <div className="page-actions">{actions}</div>}
+    </div>
+  );
+}
+
+export function StatCard({ label, value, icon, tone = "accent", foot }: { label: string; value: ReactNode; icon: ReactNode; tone?: "accent" | "success" | "warning" | "danger" | "info"; foot?: ReactNode }) {
+  return (
+    <div className="card stat">
+      <div className="stat-top">
+        <span className="stat-label">{label}</span>
+        <span className={`stat-icon ${tone !== "accent" ? `is-${tone}` : ""}`}>{icon}</span>
+      </div>
+      <div className="stat-value">{value}</div>
+      {foot && <div className="stat-foot">{foot}</div>}
+    </div>
+  );
+}
+
+export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text?: string; action?: ReactNode }) {
+  return (
+    <div className="empty">
+      <div className="empty-icon">{icon}</div>
+      <div className="empty-title">{title}</div>
+      {text && <p className="empty-text">{text}</p>}
+      {action}
+    </div>
+  );
+}
+
+export function SkeletonRows({ rows = 5 }: { rows?: number }) {
+  return (
+    <div style={{ padding: 16 }} className="stack">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="skeleton" style={{ height: 36, opacity: 1 - i * 0.12 }} />
+      ))}
+    </div>
+  );
+}
+
+export function Alert({ tone = "info", children, title }: { tone?: "info" | "warning" | "danger" | "success"; children?: ReactNode; title?: ReactNode }) {
+  const Icon = tone === "success" ? CheckCircle2 : tone === "info" ? Info : AlertCircle;
+  return (
+    <div className={`alert alert-${tone}`}>
+      <Icon size={18} />
+      <div className="alert-body">
+        {title && <div style={{ fontWeight: 600 }}>{title}</div>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ Capas flotantes
+
+function useEscape(onClose: () => void) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+}
+
+export function Drawer({
   title,
-  description,
-  action,
+  subtitle,
+  onClose,
+  children,
+  footer,
+  wide,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  footer?: ReactNode;
+  wide?: boolean;
+}) {
+  useEscape(onClose);
+  return createPortal(
+    <>
+      <div className="overlay" onClick={onClose} />
+      <aside className={`drawer ${wide ? "is-wide" : ""}`} role="dialog" aria-modal="true">
+        <div className="drawer-header">
+          <div>
+            <div className="drawer-title">{title}</div>
+            {subtitle && <div className="drawer-subtitle">{subtitle}</div>}
+          </div>
+          <IconButton label="Cerrar" onClick={onClose}>
+            <X size={18} />
+          </IconButton>
+        </div>
+        <div className="drawer-body">{children}</div>
+        {footer && <div className="drawer-footer">{footer}</div>}
+      </aside>
+    </>,
+    document.body,
+  );
+}
+
+export function Modal({ onClose, children, footer, large }: { onClose: () => void; children: ReactNode; footer?: ReactNode; large?: boolean }) {
+  useEscape(onClose);
+  return createPortal(
+    <div className="modal-wrap">
+      <div className="overlay" onClick={onClose} />
+      <div className={`modal ${large ? "is-large" : ""}`} role="dialog" aria-modal="true">
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Confirmación con texto opcional (por ejemplo, el motivo de anulación). */
+export function ConfirmDialog({
+  title,
+  text,
+  confirmLabel = "Confirmar",
+  danger,
+  requireReason,
+  reasonLabel = "Motivo",
+  onConfirm,
+  onClose,
 }: {
   title: string;
-  description: string;
-  action?: React.ReactNode;
+  text?: ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  requireReason?: boolean;
+  reasonLabel?: string;
+  onConfirm: (reason: string) => Promise<void> | void;
+  onClose: () => void;
 }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    if (requireReason && !reason.trim()) {
+      setError("Escribe el motivo para continuar.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await onConfirm(reason.trim());
+      onClose();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div className="ui-state-box">
-      <Inbox size={22} color="var(--text-secondary)" />
-      <h3 className="ui-state-title">{title}</h3>
-      <p className="ui-state-description">{description}</p>
-      {action && <div style={{ marginTop: 6 }}>{action}</div>}
-    </div>
-  );
-}
-
-export function LoadingState({ message = "Cargando información del sistema..." }: { message?: string }) {
-  return (
-    <div className="ui-state-box" style={{ margin: "48px auto", maxWidth: 460 }}>
-      <Loader2 size={22} color="var(--text-secondary)" />
-      <h3 className="ui-state-title">Inicializando Cartucho ERP</h3>
-      <p className="ui-state-description">{message}</p>
-    </div>
-  );
-}
-
-export function ErrorState({
-  title = "Error de inicialización",
-  message,
-  onRetry,
-}: {
-  title?: string;
-  message: string;
-  onRetry?: () => void;
-}) {
-  return (
-    <div className="ui-state-box" style={{ margin: "48px auto", maxWidth: 520 }}>
-      <AlertCircle size={22} color="var(--status-error-text)" />
-      <h3 className="ui-state-title">{title}</h3>
-      <p className="ui-state-description">{message}</p>
-      {onRetry && (
-        <div style={{ marginTop: 8 }}>
-          <Button variant="secondary" onClick={onRetry}>
-            Reintentar conexión
+    <Modal
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancelar
           </Button>
+          <Button variant={danger ? "danger-solid" : "primary"} loading={busy} onClick={submit}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="modal-title">{title}</div>
+      {text && <div className="modal-text">{text}</div>}
+      {requireReason && (
+        <div className="mt-16">
+          <Field label={reasonLabel} error={error}>
+            <textarea className="textarea" value={reason} onChange={(e) => setReason(e.target.value)} autoFocus rows={3} />
+          </Field>
         </div>
       )}
-    </div>
+      {!requireReason && error && (
+        <div className="mt-16">
+          <Alert tone="danger">{error}</Alert>
+        </div>
+      )}
+    </Modal>
   );
 }
+
+// ------------------------------------------------------------------ Avisos
+
+type ToastKind = "success" | "error" | "info";
+interface ToastItem {
+  id: number;
+  kind: ToastKind;
+  text: string;
+}
+
+const ToastCtx = createContext<(text: string, kind?: ToastKind) => void>(() => undefined);
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [items, setItems] = useState<ToastItem[]>([]);
+  const push = useCallback((text: string, kind: ToastKind = "success") => {
+    const id = Date.now() + Math.random();
+    setItems((s) => [...s.slice(-3), { id, kind, text }]);
+    setTimeout(() => setItems((s) => s.filter((t) => t.id !== id)), kind === "error" ? 6000 : 3200);
+  }, []);
+  return (
+    <ToastCtx.Provider value={push}>
+      {children}
+      {createPortal(
+        <div className="toast-stack" aria-live="polite">
+          {items.map((t) => (
+            <div key={t.id} className={`toast is-${t.kind}`}>
+              {t.kind === "success" ? <CheckCircle2 size={18} /> : t.kind === "error" ? <AlertCircle size={18} /> : <Info size={18} />}
+              <span>{t.text}</span>
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </ToastCtx.Provider>
+  );
+}
+
+export const useToast = () => useContext(ToastCtx);

@@ -1,238 +1,177 @@
+/**
+ * Orquestador principal: arranque, configuración inicial, inicio de sesión, tema y navegación.
+ */
 import { useCallback, useEffect, useState } from "react";
-import type {
-  NavigationSectionId,
-  ResolvedTheme,
-  SystemOverview,
-  ThemePreference,
-} from "@cartucho/shared";
-import {
-  fetchSystemOverview,
-  recordPersistenceCheck,
-  saveThemePreference,
-} from "./services/systemClient";
-import { Sidebar, Statusbar, Topbar } from "./components/layout";
-import {
-  ErrorState,
-  LoadingState,
-  ToastMessage,
-  ToastRegion,
-} from "./components/ui";
-import {
-  AboutView,
-  HomeView,
-  PreferencesView,
-  StorageView,
-} from "./components/views";
-import "./styles/theme.css";
+import { Loader2 } from "lucide-react";
+import type { CompleteInitialSetupInput, ResolvedTheme, SystemOverview, ThemePreference } from "@cartucho/shared";
+import { api } from "./services/systemClient";
+import { errorMessage } from "./lib/format";
+import { AppShell } from "./components/layout";
+import { LoginScreen, SetupWizard, StartupErrorScreen } from "./components/onboarding";
+import { ToastProvider, useToast } from "./components/ui";
+import { Route } from "./config/moduleRegistry";
+import { PageRouter } from "./components/views";
 
-function getSystemColorScheme(): ResolvedTheme {
-  if (
-    typeof window !== "undefined" &&
-    window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    return "dark";
-  }
-  return "light";
+function systemTheme(): ResolvedTheme {
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-export function App() {
-  const [overview, setOverview] = useState<SystemOverview | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeSection, setActiveSection] =
-    useState<NavigationSectionId>("home");
-  const [themePreference, setThemePreferenceState] =
-    useState<ThemePreference>("system");
-  const [systemScheme, setSystemScheme] = useState<ResolvedTheme>(
-    getSystemColorScheme
+function useResolvedTheme(pref: ThemePreference | undefined): ResolvedTheme {
+  const [sys, setSys] = useState<ResolvedTheme>(systemTheme);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    const h = () => setSys(mq.matches ? "dark" : "light");
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
+  return !pref || pref === "system" ? sys : pref;
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
   );
-  const [savingCheck, setSavingCheck] = useState<boolean>(false);
-  const [savingTheme, setSavingTheme] = useState<boolean>(false);
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+}
 
-  const pushToast = useCallback((type: "success" | "error", text: string) => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev, { id, type, text }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 3500);
-  }, []);
-
-  const dismissToast = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((item) => item.id !== id));
-  }, []);
-
-  // Escuchar cambios de tema del sistema operativo en tiempo real
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (e: MediaQueryListEvent) => {
-      setSystemScheme(e.matches ? "dark" : "light");
-    };
-    mediaQuery.addEventListener("change", handler);
-    return () => mediaQuery.removeEventListener("change", handler);
-  }, []);
-
-  // Resolver el tema efectivo ("light" | "dark") y aplicarlo al atributo data-theme del documento
-  const resolvedTheme: ResolvedTheme =
-    themePreference === "system" ? systemScheme : themePreference;
+function AppInner() {
+  const toast = useToast();
+  const [overview, setOverview] = useState<SystemOverview | null>(null);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [route, setRoute] = useState<Route>({ page: "dashboard" });
+  const [, setHistory] = useState<Route[]>([]);
+  const [lowStockCount, setLowStockCount] = useState(0);
+  const theme = useResolvedTheme(overview?.preferences.theme);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", resolvedTheme);
-  }, [resolvedTheme]);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
-  // Carga inicial del estado real desde Tauri / SQLite
-  const loadOverview = useCallback(async (incrementStartup: boolean) => {
+  const load = useCallback(async () => {
     try {
-      setError(null);
-      const data = await fetchSystemOverview(incrementStartup);
-      setOverview(data);
-      if (data.preferences?.theme) {
-        setThemePreferenceState(data.preferences.theme);
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setOverview(await api.overview());
+      setStartupError(null);
+    } catch (e) {
+      const raw = typeof e === "string" ? e : errorMessage(e);
+      setStartupError(raw.replace(/^STARTUP_ERROR:\s*/, ""));
     }
   }, []);
 
   useEffect(() => {
-    loadOverview(true);
-  }, [loadOverview]);
+    void load();
+  }, [load]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await loadOverview(false);
-    pushToast("success", "Estado del sistema actualizado desde SQLite.");
-  };
+  const authenticated = !!overview?.isAuthenticated;
 
-  const handleRecordCheck = async (note: string) => {
-    setSavingCheck(true);
+  // Contador de stock bajo para el menú lateral; se refresca al navegar.
+  useEffect(() => {
+    if (!authenticated) return;
+    api
+      .listProducts({ onlyLowStock: true })
+      .then((p) => setLowStockCount(p.length))
+      .catch(() => undefined);
+  }, [authenticated, route]);
+
+  const navigate = useCallback(
+    (r: Route) => {
+      setHistory((h) => [...h.slice(-30), route]);
+      setRoute(r);
+    },
+    [route],
+  );
+
+  const goBack = useCallback(() => {
+    setHistory((h) => {
+      const prev = h[h.length - 1];
+      setRoute(prev ?? { page: "dashboard" });
+      return h.slice(0, -1);
+    });
+  }, []);
+
+  const toggleTheme = async () => {
+    const next: ThemePreference = theme === "dark" ? "light" : "dark";
     try {
-      const updated = await recordPersistenceCheck(note);
-      setOverview(updated);
-      pushToast(
-        "success",
-        "Registro guardado correctamente en la base de datos SQLite local."
-      );
-    } catch (err: unknown) {
-      pushToast(
-        "error",
-        err instanceof Error ? err.message : "Error al escribir en SQLite."
-      );
-    } finally {
-      setSavingCheck(false);
+      setOverview(await api.setTheme(next));
+    } catch (e) {
+      toast(errorMessage(e), "error");
     }
   };
 
-  const handleSelectTheme = async (nextTheme: ThemePreference) => {
-    setSavingTheme(true);
-    setThemePreferenceState(nextTheme);
-    try {
-      const updated = await saveThemePreference(nextTheme);
-      setOverview(updated);
-      pushToast(
-        "success",
-        `Preferencia de tema (${
-          nextTheme === "system"
-            ? "Sistema"
-            : nextTheme === "dark"
-            ? "Oscuro"
-            : "Claro"
-        }) guardada en SQLite.`
-      );
-    } catch (err: unknown) {
-      pushToast(
-        "error",
-        err instanceof Error
-          ? err.message
-          : "Error al guardar preferencia de tema."
-      );
-    } finally {
-      setSavingTheme(false);
-    }
-  };
-
-  const handleQuickToggleTheme = async () => {
-    const nextTheme: ThemePreference =
-      resolvedTheme === "dark" ? "light" : "dark";
-    await handleSelectTheme(nextTheme);
-  };
-
-  if (loading) {
-    return <LoadingState />;
+  if (startupError) {
+    return (
+      <StartupErrorScreen
+        message={startupError}
+        onRetry={async () => {
+          setOverview(await api.retryOpenDatabase());
+          setStartupError(null);
+        }}
+        onReset={async () => {
+          setOverview(await api.resetDataLocation());
+          setStartupError(null);
+        }}
+      />
+    );
   }
 
-  if (error || !overview) {
+  if (!overview) {
     return (
-      <ErrorState
-        message={
-          error ?? "No fue posible obtener el estado del sistema desde SQLite."
-        }
-        onRetry={() => {
-          setLoading(true);
-          loadOverview(false);
+      <div className="center-screen">
+        <Loader2 className="spin" size={28} color="var(--accent)" />
+      </div>
+    );
+  }
+
+  if (!overview.hasAdminUser || !overview.company) {
+    return (
+      <SetupWizard
+        existingCompany={overview.company}
+        onComplete={async (input: CompleteInitialSetupInput) => {
+          setOverview(await api.completeSetup(input));
+          setRoute({ page: "dashboard" });
+          toast("Tu empresa quedó configurada. ¡Bienvenido!");
+        }}
+      />
+    );
+  }
+
+  if (!overview.isAuthenticated || !overview.currentUser) {
+    return (
+      <LoginScreen
+        company={overview.company}
+        onLogin={async (username, password) => {
+          setOverview(await api.login({ username, password }));
+          setRoute({ page: "dashboard" });
+          setHistory([]);
         }}
       />
     );
   }
 
   return (
-    <div className="desktop-layout">
-      <Sidebar
-        activeSection={activeSection}
-        onSelectSection={setActiveSection}
-        appVersion={overview.appVersion}
-      />
-
-      <Topbar
-        activeSection={activeSection}
+    <AppShell
+      company={overview.company}
+      user={overview.currentUser}
+      route={route}
+      navigate={navigate}
+      resolvedTheme={theme}
+      onToggleTheme={toggleTheme}
+      lowStockCount={lowStockCount}
+      onLogout={async () => {
+        setOverview(await api.logout());
+        setHistory([]);
+      }}
+    >
+      <PageRouter
+        key={JSON.stringify(route)}
+        route={route}
+        navigate={navigate}
+        goBack={goBack}
         overview={overview}
-        resolvedTheme={resolvedTheme}
-        onQuickToggleTheme={handleQuickToggleTheme}
-        onRefresh={handleRefresh}
-        refreshing={refreshing}
+        setOverview={setOverview}
+        reloadOverview={load}
       />
-
-      <main className="app-main">
-        {activeSection === "home" && (
-          <HomeView overview={overview} onNavigate={setActiveSection} />
-        )}
-
-        {activeSection === "storage" && (
-          <StorageView
-            overview={overview}
-            onRecordCheck={handleRecordCheck}
-            savingCheck={savingCheck}
-          />
-        )}
-
-        {activeSection === "preferences" && (
-          <PreferencesView
-            themePreference={themePreference}
-            resolvedTheme={resolvedTheme}
-            preferencesUpdatedAt={overview.preferences.updatedAt}
-            onSelectTheme={handleSelectTheme}
-            savingTheme={savingTheme}
-          />
-        )}
-
-        {activeSection === "about" && <AboutView overview={overview} />}
-      </main>
-
-      <Statusbar
-        overview={overview}
-        themePreference={themePreference}
-        resolvedTheme={resolvedTheme}
-      />
-
-      <ToastRegion toasts={toasts} onDismiss={dismissToast} />
-    </div>
+    </AppShell>
   );
 }
-
-export default App;
