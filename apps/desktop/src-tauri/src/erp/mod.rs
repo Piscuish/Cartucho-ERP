@@ -18,6 +18,23 @@ pub mod settings;
 mod tests;
 
 use chrono::NaiveDate;
+
+/// Módulos opcionales que cambian el comportamiento de otros módulos
+/// (por ejemplo, una factura solo descuenta inventario si el módulo de inventario está activo).
+/// La capa de comandos los fija según la licencia antes de cada operación.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Features {
+    pub customers: bool,
+    pub catalog: bool,
+    pub inventory: bool,
+    pub expenses: bool,
+}
+
+impl Default for Features {
+    fn default() -> Self {
+        Self { customers: true, catalog: true, inventory: true, expenses: true }
+    }
+}
 use rusqlite::{params, Transaction};
 
 /// Monto máximo aceptado por operación (1 billón de pesos) para evitar desbordes.

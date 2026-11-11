@@ -436,7 +436,7 @@ impl LocalDatabase {
                 .map_err(|e| friendly_sql_error("Guardar producto", e))?;
                 let new_id = tx.last_insert_rowid();
                 if let Some(initial) = input.initial_stock {
-                    if input.track_stock && initial != 0.0 {
+                    if input.track_stock && initial != 0.0 && self.features.inventory {
                         if !initial.is_finite() || !(0.0..=MAX_QUANTITY).contains(&initial) {
                             return Err("La existencia inicial no es válida.".to_string());
                         }
@@ -538,6 +538,9 @@ impl LocalDatabase {
                         )
                         .map_err(|e| friendly_sql_error("Inventario", e))?;
                     }
+                }
+                if input.record_expense && !self.features.expenses {
+                    return Err("El módulo de gastos no está incluido en tu licencia.".to_string());
                 }
                 if input.record_expense {
                     let c = unit_cost.unwrap_or(0);

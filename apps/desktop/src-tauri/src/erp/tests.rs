@@ -564,3 +564,73 @@ fn upgrade_from_v3_preserves_data_and_creates_backup() {
         .any(|b| b.kind == "pre_migration" && b.file_name.contains("v3_to_v4")));
     assert!(!db.list_categories("expense").unwrap().is_empty());
 }
+
+#[test]
+fn optional_modules_change_invoice_behavior() {
+    let (_dir, mut db) = setup();
+    let pid = product(&db, "Taladro", 250000, 180000, 5.0);
+    let cust = db.save_customer(&CustomerInput { name: "Cliente".to_string(), ..Default::default() }).unwrap();
+
+    // Sin inventario: la factura no descuenta existencias.
+    db.features = super::Features { inventory: false, ..Default::default() };
+    db.create_invoice(&InvoiceInput {
+        issue_date: "2026-11-10".to_string(),
+        lines: vec![line(Some(pid), "", 2.0, 250000)],
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(db.stock_of(pid), 5.0);
+
+    // Sin clientes: no se puede enlazar un cliente guardado.
+    db.features = super::Features { customers: false, ..Default::default() };
+    assert!(db
+        .create_invoice(&InvoiceInput {
+            customer_id: Some(cust.id),
+            issue_date: "2026-11-10".to_string(),
+            lines: vec![line(None, "Servicio", 1.0, 1000)],
+            ..Default::default()
+        })
+        .unwrap_err()
+        .contains("clientes"));
+
+    // Sin catálogo: solo ítems personalizados.
+    db.features = super::Features { catalog: false, ..Default::default() };
+    assert!(db
+        .create_invoice(&InvoiceInput {
+            issue_date: "2026-11-10".to_string(),
+            lines: vec![line(Some(pid), "", 1.0, 1000)],
+            ..Default::default()
+        })
+        .is_err());
+    assert!(db
+        .create_invoice(&InvoiceInput {
+            issue_date: "2026-11-10".to_string(),
+            lines: vec![line(None, "Instalación", 1.0, 50000)],
+            ..Default::default()
+        })
+        .is_ok());
+
+    // Sin gastos: una compra de inventario no puede registrarse como gasto.
+    db.features = super::Features { expenses: false, ..Default::default() };
+    assert!(db
+        .adjust_stock(&StockAdjustmentInput {
+            product_id: pid,
+            kind: "purchase".to_string(),
+            quantity: 1.0,
+            unit_cost: Some(1000),
+            record_expense: true,
+            ..Default::default()
+        })
+        .is_err());
+
+    // Todo activo de nuevo: descuenta normalmente.
+    db.features = super::Features::default();
+    db.create_invoice(&InvoiceInput {
+        issue_date: "2026-11-10".to_string(),
+        lines: vec![line(Some(pid), "", 1.0, 250000)],
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(db.stock_of(pid), 4.0);
+    let _ = &mut db;
+}

@@ -200,6 +200,7 @@ struct ValidatedDocument {
 
 #[allow(clippy::too_many_arguments)]
 fn validate_document(
+    features: super::Features,
     tx: &Transaction<'_>,
     customer_id: Option<i64>,
     customer: &Option<CustomerSnapshotInput>,
@@ -231,6 +232,9 @@ fn validate_document(
         ));
     }
 
+    if customer_id.is_some() && !features.customers {
+        return Err("El módulo de clientes no está incluido en tu licencia.".to_string());
+    }
     let snapshot = match customer_id {
         Some(id) => tx
             .query_row(
@@ -272,6 +276,9 @@ fn validate_document(
         let label = format!("línea {}", i + 1);
         let quantity = validate_quantity(l.quantity, &label)?;
         let unit_price = validate_amount(l.unit_price, &format!("Precio de la {}", label), true)?;
+        if l.product_id.is_some() && !features.catalog {
+            return Err("El módulo de catálogo no está incluido en tu licencia: usa ítems personalizados.".to_string());
+        }
         let (description, unit_cost, track_stock) = match l.product_id {
             Some(pid) => {
                 let (name, cost, track, active): (String, i64, i64, i64) = tx
@@ -294,7 +301,7 @@ fn validate_document(
                 } else {
                     clean_req(&l.description, 300, &format!("Descripción de la {}", label))?
                 };
-                (desc, cost, track == 1)
+                (desc, cost, track == 1 && features.inventory)
             }
             None => (
                 clean_req(&l.description, 300, &format!("Descripción de la {}", label))?,
@@ -574,6 +581,7 @@ impl LocalDatabase {
             .transaction()
             .map_err(|e| friendly_sql_error("Crear factura", e))?;
         let doc = validate_document(
+            self.features,
             &tx,
             input.customer_id,
             &input.customer,
@@ -831,6 +839,7 @@ impl LocalDatabase {
             .transaction()
             .map_err(|e| friendly_sql_error("Cotización", e))?;
         let doc = validate_document(
+            self.features,
             &tx,
             input.customer_id,
             &input.customer,
@@ -1020,6 +1029,7 @@ impl LocalDatabase {
             None => None,
         };
         let doc = validate_document(
+            self.features,
             &tx,
             customer_id,
             &Some(snapshot),
