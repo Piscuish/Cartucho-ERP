@@ -39,7 +39,10 @@ pub(crate) fn clean_opt(
             if t.is_empty() {
                 Ok(None)
             } else if t.chars().count() > max_len {
-                Err(format!("El campo '{}' no puede superar {} caracteres.", label, max_len))
+                Err(format!(
+                    "El campo '{}' no puede superar {} caracteres.",
+                    label, max_len
+                ))
             } else {
                 Ok(Some(t.to_string()))
             }
@@ -55,7 +58,10 @@ pub(crate) fn clean_req(value: &str, max_len: usize, label: &str) -> Result<Stri
         return Err(format!("El campo '{}' es obligatorio.", label));
     }
     if t.chars().count() > max_len {
-        return Err(format!("El campo '{}' no puede superar {} caracteres.", label, max_len));
+        return Err(format!(
+            "El campo '{}' no puede superar {} caracteres.",
+            label, max_len
+        ));
     }
     Ok(t.to_string())
 }
@@ -68,7 +74,10 @@ pub(crate) fn clean_date(value: &str, label: &str) -> Result<String, String> {
         .map_err(|_| format!("La fecha '{}' no es válida (formato AAAA-MM-DD).", label))
 }
 
-pub(crate) fn clean_opt_date(value: &Option<String>, label: &str) -> Result<Option<String>, String> {
+pub(crate) fn clean_opt_date(
+    value: &Option<String>,
+    label: &str,
+) -> Result<Option<String>, String> {
     match value {
         Some(v) if !v.trim().is_empty() => Ok(Some(clean_date(v, label)?)),
         _ => Ok(None),
@@ -165,7 +174,10 @@ pub(crate) fn friendly_sql_error(context: &str, err: rusqlite::Error) -> String 
         return "El número consecutivo ya está en uso. Revisa la numeración en Configuración > Facturación.".to_string();
     }
     if text.contains("FOREIGN KEY constraint failed") {
-        return format!("{}: el registro está relacionado con otros datos y no se puede modificar así.", context);
+        return format!(
+            "{}: el registro está relacionado con otros datos y no se puede modificar así.",
+            context
+        );
     }
     if text.contains("database is locked") || text.contains("busy") {
         return "La base de datos está ocupada. Intenta de nuevo en unos segundos.".to_string();

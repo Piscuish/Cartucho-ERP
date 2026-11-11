@@ -215,14 +215,20 @@ fn validate_document(
     let second_date = clean_opt_date(second_date, second_label)?;
     if let Some(ref d) = second_date {
         if d < &issue_date {
-            return Err(format!("La {} no puede ser anterior a la fecha de emisión.", second_label.to_lowercase()));
+            return Err(format!(
+                "La {} no puede ser anterior a la fecha de emisión.",
+                second_label.to_lowercase()
+            ));
         }
     }
     if lines.is_empty() {
         return Err("Agrega al menos un producto o servicio.".to_string());
     }
     if lines.len() > MAX_LINES {
-        return Err(format!("Un documento admite como máximo {} líneas.", MAX_LINES));
+        return Err(format!(
+            "Un documento admite como máximo {} líneas.",
+            MAX_LINES
+        ));
     }
 
     let snapshot = match customer_id {
@@ -278,7 +284,10 @@ fn validate_document(
                     .map_err(|e| friendly_sql_error("Producto", e))?
                     .ok_or_else(|| format!("El producto de la {} no existe.", label))?;
                 if active != 1 {
-                    return Err(format!("El producto '{}' está archivado. Actívalo para usarlo.", name));
+                    return Err(format!(
+                        "El producto '{}' está archivado. Actívalo para usarlo.",
+                        name
+                    ));
                 }
                 let desc = if l.description.trim().is_empty() {
                     name
@@ -348,7 +357,11 @@ fn map_invoice_summary(r: &Row<'_>) -> rusqlite::Result<InvoiceSummary> {
         customer_name: r.get(3)?,
         issue_date: r.get(4)?,
         due_date: r.get(5)?,
-        balance: if status == "void" { 0 } else { (total - paid).max(0) },
+        balance: if status == "void" {
+            0
+        } else {
+            (total - paid).max(0)
+        },
         status,
         total,
         paid_amount: paid,
@@ -378,13 +391,20 @@ fn map_quote_summary(r: &Row<'_>) -> rusqlite::Result<QuoteSummary> {
     })
 }
 
-fn load_lines(conn: &rusqlite::Connection, table: &str, fk: &str, id: i64) -> Result<Vec<DocumentLine>, String> {
+fn load_lines(
+    conn: &rusqlite::Connection,
+    table: &str,
+    fk: &str,
+    id: i64,
+) -> Result<Vec<DocumentLine>, String> {
     let sql = format!(
         "SELECT id, position, product_id, description, quantity, unit_price, line_total
          FROM {} WHERE {} = ?1 ORDER BY position ASC",
         table, fk
     );
-    let mut stmt = conn.prepare(&sql).map_err(|e| friendly_sql_error("Líneas", e))?;
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| friendly_sql_error("Líneas", e))?;
     let rows = stmt
         .query_map(params![id], |r| {
             Ok(DocumentLine {
@@ -550,7 +570,9 @@ impl LocalDatabase {
     pub fn create_invoice(&self, input: &InvoiceInput) -> Result<InvoiceDetail, String> {
         let user = self.require_authenticated_user()?;
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|e| friendly_sql_error("Crear factura", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| friendly_sql_error("Crear factura", e))?;
         let doc = validate_document(
             &tx,
             input.customer_id,
@@ -564,7 +586,8 @@ impl LocalDatabase {
             &input.footer,
         )?;
         let id = create_invoice_in_tx(&tx, &doc, None, &input.initial_payment, user.id)?;
-        tx.commit().map_err(|e| friendly_sql_error("Crear factura", e))?;
+        tx.commit()
+            .map_err(|e| friendly_sql_error("Crear factura", e))?;
         drop(conn);
         self.get_invoice(id)
     }
@@ -589,10 +612,19 @@ impl LocalDatabase {
              ORDER BY i.issue_date DESC, i.id DESC LIMIT ?6",
             INVOICE_SUMMARY_SELECT
         );
-        let mut stmt = conn.prepare(&sql).map_err(|e| friendly_sql_error("Facturas", e))?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| friendly_sql_error("Facturas", e))?;
         let rows = stmt
             .query_map(
-                params![pattern, status, date_from, date_to, filter.customer_id, limit],
+                params![
+                    pattern,
+                    status,
+                    date_from,
+                    date_to,
+                    filter.customer_id,
+                    limit
+                ],
                 map_invoice_summary,
             )
             .map_err(|e| friendly_sql_error("Facturas", e))?
@@ -605,7 +637,11 @@ impl LocalDatabase {
         self.require_authenticated_user()?;
         let conn = self.connect()?;
         let summary = conn
-            .query_row(&format!("{} WHERE i.id = ?1", INVOICE_SUMMARY_SELECT), params![id], map_invoice_summary)
+            .query_row(
+                &format!("{} WHERE i.id = ?1", INVOICE_SUMMARY_SELECT),
+                params![id],
+                map_invoice_summary,
+            )
             .optional()
             .map_err(|e| friendly_sql_error("Factura", e))?
             .ok_or_else(|| "La factura no existe.".to_string())?;
@@ -649,7 +685,10 @@ impl LocalDatabase {
             .map_err(|e| friendly_sql_error("Factura", e))?;
         let lines = load_lines(&conn, "invoice_lines", "invoice_id", id)?;
         let mut stmt = conn
-            .prepare(&format!("{} WHERE p.invoice_id = ?1 ORDER BY p.paid_at ASC, p.id ASC", PAYMENT_SELECT))
+            .prepare(&format!(
+                "{} WHERE p.invoice_id = ?1 ORDER BY p.paid_at ASC, p.id ASC",
+                PAYMENT_SELECT
+            ))
             .map_err(|e| friendly_sql_error("Pagos", e))?;
         let payments = stmt
             .query_map(params![id], map_payment)
@@ -672,10 +711,16 @@ impl LocalDatabase {
     }
 
     /// Registra un abono o pago total sobre una factura.
-    pub fn add_payment(&self, invoice_id: i64, payment: &PaymentInput) -> Result<InvoiceDetail, String> {
+    pub fn add_payment(
+        &self,
+        invoice_id: i64,
+        payment: &PaymentInput,
+    ) -> Result<InvoiceDetail, String> {
         let user = self.require_authenticated_user()?;
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|e| friendly_sql_error("Pago", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| friendly_sql_error("Pago", e))?;
         insert_payment(&tx, invoice_id, payment, user.id)?;
         tx.commit().map_err(|e| friendly_sql_error("Pago", e))?;
         drop(conn);
@@ -688,7 +733,9 @@ impl LocalDatabase {
         let user = self.require_authenticated_user()?;
         let reason = clean_req(reason, 300, "Motivo de anulación")?;
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|e| friendly_sql_error("Anular factura", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| friendly_sql_error("Anular factura", e))?;
         let (status, number): (String, String) = tx
             .query_row(
                 "SELECT status, number FROM invoices WHERE id = ?1",
@@ -706,7 +753,9 @@ impl LocalDatabase {
                 .prepare("SELECT product_id, quantity, unit_cost FROM invoice_lines WHERE invoice_id = ?1")
                 .map_err(|e| friendly_sql_error("Anular factura", e))?;
             let rows = stmt
-                .query_map(params![invoice_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .query_map(params![invoice_id], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
                 .map_err(|e| friendly_sql_error("Anular factura", e))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| friendly_sql_error("Anular factura", e))?;
@@ -743,7 +792,8 @@ impl LocalDatabase {
             params![reason, now, invoice_id],
         )
         .map_err(|e| friendly_sql_error("Anular factura", e))?;
-        tx.commit().map_err(|e| friendly_sql_error("Anular factura", e))?;
+        tx.commit()
+            .map_err(|e| friendly_sql_error("Anular factura", e))?;
         drop(conn);
         self.get_invoice(invoice_id)
     }
@@ -777,7 +827,9 @@ impl LocalDatabase {
     pub fn create_quote(&self, input: &QuoteInput) -> Result<QuoteDetail, String> {
         let user = self.require_authenticated_user()?;
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|e| friendly_sql_error("Cotización", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| friendly_sql_error("Cotización", e))?;
         let doc = validate_document(
             &tx,
             input.customer_id,
@@ -825,12 +877,17 @@ impl LocalDatabase {
             )
             .map_err(|e| friendly_sql_error("Cotización", e))?;
         }
-        tx.commit().map_err(|e| friendly_sql_error("Cotización", e))?;
+        tx.commit()
+            .map_err(|e| friendly_sql_error("Cotización", e))?;
         drop(conn);
         self.get_quote(quote_id)
     }
 
-    pub fn list_quotes(&self, search: Option<String>, status: Option<String>) -> Result<Vec<QuoteSummary>, String> {
+    pub fn list_quotes(
+        &self,
+        search: Option<String>,
+        status: Option<String>,
+    ) -> Result<Vec<QuoteSummary>, String> {
         self.require_authenticated_user()?;
         let conn = self.connect()?;
         let pattern = like_pattern(search.as_deref().unwrap_or(""));
@@ -855,7 +912,11 @@ impl LocalDatabase {
         self.require_authenticated_user()?;
         let conn = self.connect()?;
         let summary = conn
-            .query_row(&format!("{} WHERE q.id = ?1", QUOTE_SUMMARY_SELECT), params![id], map_quote_summary)
+            .query_row(
+                &format!("{} WHERE q.id = ?1", QUOTE_SUMMARY_SELECT),
+                params![id],
+                map_quote_summary,
+            )
             .optional()
             .map_err(|e| friendly_sql_error("Cotización", e))?
             .ok_or_else(|| "La cotización no existe.".to_string())?;
@@ -881,7 +942,14 @@ impl LocalDatabase {
             )
             .map_err(|e| friendly_sql_error("Cotización", e))?;
         let lines = load_lines(&conn, "quote_lines", "quote_id", id)?;
-        Ok(QuoteDetail { summary, customer, notes, terms, footer, lines })
+        Ok(QuoteDetail {
+            summary,
+            customer,
+            notes,
+            terms,
+            footer,
+            lines,
+        })
     }
 
     pub fn cancel_quote(&self, id: i64) -> Result<QuoteDetail, String> {
@@ -930,14 +998,24 @@ impl LocalDatabase {
             address: quote.customer.address.clone(),
         };
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|e| friendly_sql_error("Convertir cotización", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| friendly_sql_error("Convertir cotización", e))?;
         // Si el cliente sigue existiendo se enlaza; si no, se usa la copia de sus datos.
         let customer_id = match quote.summary.customer_id {
             Some(cid) => {
                 let exists: bool = tx
-                    .query_row("SELECT EXISTS(SELECT 1 FROM customers WHERE id = ?1)", params![cid], |r| r.get(0))
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM customers WHERE id = ?1)",
+                        params![cid],
+                        |r| r.get(0),
+                    )
                     .map_err(|e| friendly_sql_error("Convertir cotización", e))?;
-                if exists { Some(cid) } else { None }
+                if exists {
+                    Some(cid)
+                } else {
+                    None
+                }
             }
             None => None,
         };
@@ -959,7 +1037,8 @@ impl LocalDatabase {
             params![invoice_id, now_rfc3339(), quote_id],
         )
         .map_err(|e| friendly_sql_error("Convertir cotización", e))?;
-        tx.commit().map_err(|e| friendly_sql_error("Convertir cotización", e))?;
+        tx.commit()
+            .map_err(|e| friendly_sql_error("Convertir cotización", e))?;
         drop(conn);
         self.get_invoice(invoice_id)
     }

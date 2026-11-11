@@ -231,7 +231,12 @@ impl LocalDatabase {
         Ok(rows)
     }
 
-    pub fn save_category(&self, id: Option<i64>, kind: &str, name: &str) -> Result<Category, String> {
+    pub fn save_category(
+        &self,
+        id: Option<i64>,
+        kind: &str,
+        name: &str,
+    ) -> Result<Category, String> {
         self.require_authenticated_user()?;
         let kind = validate_kind(kind)?;
         let name = clean_req(name, 80, "Nombre de categoría")?;
@@ -277,7 +282,10 @@ impl LocalDatabase {
             )
             .map_err(|e| friendly_sql_error("Categoría", e))?;
         if usage > 0 {
-            return Err("La categoría está en uso. Cambia primero los productos o gastos que la usan.".to_string());
+            return Err(
+                "La categoría está en uso. Cambia primero los productos o gastos que la usan."
+                    .to_string(),
+            );
         }
         let n = conn
             .execute("DELETE FROM categories WHERE id = ?1", params![id])
@@ -310,10 +318,17 @@ impl LocalDatabase {
              LIMIT 5000",
             PRODUCT_SELECT
         );
-        let mut stmt = conn.prepare(&sql).map_err(|e| friendly_sql_error("Productos", e))?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| friendly_sql_error("Productos", e))?;
         let rows = stmt
             .query_map(
-                params![include_inactive as i64, category_id, pattern, only_low_stock as i64],
+                params![
+                    include_inactive as i64,
+                    category_id,
+                    pattern,
+                    only_low_stock as i64
+                ],
                 map_product,
             )
             .map_err(|e| friendly_sql_error("Productos", e))?
@@ -325,10 +340,14 @@ impl LocalDatabase {
     pub fn get_product(&self, id: i64) -> Result<Product, String> {
         self.require_authenticated_user()?;
         let conn = self.connect()?;
-        conn.query_row(&format!("{} WHERE p.id = ?1", PRODUCT_SELECT), params![id], map_product)
-            .optional()
-            .map_err(|e| friendly_sql_error("Productos", e))?
-            .ok_or_else(|| "El producto no existe.".to_string())
+        conn.query_row(
+            &format!("{} WHERE p.id = ?1", PRODUCT_SELECT),
+            params![id],
+            map_product,
+        )
+        .optional()
+        .map_err(|e| friendly_sql_error("Productos", e))?
+        .ok_or_else(|| "El producto no existe.".to_string())
     }
 
     pub fn save_product(&self, input: &ProductInput) -> Result<Product, String> {
@@ -353,7 +372,9 @@ impl LocalDatabase {
         };
 
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|e| friendly_sql_error("Producto", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| friendly_sql_error("Producto", e))?;
         if let Some(cat) = input.category_id {
             let ok: bool = tx
                 .query_row(
@@ -416,7 +437,7 @@ impl LocalDatabase {
                 let new_id = tx.last_insert_rowid();
                 if let Some(initial) = input.initial_stock {
                     if input.track_stock && initial != 0.0 {
-                        if !initial.is_finite() || initial < 0.0 || initial > MAX_QUANTITY {
+                        if !initial.is_finite() || !(0.0..=MAX_QUANTITY).contains(&initial) {
                             return Err("La existencia inicial no es válida.".to_string());
                         }
                         apply_stock_change(
@@ -475,7 +496,9 @@ impl LocalDatabase {
         let user = self.require_authenticated_user()?;
         let note = clean_opt(&input.note, 300, "Nota")?;
         let mut conn = self.connect()?;
-        let tx = conn.transaction().map_err(|e| friendly_sql_error("Inventario", e))?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| friendly_sql_error("Inventario", e))?;
         let (name, track, current): (String, i64, f64) = tx
             .query_row(
                 "SELECT name, track_stock, stock_qty FROM products WHERE id = ?1",
@@ -520,7 +543,10 @@ impl LocalDatabase {
                     let c = unit_cost.unwrap_or(0);
                     let amount = line_total(qty, c)?;
                     if amount <= 0 {
-                        return Err("Para registrar el gasto indica el costo unitario de la compra.".to_string());
+                        return Err(
+                            "Para registrar el gasto indica el costo unitario de la compra."
+                                .to_string(),
+                        );
                     }
                     let date = match &input.expense_date {
                         Some(d) => clean_date(d, "Fecha de la compra")?,
@@ -559,13 +585,21 @@ impl LocalDatabase {
                 }
             }
             "adjustment" => {
-                if !input.quantity.is_finite() || input.quantity < 0.0 || input.quantity > MAX_QUANTITY {
-                    return Err("El conteo físico debe ser un número mayor o igual a cero.".to_string());
+                if !input.quantity.is_finite()
+                    || input.quantity < 0.0
+                    || input.quantity > MAX_QUANTITY
+                {
+                    return Err(
+                        "El conteo físico debe ser un número mayor o igual a cero.".to_string()
+                    );
                 }
                 let target = (input.quantity * 1000.0).round() / 1000.0;
                 let delta = target - current;
                 if delta.abs() < 0.0005 {
-                    return Err("El conteo coincide con la existencia actual; no hay nada que ajustar.".to_string());
+                    return Err(
+                        "El conteo coincide con la existencia actual; no hay nada que ajustar."
+                            .to_string(),
+                    );
                 }
                 apply_stock_change(
                     &tx,
@@ -580,7 +614,8 @@ impl LocalDatabase {
             }
             _ => return Err("Tipo de movimiento de inventario no válido.".to_string()),
         }
-        tx.commit().map_err(|e| friendly_sql_error("Inventario", e))?;
+        tx.commit()
+            .map_err(|e| friendly_sql_error("Inventario", e))?;
         self.get_product(input.product_id)
     }
 

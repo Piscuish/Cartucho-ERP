@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Ban, Banknote, FileSignature, Printer } from "lucide-react";
+import { Ban, Banknote, Copy, FileSignature, Printer } from "lucide-react";
 import type { BusinessSettings, InvoiceDetail, PaymentMethod } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
@@ -75,6 +75,9 @@ export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }:
                 Anular
               </Button>
             )}
+            <Button icon={<Copy size={16} />} onClick={() => navigate({ page: "invoice-new", fromInvoiceId: inv.id })}>
+              Duplicar
+            </Button>
             <Button icon={<Printer size={16} />} onClick={() => setPrinting(true)} disabled={!settings}>
               Imprimir
             </Button>

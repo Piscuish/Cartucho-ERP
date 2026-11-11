@@ -1,4 +1,5 @@
-import { AlertTriangle, ArrowRight, Boxes, FilePlus2, FileSignature, PackagePlus, Receipt, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, ArrowRight, Boxes, Check, FilePlus2, FileSignature, PackagePlus, Receipt, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
 import { useAsync } from "../lib/hooks";
@@ -64,6 +65,8 @@ export function DashboardPage({ navigate, overview }: PageProps) {
       </div>
 
       {error && <Alert tone="danger">{error}</Alert>}
+
+      {data && <GettingStarted navigate={navigate} hasLogo={!!overview.company?.logoDataUrl} products={data.productCount} customers={data.customerCount} invoices={data.recentInvoices.length} />}
 
       {loading && !data ? (
         <div className="card">
@@ -211,6 +214,92 @@ export function DashboardPage({ navigate, overview }: PageProps) {
           </div>
         </>
       ) : null}
+    </div>
+  );
+}
+
+function GettingStarted({
+  navigate,
+  hasLogo,
+  products,
+  customers,
+  invoices,
+}: {
+  navigate: PageProps["navigate"];
+  hasLogo: boolean;
+  products: number;
+  customers: number;
+  invoices: number;
+}) {
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem("cartucho_getting_started_hidden") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const steps = [
+    { done: hasLogo, title: "Sube el logo de tu empresa", sub: "Aparece en el inicio de sesión y en tus facturas.", go: () => navigate({ page: "settings", tab: "company" }) },
+    { done: products > 0, title: "Agrega tus productos o servicios", sub: "Con foto, precio y existencias.", go: () => navigate({ page: "catalog" }) },
+    { done: customers > 0, title: "Registra a tus clientes frecuentes", sub: "Para facturarles más rápido.", go: () => navigate({ page: "customers" }) },
+    { done: false, title: "Revisa la impresión", sub: "Tamaño de hoja, textos y numeración.", go: () => navigate({ page: "settings", tab: "billing" }) },
+    { done: invoices > 0, title: "Crea tu primera factura", sub: "Imprímela en el tamaño que necesites.", go: () => navigate({ page: "invoice-new" }) },
+  ];
+  const doneCount = steps.filter((s) => s.done).length;
+  if (hidden || invoices > 0) return null;
+  return (
+    <div className="card mb-16">
+      <div className="card-header">
+        <div>
+          <div className="card-title">Primeros pasos</div>
+          <div className="card-subtitle">
+            {doneCount} de {steps.length} listos
+          </div>
+        </div>
+        <button
+          className="icon-btn"
+          aria-label="Ocultar primeros pasos"
+          title="Ocultar"
+          onClick={() => {
+            setHidden(true);
+            try {
+              localStorage.setItem("cartucho_getting_started_hidden", "1");
+            } catch {
+              /* ignorar */
+            }
+          }}
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <div className="hbar-track" style={{ borderRadius: 0, height: 4 }}>
+        <div className="hbar-fill" style={{ width: `${(doneCount / steps.length) * 100}%`, borderRadius: 0 }} />
+      </div>
+      <div className="list">
+        {steps.map((st) => (
+          <div key={st.title} className="list-item is-clickable" onClick={st.go}>
+            <span
+              className="stat-icon"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: st.done ? "var(--success)" : "var(--surface-3)",
+                color: st.done ? "#fff" : "var(--text-3)",
+              }}
+            >
+              {st.done ? <Check size={15} /> : null}
+            </span>
+            <div className="list-item-main">
+              <div className="cell-main" style={st.done ? { textDecoration: "line-through", color: "var(--text-3)" } : undefined}>
+                {st.title}
+              </div>
+              <div className="cell-sub">{st.sub}</div>
+            </div>
+            <ArrowRight size={16} color="var(--text-3)" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

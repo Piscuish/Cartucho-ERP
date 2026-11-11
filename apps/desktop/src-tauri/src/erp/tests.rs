@@ -89,7 +89,10 @@ fn customers_crud_and_archive() {
         .unwrap();
     assert_eq!(c.name, "Ana Pérez");
     assert!(db
-        .save_customer(&CustomerInput { name: " ".to_string(), ..Default::default() })
+        .save_customer(&CustomerInput {
+            name: " ".to_string(),
+            ..Default::default()
+        })
         .is_err());
     assert!(db
         .save_customer(&CustomerInput {
@@ -122,7 +125,10 @@ fn product_with_image_initial_stock_and_unique_sku() {
             ..Default::default()
         })
         .unwrap();
-    assert!(p.image_data_url.unwrap().starts_with("data:image/png;base64,"));
+    assert!(p
+        .image_data_url
+        .unwrap()
+        .starts_with("data:image/png;base64,"));
     assert_eq!(p.stock_qty, 10.0);
     let dup = db.save_product(&ProductInput {
         sku: Some("cam-01".to_string()),
@@ -148,7 +154,10 @@ fn invoice_flow_numbering_stock_payments_and_void() {
     let (_dir, db) = setup();
     let pid = product(&db, "Cuaderno", 5000, 3000, 10.0);
     let cust = db
-        .save_customer(&CustomerInput { name: "Colegio ABC".to_string(), ..Default::default() })
+        .save_customer(&CustomerInput {
+            name: "Colegio ABC".to_string(),
+            ..Default::default()
+        })
         .unwrap();
 
     let inv = db
@@ -156,7 +165,10 @@ fn invoice_flow_numbering_stock_payments_and_void() {
             customer_id: Some(cust.id),
             issue_date: "2026-11-10".to_string(),
             due_date: Some("2026-11-20".to_string()),
-            lines: vec![line(Some(pid), "", 3.0, 5000), line(None, "Servicio de forrado", 1.0, 2500)],
+            lines: vec![
+                line(Some(pid), "", 3.0, 5000),
+                line(None, "Servicio de forrado", 1.0, 2500),
+            ],
             notes: Some("Entrega en portería".to_string()),
             initial_payment: Some(PaymentInput {
                 amount: 7500,
@@ -177,20 +189,26 @@ fn invoice_flow_numbering_stock_payments_and_void() {
 
     // Sobrepago rechazado.
     assert!(db
-        .add_payment(inv.summary.id, &PaymentInput {
-            amount: 10001,
-            method: "cash".to_string(),
-            paid_at: "2026-11-11".to_string(),
-            note: None
-        })
+        .add_payment(
+            inv.summary.id,
+            &PaymentInput {
+                amount: 10001,
+                method: "cash".to_string(),
+                paid_at: "2026-11-11".to_string(),
+                note: None
+            }
+        )
         .is_err());
     let paid = db
-        .add_payment(inv.summary.id, &PaymentInput {
-            amount: 10000,
-            method: "transfer".to_string(),
-            paid_at: "2026-11-11".to_string(),
-            note: Some("Nequi".to_string()),
-        })
+        .add_payment(
+            inv.summary.id,
+            &PaymentInput {
+                amount: 10000,
+                method: "transfer".to_string(),
+                paid_at: "2026-11-11".to_string(),
+                note: Some("Nequi".to_string()),
+            },
+        )
         .unwrap();
     assert_eq!(paid.summary.status, "paid");
     assert_eq!(paid.payments.len(), 2);
@@ -208,24 +226,35 @@ fn invoice_flow_numbering_stock_payments_and_void() {
     assert_eq!(db.stock_of(pid), 5.0);
 
     // Anular devuelve existencias y conserva el registro.
-    let voided = db.void_invoice(inv2.summary.id, "Error de digitación").unwrap();
+    let voided = db
+        .void_invoice(inv2.summary.id, "Error de digitación")
+        .unwrap();
     assert_eq!(voided.summary.status, "void");
     assert_eq!(voided.summary.balance, 0);
     assert_eq!(db.stock_of(pid), 7.0);
     assert!(db.void_invoice(inv2.summary.id, "otra vez").is_err());
     assert!(db
-        .add_payment(inv2.summary.id, &PaymentInput {
-            amount: 100,
-            method: "cash".to_string(),
-            paid_at: "2026-11-12".to_string(),
-            note: None
-        })
+        .add_payment(
+            inv2.summary.id,
+            &PaymentInput {
+                amount: 100,
+                method: "cash".to_string(),
+                paid_at: "2026-11-12".to_string(),
+                note: None
+            }
+        )
         .is_err());
-    assert_eq!(db.list_invoices(&InvoiceFilter::default()).unwrap().len(), 2);
     assert_eq!(
-        db.list_invoices(&InvoiceFilter { status: Some("void".to_string()), ..Default::default() })
-            .unwrap()
-            .len(),
+        db.list_invoices(&InvoiceFilter::default()).unwrap().len(),
+        2
+    );
+    assert_eq!(
+        db.list_invoices(&InvoiceFilter {
+            status: Some("void".to_string()),
+            ..Default::default()
+        })
+        .unwrap()
+        .len(),
         1
     );
 
@@ -249,14 +278,24 @@ fn invoice_validation_rolls_back_everything() {
     });
     assert!(r.is_err());
     assert_eq!(db.stock_of(pid), 5.0);
-    assert_eq!(db.list_invoices(&InvoiceFilter::default()).unwrap().len(), 0);
+    assert_eq!(
+        db.list_invoices(&InvoiceFilter::default()).unwrap().len(),
+        0
+    );
     assert_eq!(db.get_business_settings().unwrap().invoice_next_number, 1);
     // Fecha inválida, sin líneas y vencimiento anterior.
     assert!(db
-        .create_invoice(&InvoiceInput { issue_date: "10/11/2026".to_string(), lines: vec![line(None, "a", 1.0, 1)], ..Default::default() })
+        .create_invoice(&InvoiceInput {
+            issue_date: "10/11/2026".to_string(),
+            lines: vec![line(None, "a", 1.0, 1)],
+            ..Default::default()
+        })
         .is_err());
     assert!(db
-        .create_invoice(&InvoiceInput { issue_date: "2026-11-10".to_string(), ..Default::default() })
+        .create_invoice(&InvoiceInput {
+            issue_date: "2026-11-10".to_string(),
+            ..Default::default()
+        })
         .is_err());
     assert!(db
         .create_invoice(&InvoiceInput {
@@ -284,21 +323,35 @@ fn quotes_convert_to_invoice_once() {
             issue_date: "2026-11-01".to_string(),
             valid_until: Some("2026-11-15".to_string()),
             lines: vec![line(Some(pid), "Resma carta", 2.0, 20000)],
-            customer: Some(super::sales::CustomerSnapshotInput { name: "Oficina XY".to_string(), ..Default::default() }),
+            customer: Some(super::sales::CustomerSnapshotInput {
+                name: "Oficina XY".to_string(),
+                ..Default::default()
+            }),
             ..Default::default()
         })
         .unwrap();
     assert_eq!(q.summary.number, "COT-00001");
-    assert_eq!(db.stock_of(pid), 4.0, "una cotización no descuenta inventario");
-    let inv = db.convert_quote_to_invoice(q.summary.id, "2026-11-05", None).unwrap();
+    assert_eq!(
+        db.stock_of(pid),
+        4.0,
+        "una cotización no descuenta inventario"
+    );
+    let inv = db
+        .convert_quote_to_invoice(q.summary.id, "2026-11-05", None)
+        .unwrap();
     assert_eq!(inv.summary.total, 40000);
     assert_eq!(inv.quote_number.as_deref(), Some("COT-00001"));
     assert_eq!(inv.customer.name, "Oficina XY");
     assert_eq!(db.stock_of(pid), 2.0);
     let q2 = db.get_quote(q.summary.id).unwrap();
     assert_eq!(q2.summary.status, "converted");
-    assert_eq!(q2.summary.converted_invoice_number.as_deref(), Some(inv.summary.number.as_str()));
-    assert!(db.convert_quote_to_invoice(q.summary.id, "2026-11-05", None).is_err());
+    assert_eq!(
+        q2.summary.converted_invoice_number.as_deref(),
+        Some(inv.summary.number.as_str())
+    );
+    assert!(db
+        .convert_quote_to_invoice(q.summary.id, "2026-11-05", None)
+        .is_err());
     assert!(db.cancel_quote(q.summary.id).is_err());
 }
 
@@ -306,7 +359,11 @@ fn quotes_convert_to_invoice_once() {
 fn inventory_purchase_records_expense_and_adjustment() {
     let (_dir, db) = setup();
     let pid = product(&db, "Tinta", 30000, 20000, 1.0);
-    assert_eq!(db.list_products(None, None, false, true).unwrap().len(), 1, "stock bajo");
+    assert_eq!(
+        db.list_products(None, None, false, true).unwrap().len(),
+        1,
+        "stock bajo"
+    );
     let p = db
         .adjust_stock(&StockAdjustmentInput {
             product_id: pid,
@@ -359,10 +416,22 @@ fn expenses_and_category_rules() {
     assert_eq!(e.category_name.as_deref(), Some("Arriendo"));
     assert!(db.delete_category(rent.id).is_err(), "categoría en uso");
     assert!(db
-        .save_expense(&ExpenseInput { description: "x".to_string(), amount: 0, expense_date: "2026-11-05".to_string(), method: "cash".to_string(), ..Default::default() })
+        .save_expense(&ExpenseInput {
+            description: "x".to_string(),
+            amount: 0,
+            expense_date: "2026-11-05".to_string(),
+            method: "cash".to_string(),
+            ..Default::default()
+        })
         .is_err());
     assert!(db
-        .save_expense(&ExpenseInput { description: "x".to_string(), amount: 5, expense_date: "2026-11-05".to_string(), method: "bitcoin".to_string(), ..Default::default() })
+        .save_expense(&ExpenseInput {
+            description: "x".to_string(),
+            amount: 5,
+            expense_date: "2026-11-05".to_string(),
+            method: "bitcoin".to_string(),
+            ..Default::default()
+        })
         .is_err());
     let s = db.finance_summary("2026-11-01", "2026-11-30").unwrap();
     assert_eq!(s.operating_expenses, 1_200_000);
@@ -415,7 +484,10 @@ fn dashboard_search_and_csv_export() {
         issue_date: "2026-11-10".to_string(),
         due_date: Some("2026-11-10".to_string()),
         lines: vec![line(Some(pid), "", 1.0, 3000)],
-        customer: Some(super::sales::CustomerSnapshotInput { name: "Juan; \"el de la esquina\"".to_string(), ..Default::default() }),
+        customer: Some(super::sales::CustomerSnapshotInput {
+            name: "Juan; \"el de la esquina\"".to_string(),
+            ..Default::default()
+        }),
         ..Default::default()
     })
     .unwrap();
@@ -432,11 +504,15 @@ fn dashboard_search_and_csv_export() {
     // Comodines no rompen la búsqueda.
     assert!(db.global_search("%_").unwrap().is_empty());
 
-    let out = db.export_csv("invoices", None, None, dir.path().to_str().unwrap()).unwrap();
+    let out = db
+        .export_csv("invoices", None, None, dir.path().to_str().unwrap())
+        .unwrap();
     let content = std::fs::read_to_string(out).unwrap();
     assert!(content.starts_with('\u{feff}'));
     assert!(content.contains("\"Juan; \"\"el de la esquina\"\"\""));
-    assert!(db.export_csv("desconocido", None, None, dir.path().to_str().unwrap()).is_err());
+    assert!(db
+        .export_csv("desconocido", None, None, dir.path().to_str().unwrap())
+        .is_err());
 }
 
 #[test]
@@ -450,7 +526,10 @@ fn upgrade_from_v3_preserves_data_and_creates_backup() {
     {
         let mut db = LocalDatabase::open_in_dir(dir.path()).unwrap();
         db.complete_initial_setup(&CompleteInitialSetupInput {
-            company: SaveCompanyProfileInput { trade_name: "Antigua".to_string(), ..Default::default() },
+            company: SaveCompanyProfileInput {
+                trade_name: "Antigua".to_string(),
+                ..Default::default()
+            },
             admin: CreateInitialAdminInput {
                 full_name: "Admin".to_string(),
                 username: "admin".to_string(),
@@ -474,9 +553,14 @@ fn upgrade_from_v3_preserves_data_and_creates_backup() {
     }
     let mut db = LocalDatabase::open_in_dir(dir.path()).unwrap();
     db.login("admin", "ClaveSegura#1").unwrap();
-    assert_eq!(db.get_company_profile().unwrap().unwrap().trade_name, "Antigua");
+    assert_eq!(
+        db.get_company_profile().unwrap().unwrap().trade_name,
+        "Antigua"
+    );
     assert_eq!(db.status_report().unwrap().schema_version, 4);
     let backups = db.list_backups().unwrap();
-    assert!(backups.iter().any(|b| b.kind == "pre_migration" && b.file_name.contains("v3_to_v4")));
+    assert!(backups
+        .iter()
+        .any(|b| b.kind == "pre_migration" && b.file_name.contains("v3_to_v4")));
     assert!(!db.list_categories("expense").unwrap().is_empty());
 }

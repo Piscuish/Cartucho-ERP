@@ -72,8 +72,12 @@ pub fn resolve_effective_data_dir(default_dir: &Path) -> Result<PathBuf, String>
     if !pointer_path.exists() {
         return Ok(default_dir.to_path_buf());
     }
-    let raw = fs::read_to_string(&pointer_path)
-        .map_err(|e| format!("No se pudo leer la configuración de ubicación de datos: {}", e))?;
+    let raw = fs::read_to_string(&pointer_path).map_err(|e| {
+        format!(
+            "No se pudo leer la configuración de ubicación de datos: {}",
+            e
+        )
+    })?;
     let pointer: LocationPointer = serde_json::from_str(&raw).map_err(|_| {
         "El archivo de configuración de ubicación de datos está dañado.".to_string()
     })?;
@@ -97,9 +101,8 @@ pub fn reset_location_pointer(default_dir: &Path) -> Result<(), String> {
             "data_location.previous_{}.json",
             Utc::now().format("%Y%m%d_%H%M%S")
         ));
-        fs::rename(&pointer_path, &archived).map_err(|e| {
-            format!("No se pudo restablecer la ubicación predeterminada: {}", e)
-        })?;
+        fs::rename(&pointer_path, &archived)
+            .map_err(|e| format!("No se pudo restablecer la ubicación predeterminada: {}", e))?;
     }
     Ok(())
 }
@@ -142,8 +145,12 @@ pub(crate) fn backup_connection_to(src: &Connection, dest_path: &Path) -> Result
             .map_err(|e| format!("No se pudo crear la carpeta de destino {:?}: {}", parent, e))?;
     }
     {
-        let mut dst = Connection::open(dest_path)
-            .map_err(|e| format!("No se pudo crear el archivo de copia {:?}: {}", dest_path, e))?;
+        let mut dst = Connection::open(dest_path).map_err(|e| {
+            format!(
+                "No se pudo crear el archivo de copia {:?}: {}",
+                dest_path, e
+            )
+        })?;
         let backup = Backup::new(src, &mut dst)
             .map_err(|e| format!("No se pudo iniciar la copia de SQLite: {}", e))?;
         backup
@@ -163,7 +170,9 @@ pub fn verify_database_file(path: &Path) -> Result<i64, String> {
         .map_err(|_| "El archivo seleccionado no se puede abrir como base de datos.".to_string())?;
     let integrity: String = conn
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-        .map_err(|_| "El archivo seleccionado no es una base de datos SQLite válida.".to_string())?;
+        .map_err(|_| {
+            "El archivo seleccionado no es una base de datos SQLite válida.".to_string()
+        })?;
     if integrity.to_lowercase() != "ok" {
         return Err(format!(
             "La base de datos no superó la verificación de integridad: {}",
@@ -179,9 +188,7 @@ pub fn verify_database_file(path: &Path) -> Result<i64, String> {
         )
         .map_err(|_| "No se pudo inspeccionar la estructura del archivo.".to_string())?;
     if has_required < 2 {
-        return Err(
-            "El archivo no corresponde a una base de datos de Cartucho ERP.".to_string(),
-        );
+        return Err("El archivo no corresponde a una base de datos de Cartucho ERP.".to_string());
     }
     let version: i64 = conn
         .query_row(
@@ -302,10 +309,17 @@ impl LocalDatabase {
     pub fn save_auto_backup_settings(&self, enabled: bool, keep: i64) -> Result<(), String> {
         self.require_authenticated_user()?;
         if !(0..=365).contains(&keep) {
-            return Err("La cantidad de respaldos a conservar debe estar entre 0 y 365 (0 = todos).".to_string());
+            return Err(
+                "La cantidad de respaldos a conservar debe estar entre 0 y 365 (0 = todos)."
+                    .to_string(),
+            );
         }
         let conn = self.connect()?;
-        write_meta(&conn, "auto_backup_enabled", if enabled { "1" } else { "0" })?;
+        write_meta(
+            &conn,
+            "auto_backup_enabled",
+            if enabled { "1" } else { "0" },
+        )?;
         write_meta(&conn, "auto_backup_keep", &keep.to_string())?;
         Ok(())
     }
@@ -347,6 +361,7 @@ impl LocalDatabase {
     /// Restaura la base de datos desde un archivo de respaldo.
     /// 1. Valida el archivo. 2. Crea copia de seguridad del estado actual.
     /// 3. Copia el respaldo sobre la base en uso con Online Backup. 4. Aplica migraciones.
+    ///
     /// La sesión se cierra porque los usuarios pueden haber cambiado.
     pub fn restore_from_backup(&mut self, source: &str) -> Result<RestoreResult, String> {
         self.require_authenticated_user()?;
@@ -413,7 +428,9 @@ impl LocalDatabase {
         fs::create_dir_all(&new_dir)
             .map_err(|e| format!("No se pudo usar la carpeta {:?}: {}", new_dir, e))?;
         if paths_equivalent(&new_dir, &self.app_data_dir) {
-            return Err("La carpeta seleccionada ya es la ubicación actual de los datos.".to_string());
+            return Err(
+                "La carpeta seleccionada ya es la ubicación actual de los datos.".to_string(),
+            );
         }
         let new_db = new_dir.join(DATABASE_FILE_NAME);
         if new_db.exists() {
@@ -459,7 +476,10 @@ impl LocalDatabase {
         let candidate = dir.join(DATABASE_FILE_NAME);
         let version = verify_database_file(&candidate)?;
         if version > crate::db::target_schema_version() {
-            return Err("Esa base de datos fue creada con una versión más reciente de Cartucho ERP.".to_string());
+            return Err(
+                "Esa base de datos fue creada con una versión más reciente de Cartucho ERP."
+                    .to_string(),
+            );
         }
         if paths_equivalent(&dir, &self.app_data_dir) {
             return Err("Esa carpeta ya es la ubicación actual de los datos.".to_string());
@@ -490,7 +510,9 @@ impl LocalDatabase {
             return Ok(None);
         }
         let configured: bool = conn
-            .query_row("SELECT EXISTS(SELECT 1 FROM company_profile)", [], |r| r.get(0))
+            .query_row("SELECT EXISTS(SELECT 1 FROM company_profile)", [], |r| {
+                r.get(0)
+            })
             .unwrap_or(false);
         if !configured {
             return Ok(None);
@@ -537,7 +559,10 @@ mod tests {
     fn setup(dir: &Path) -> LocalDatabase {
         let mut db = LocalDatabase::open_in_dir(dir).unwrap();
         db.complete_initial_setup(&CompleteInitialSetupInput {
-            company: SaveCompanyProfileInput { trade_name: "Empresa".to_string(), ..Default::default() },
+            company: SaveCompanyProfileInput {
+                trade_name: "Empresa".to_string(),
+                ..Default::default()
+            },
             admin: CreateInitialAdminInput {
                 full_name: "Admin".to_string(),
                 username: "admin".to_string(),
@@ -550,7 +575,11 @@ mod tests {
     }
 
     fn add_customer(db: &LocalDatabase, name: &str) {
-        db.save_customer(&CustomerInput { name: name.to_string(), ..Default::default() }).unwrap();
+        db.save_customer(&CustomerInput {
+            name: name.to_string(),
+            ..Default::default()
+        })
+        .unwrap();
     }
 
     #[test]
@@ -560,10 +589,16 @@ mod tests {
         let db = setup(data.path());
         add_customer(&db, "Cliente A");
         let path = db.export_backup(out.path().to_str().unwrap()).unwrap();
-        assert_eq!(verify_database_file(Path::new(&path)).unwrap(), crate::db::target_schema_version());
+        assert_eq!(
+            verify_database_file(Path::new(&path)).unwrap(),
+            crate::db::target_schema_version()
+        );
         let named = out.path().join("copia.sqlite3");
         db.export_backup(named.to_str().unwrap()).unwrap();
-        assert!(db.export_backup(named.to_str().unwrap()).is_err(), "no sobrescribe");
+        assert!(
+            db.export_backup(named.to_str().unwrap()).is_err(),
+            "no sobrescribe"
+        );
     }
 
     #[test]
@@ -587,11 +622,18 @@ mod tests {
         // La sesión se cierra tras restaurar.
         assert!(db.list_customers(None, true).is_err());
         db.login("admin", "ClaveSegura#1").unwrap();
-        let names: Vec<String> = db.list_customers(None, true).unwrap().into_iter().map(|c| c.name).collect();
+        let names: Vec<String> = db
+            .list_customers(None, true)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
         assert_eq!(names, vec!["Antes".to_string()]);
         // La copia de seguridad previa contiene el estado que se reemplazó.
         let safety = Connection::open(&result.safety_backup_path).unwrap();
-        let n: i64 = safety.query_row("SELECT COUNT(*) FROM customers", [], |r| r.get(0)).unwrap();
+        let n: i64 = safety
+            .query_row("SELECT COUNT(*) FROM customers", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 2);
     }
 
@@ -605,13 +647,19 @@ mod tests {
         let info = db.move_data_to(new_dir.to_str().unwrap()).unwrap();
         assert!(info.is_custom_location);
         assert!(new_dir.join(DATABASE_FILE_NAME).exists());
-        assert!(data.path().join(DATABASE_FILE_NAME).exists(), "la base anterior se conserva");
+        assert!(
+            data.path().join(DATABASE_FILE_NAME).exists(),
+            "la base anterior se conserva"
+        );
         assert!(data.path().join("LEEME_DATOS_MOVIDOS.txt").exists());
         add_customer(&db, "Nuevo en destino");
 
         // El puntero apunta a la nueva carpeta.
         let effective = resolve_effective_data_dir(data.path()).unwrap();
-        assert_eq!(fs::canonicalize(effective).unwrap(), fs::canonicalize(&new_dir).unwrap());
+        assert_eq!(
+            fs::canonicalize(effective).unwrap(),
+            fs::canonicalize(&new_dir).unwrap()
+        );
         let mut reopened = LocalDatabase::open_in_dir(&new_dir).unwrap();
         reopened.login("admin", "ClaveSegura#1").unwrap();
         assert_eq!(reopened.list_customers(None, true).unwrap().len(), 2);
@@ -620,7 +668,10 @@ mod tests {
         assert!(db.move_data_to(new_dir.to_str().unwrap()).is_err());
         // Volver a la predeterminada elimina el puntero activo (se archiva).
         reset_location_pointer(data.path()).unwrap();
-        assert_eq!(resolve_effective_data_dir(data.path()).unwrap(), data.path().to_path_buf());
+        assert_eq!(
+            resolve_effective_data_dir(data.path()).unwrap(),
+            data.path().to_path_buf()
+        );
     }
 
     #[test]
@@ -628,14 +679,22 @@ mod tests {
         let a = TempDir::new().unwrap();
         let b = TempDir::new().unwrap();
         let mut db = setup(a.path());
-        assert!(db.use_existing_data_dir(b.path().to_str().unwrap()).is_err(), "carpeta vacía");
+        assert!(
+            db.use_existing_data_dir(b.path().to_str().unwrap())
+                .is_err(),
+            "carpeta vacía"
+        );
         {
             let other = setup(b.path());
             add_customer(&other, "De otro equipo");
         }
-        db.use_existing_data_dir(b.path().to_str().unwrap()).unwrap();
+        db.use_existing_data_dir(b.path().to_str().unwrap())
+            .unwrap();
         db.login("admin", "ClaveSegura#1").unwrap();
-        assert_eq!(db.list_customers(None, true).unwrap()[0].name, "De otro equipo");
+        assert_eq!(
+            db.list_customers(None, true).unwrap()[0].name,
+            "De otro equipo"
+        );
     }
 
     #[test]
@@ -645,14 +704,23 @@ mod tests {
         assert!(db.run_daily_backup_if_due("2026-11-10").unwrap().is_some());
         assert!(db.run_daily_backup_if_due("2026-11-10").unwrap().is_none());
         assert!(db.run_daily_backup_if_due("2026-11-11").unwrap().is_some());
-        let autos = db.list_backups().unwrap().into_iter().filter(|b| b.kind == "auto").count();
+        let autos = db
+            .list_backups()
+            .unwrap()
+            .into_iter()
+            .filter(|b| b.kind == "auto")
+            .count();
         assert_eq!(autos, 2, "sin política explícita se conservan todos");
         db.save_auto_backup_settings(true, 1).unwrap();
         db.create_manual_backup().unwrap();
         assert!(db.run_daily_backup_if_due("2026-11-12").unwrap().is_some());
         let list = db.list_backups().unwrap();
         assert_eq!(list.iter().filter(|b| b.kind == "auto").count(), 1);
-        assert_eq!(list.iter().filter(|b| b.kind == "manual").count(), 1, "los manuales nunca se depuran");
+        assert_eq!(
+            list.iter().filter(|b| b.kind == "manual").count(),
+            1,
+            "los manuales nunca se depuran"
+        );
         db.save_auto_backup_settings(false, 0).unwrap();
         assert!(db.run_daily_backup_if_due("2026-11-13").unwrap().is_none());
     }
@@ -663,7 +731,10 @@ mod tests {
         let mut db = setup(data.path());
         db.logout();
         for _ in 0..5 {
-            assert!(db.login("admin", "incorrecta").unwrap_err().starts_with("Credenciales"));
+            assert!(db
+                .login("admin", "incorrecta")
+                .unwrap_err()
+                .starts_with("Credenciales"));
         }
         let err = db.login("admin", "ClaveSegura#1").unwrap_err();
         assert!(err.contains("Demasiados intentos"), "{}", err);

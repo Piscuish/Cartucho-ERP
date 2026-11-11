@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileCheck2, FileSignature, Printer, XCircle } from "lucide-react";
+import { Copy, FileCheck2, FileSignature, Printer, XCircle } from "lucide-react";
 import type { BusinessSettings, QuoteDetail, QuoteStatus } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
@@ -163,6 +163,9 @@ export function QuoteDetailPage({ id, autoPrint, goBack, navigate, overview }: P
                 Cancelar
               </Button>
             )}
+            <Button icon={<Copy size={16} />} onClick={() => navigate({ page: "quote-new", fromQuoteId: q.id })}>
+              Duplicar
+            </Button>
             <Button icon={<Printer size={16} />} onClick={() => setPrinting(true)} disabled={!settings}>
               Imprimir
             </Button>

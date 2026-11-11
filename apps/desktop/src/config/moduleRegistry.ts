@@ -20,10 +20,10 @@ export type Route =
   | { page: "dashboard" }
   | { page: "invoices"; status?: string }
   | { page: "invoice"; id: number; print?: boolean }
-  | { page: "invoice-new"; customerId?: number }
+  | { page: "invoice-new"; customerId?: number; fromInvoiceId?: number }
   | { page: "quotes" }
   | { page: "quote"; id: number; print?: boolean }
-  | { page: "quote-new"; customerId?: number }
+  | { page: "quote-new"; customerId?: number; fromQuoteId?: number }
   | { page: "customers"; openId?: number }
   | { page: "catalog"; openId?: number }
   | { page: "inventory" }

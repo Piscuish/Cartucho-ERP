@@ -78,7 +78,9 @@ impl LocalDatabase {
              LIMIT 2000",
             CUSTOMER_SELECT
         );
-        let mut stmt = conn.prepare(&sql).map_err(|e| friendly_sql_error("Clientes", e))?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| friendly_sql_error("Clientes", e))?;
         let rows = stmt
             .query_map(params![include_inactive as i64, pattern], map_customer)
             .map_err(|e| friendly_sql_error("Clientes", e))?
@@ -90,10 +92,14 @@ impl LocalDatabase {
     pub fn get_customer(&self, id: i64) -> Result<Customer, String> {
         self.require_authenticated_user()?;
         let conn = self.connect()?;
-        conn.query_row(&format!("{} WHERE c.id = ?1", CUSTOMER_SELECT), params![id], map_customer)
-            .optional()
-            .map_err(|e| friendly_sql_error("Clientes", e))?
-            .ok_or_else(|| "El cliente no existe.".to_string())
+        conn.query_row(
+            &format!("{} WHERE c.id = ?1", CUSTOMER_SELECT),
+            params![id],
+            map_customer,
+        )
+        .optional()
+        .map_err(|e| friendly_sql_error("Clientes", e))?
+        .ok_or_else(|| "El cliente no existe.".to_string())
     }
 
     pub fn save_customer(&self, input: &CustomerInput) -> Result<Customer, String> {

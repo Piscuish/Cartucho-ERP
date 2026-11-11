@@ -5,9 +5,9 @@ use super::sales::{InvoiceFilter, InvoiceSummary};
 use super::*;
 use crate::db::LocalDatabase;
 use chrono::{Datelike, NaiveDate};
-use rusqlite::{params, Row};
 #[cfg(test)]
 use rusqlite::OptionalExtension;
+use rusqlite::{params, Row};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -172,7 +172,8 @@ fn last_12_months(date_to: &str) -> Vec<String> {
 }
 
 fn csv_escape(value: &str) -> String {
-    let needs = value.contains(';') || value.contains('"') || value.contains('\n') || value.contains('\r');
+    let needs =
+        value.contains(';') || value.contains('"') || value.contains('\n') || value.contains('\r');
     // Evita inyección de fórmulas al abrir el CSV en Excel.
     let v = if value.starts_with(['=', '+', '-', '@']) && value.parse::<f64>().is_err() {
         format!("'{}", value)
@@ -271,8 +272,12 @@ impl LocalDatabase {
                 conn.last_insert_rowid()
             }
         };
-        conn.query_row(&format!("{} WHERE e.id = ?1", EXPENSE_SELECT), params![id], map_expense)
-            .map_err(|e| friendly_sql_error("Gasto", e))
+        conn.query_row(
+            &format!("{} WHERE e.id = ?1", EXPENSE_SELECT),
+            params![id],
+            map_expense,
+        )
+        .map_err(|e| friendly_sql_error("Gasto", e))
     }
 
     /// Elimina un gasto registrado por error (acción explícita del usuario).
@@ -291,7 +296,11 @@ impl LocalDatabase {
 
     // ---------------------------------------------------------------- Finanzas
 
-    pub fn finance_summary(&self, date_from: &str, date_to: &str) -> Result<FinanceSummary, String> {
+    pub fn finance_summary(
+        &self,
+        date_from: &str,
+        date_to: &str,
+    ) -> Result<FinanceSummary, String> {
         self.require_authenticated_user()?;
         let from = clean_date(date_from, "Desde")?;
         let to = clean_date(date_to, "Hasta")?;
@@ -303,7 +312,9 @@ impl LocalDatabase {
             conn.query_row(sql, params![from, to], |r| r.get(0))
                 .map_err(|e| friendly_sql_error("Finanzas", e))
         };
-        let invoice_count = q("SELECT COUNT(*) FROM invoices WHERE status <> 'void' AND issue_date BETWEEN ?1 AND ?2")?;
+        let invoice_count = q(
+            "SELECT COUNT(*) FROM invoices WHERE status <> 'void' AND issue_date BETWEEN ?1 AND ?2",
+        )?;
         let invoiced_total = q("SELECT COALESCE(SUM(total), 0) FROM invoices WHERE status <> 'void' AND issue_date BETWEEN ?1 AND ?2")?;
         let collected_total = q(
             "SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN invoices i ON i.id = p.invoice_id
@@ -325,12 +336,18 @@ impl LocalDatabase {
             .map_err(|e| friendly_sql_error("Finanzas", e))?;
 
         let by_label = |sql: &str, map_method: bool| -> Result<Vec<AmountByLabel>, String> {
-            let mut stmt = conn.prepare(sql).map_err(|e| friendly_sql_error("Finanzas", e))?;
+            let mut stmt = conn
+                .prepare(sql)
+                .map_err(|e| friendly_sql_error("Finanzas", e))?;
             let rows = stmt
                 .query_map(params![from, to], |r| {
                     let label: String = r.get(0)?;
                     Ok(AmountByLabel {
-                        label: if map_method { method_label(&label).to_string() } else { label },
+                        label: if map_method {
+                            method_label(&label).to_string()
+                        } else {
+                            label
+                        },
                         amount: r.get(1)?,
                     })
                 })
@@ -380,7 +397,11 @@ impl LocalDatabase {
             .map_err(|e| friendly_sql_error("Finanzas", e))?;
         let top_products = stmt
             .query_map(params![from, to], |r| {
-                Ok(TopProduct { name: r.get(0)?, quantity: r.get(1)?, total: r.get(2)? })
+                Ok(TopProduct {
+                    name: r.get(0)?,
+                    quantity: r.get(1)?,
+                    total: r.get(2)?,
+                })
             })
             .map_err(|e| friendly_sql_error("Finanzas", e))?
             .collect::<Result<Vec<_>, _>>()
@@ -419,21 +440,25 @@ impl LocalDatabase {
             "SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN invoices i ON i.id = p.invoice_id
              WHERE i.status <> 'void' AND p.paid_at = ?1",
         )?;
-        let open_invoice_count = one("SELECT COUNT(*) FROM invoices WHERE status IN ('pending', 'partial') AND ?1 = ?1")?;
+        let open_invoice_count = one(
+            "SELECT COUNT(*) FROM invoices WHERE status IN ('pending', 'partial') AND ?1 = ?1",
+        )?;
         let overdue_count = one(
             "SELECT COUNT(*) FROM invoices WHERE status IN ('pending', 'partial') AND due_date IS NOT NULL AND due_date < ?1",
         )?;
-        let overdue_total = one(
-            "SELECT COALESCE(SUM(total - paid_amount), 0) FROM invoices
-             WHERE status IN ('pending', 'partial') AND due_date IS NOT NULL AND due_date < ?1",
-        )?;
-        let open_quote_count = one("SELECT COUNT(*) FROM quotes WHERE status = 'open' AND ?1 = ?1")?;
+        let overdue_total = one("SELECT COALESCE(SUM(total - paid_amount), 0) FROM invoices
+             WHERE status IN ('pending', 'partial') AND due_date IS NOT NULL AND due_date < ?1")?;
+        let open_quote_count =
+            one("SELECT COUNT(*) FROM quotes WHERE status = 'open' AND ?1 = ?1")?;
         let product_count = one("SELECT COUNT(*) FROM products WHERE is_active = 1 AND ?1 = ?1")?;
         let customer_count = one("SELECT COUNT(*) FROM customers WHERE is_active = 1 AND ?1 = ?1")?;
         drop(conn);
         let mut low_stock = self.list_products(None, None, false, true)?;
         low_stock.truncate(8);
-        let recent_invoices = self.list_invoices(&InvoiceFilter { limit: Some(8), ..Default::default() })?;
+        let recent_invoices = self.list_invoices(&InvoiceFilter {
+            limit: Some(8),
+            ..Default::default()
+        })?;
         Ok(DashboardData {
             today,
             month,
@@ -461,7 +486,9 @@ impl LocalDatabase {
         let conn = self.connect()?;
         let mut hits = vec![];
         let mut run = |sql: &str, kind: &str| -> Result<(), String> {
-            let mut stmt = conn.prepare(sql).map_err(|e| friendly_sql_error("Búsqueda", e))?;
+            let mut stmt = conn
+                .prepare(sql)
+                .map_err(|e| friendly_sql_error("Búsqueda", e))?;
             let rows = stmt
                 .query_map(params![pattern], |r| {
                     Ok(SearchHit {
@@ -519,7 +546,14 @@ impl LocalDatabase {
         let mut rows: Vec<Vec<String>> = vec![];
         match kind {
             "invoices" => {
-                rows.push(vec!["Número", "Fecha", "Vence", "Cliente", "Estado", "Total", "Pagado", "Saldo"].iter().map(|s| s.to_string()).collect());
+                rows.push(
+                    [
+                        "Número", "Fecha", "Vence", "Cliente", "Estado", "Total", "Pagado", "Saldo",
+                    ]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                );
                 let list = self.list_invoices(&InvoiceFilter {
                     date_from: date_from.clone(),
                     date_to: date_to.clone(),
@@ -540,7 +574,20 @@ impl LocalDatabase {
                 }
             }
             "payments" => {
-                rows.push(vec!["Fecha", "Factura", "Cliente", "Método", "Valor", "Nota", "Factura anulada"].iter().map(|s| s.to_string()).collect());
+                rows.push(
+                    [
+                        "Fecha",
+                        "Factura",
+                        "Cliente",
+                        "Método",
+                        "Valor",
+                        "Nota",
+                        "Factura anulada",
+                    ]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                );
                 for p in self.list_payments(date_from.clone(), date_to.clone())? {
                     rows.push(vec![
                         p.paid_at,
@@ -549,16 +596,37 @@ impl LocalDatabase {
                         method_label(&p.method).to_string(),
                         p.amount.to_string(),
                         p.note.unwrap_or_default(),
-                        if p.invoice_voided { "Sí".to_string() } else { "No".to_string() },
+                        if p.invoice_voided {
+                            "Sí".to_string()
+                        } else {
+                            "No".to_string()
+                        },
                     ]);
                 }
             }
             "expenses" => {
-                rows.push(vec!["Fecha", "Tipo", "Categoría", "Descripción", "Proveedor", "Método", "Valor"].iter().map(|s| s.to_string()).collect());
+                rows.push(
+                    [
+                        "Fecha",
+                        "Tipo",
+                        "Categoría",
+                        "Descripción",
+                        "Proveedor",
+                        "Método",
+                        "Valor",
+                    ]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                );
                 for e in self.list_expenses(date_from.clone(), date_to.clone(), None, None)? {
                     rows.push(vec![
                         e.expense_date,
-                        if e.kind == "inventory" { "Compra de inventario".to_string() } else { "Gasto operativo".to_string() },
+                        if e.kind == "inventory" {
+                            "Compra de inventario".to_string()
+                        } else {
+                            "Gasto operativo".to_string()
+                        },
                         e.category_name.unwrap_or_default(),
                         e.description,
                         e.supplier.unwrap_or_default(),
@@ -568,7 +636,22 @@ impl LocalDatabase {
                 }
             }
             "products" => {
-                rows.push(vec!["Código", "Nombre", "Categoría", "Unidad", "Precio", "Costo", "Existencia", "Stock mínimo", "Estado"].iter().map(|s| s.to_string()).collect());
+                rows.push(
+                    [
+                        "Código",
+                        "Nombre",
+                        "Categoría",
+                        "Unidad",
+                        "Precio",
+                        "Costo",
+                        "Existencia",
+                        "Stock mínimo",
+                        "Estado",
+                    ]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                );
                 for p in self.list_products(None, None, true, false)? {
                     rows.push(vec![
                         p.sku.unwrap_or_default(),
@@ -577,14 +660,36 @@ impl LocalDatabase {
                         p.unit,
                         p.price.to_string(),
                         p.cost.to_string(),
-                        if p.track_stock { fmt_qty(p.stock_qty) } else { "—".to_string() },
+                        if p.track_stock {
+                            fmt_qty(p.stock_qty)
+                        } else {
+                            "—".to_string()
+                        },
                         fmt_qty(p.min_stock),
-                        if p.is_active { "Activo".to_string() } else { "Archivado".to_string() },
+                        if p.is_active {
+                            "Activo".to_string()
+                        } else {
+                            "Archivado".to_string()
+                        },
                     ]);
                 }
             }
             "customers" => {
-                rows.push(vec!["Nombre", "Documento", "Teléfono", "Correo", "Dirección", "Facturas", "Total facturado", "Saldo pendiente"].iter().map(|s| s.to_string()).collect());
+                rows.push(
+                    [
+                        "Nombre",
+                        "Documento",
+                        "Teléfono",
+                        "Correo",
+                        "Dirección",
+                        "Facturas",
+                        "Total facturado",
+                        "Saldo pendiente",
+                    ]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                );
                 for c in self.list_customers(None, true)? {
                     rows.push(vec![
                         c.name,
@@ -601,7 +706,11 @@ impl LocalDatabase {
             _ => return Err("Tipo de reporte no válido.".to_string()),
         }
         let target = if dest.is_dir() {
-            dest.join(format!("CartuchoERP_{}_{}.csv", kind, chrono::Local::now().format("%Y-%m-%d_%H%M%S")))
+            dest.join(format!(
+                "CartuchoERP_{}_{}.csv",
+                kind,
+                chrono::Local::now().format("%Y-%m-%d_%H%M%S")
+            ))
         } else {
             let mut p = dest;
             if p.extension().is_none() {
@@ -611,7 +720,12 @@ impl LocalDatabase {
         };
         let mut content = String::from("\u{feff}");
         for r in rows {
-            content.push_str(&r.iter().map(|c| csv_escape(c)).collect::<Vec<_>>().join(";"));
+            content.push_str(
+                &r.iter()
+                    .map(|c| csv_escape(c))
+                    .collect::<Vec<_>>()
+                    .join(";"),
+            );
             content.push_str("\r\n");
         }
         fs::write(&target, content).map_err(|e| format!("No se pudo guardar el archivo: {}", e))?;
@@ -622,9 +736,13 @@ impl LocalDatabase {
     #[cfg(test)]
     pub(crate) fn stock_of(&self, product_id: i64) -> f64 {
         let conn = self.connect().unwrap();
-        conn.query_row("SELECT stock_qty FROM products WHERE id = ?1", params![product_id], |r| r.get(0))
-            .optional()
-            .unwrap()
-            .unwrap_or(0.0)
+        conn.query_row(
+            "SELECT stock_qty FROM products WHERE id = ?1",
+            params![product_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
+        .unwrap_or(0.0)
     }
 }

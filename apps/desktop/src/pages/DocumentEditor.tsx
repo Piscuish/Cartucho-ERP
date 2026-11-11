@@ -6,6 +6,7 @@ import { Package, Plus, Printer, Save, Trash2, UserRound, X } from "lucide-react
 import type { BusinessSettings, Customer, PaymentMethod, Product } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
+import { useHotkey } from "../lib/hooks";
 import { addDays, errorMessage, METHOD_LABELS, money, parseQty, qty, todayISO } from "../lib/format";
 import { Alert, Button, Field, IconButton, MoneyInput, PageHeader, Segmented, Switch, useToast } from "../components/ui";
 
@@ -20,7 +21,13 @@ interface DraftLine {
 let lineSeq = 1;
 const emptyLine = (): DraftLine => ({ key: lineSeq++, productId: null, description: "", quantityText: "1", unitPrice: 0 });
 
-export function DocumentEditorPage({ navigate, goBack, kind, customerId }: PageProps & { kind: "invoice" | "quote"; customerId?: number }) {
+export function DocumentEditorPage({
+  navigate,
+  goBack,
+  kind,
+  customerId,
+  source,
+}: PageProps & { kind: "invoice" | "quote"; customerId?: number; source?: { kind: "invoice" | "quote"; id: number } }) {
   const toast = useToast();
   const isInvoice = kind === "invoice";
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
@@ -53,10 +60,31 @@ export function DocumentEditorPage({ navigate, goBack, kind, customerId }: PageP
         const days = isInvoice ? s.defaultDueDays : s.defaultQuoteValidDays;
         if (days > 0) setSecondDate(addDays(todayISO(), days));
         if (customerId) setCustomer(c.find((x) => x.id === customerId) ?? null);
+        if (source) {
+          // Duplicar: usa un documento anterior como plantilla (fechas y pagos nuevos).
+          const doc = source.kind === "invoice" ? await api.getInvoice(source.id) : await api.getQuote(source.id);
+          const linked = doc.customerId ? c.find((x) => x.id === doc.customerId && x.isActive) : undefined;
+          if (linked) setCustomer(linked);
+          else setManualCustomer({ name: doc.customer.name === "Consumidor final" ? "" : doc.customer.name, documentId: doc.customer.documentId ?? "", phone: doc.customer.phone ?? "" });
+          const active = new Set(p.map((x) => x.id));
+          setLines(
+            doc.lines.map((l) => ({
+              key: lineSeq++,
+              productId: l.productId && active.has(l.productId) ? l.productId : null,
+              description: l.description,
+              quantityText: String(l.quantity).replace(".", ","),
+              unitPrice: l.unitPrice,
+            })),
+          );
+          setNotes(doc.notes ?? "");
+          setTerms(doc.terms ?? "");
+          setFooter(doc.footer ?? "");
+        }
       } catch (e) {
         setError(errorMessage(e));
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, isInvoice]);
 
   const computed = useMemo(
@@ -72,6 +100,7 @@ export function DocumentEditorPage({ navigate, goBack, kind, customerId }: PageP
 
   const updateLine = (key: number, patch: Partial<DraftLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
+  const saveRef = useRef<(andPrint: boolean) => Promise<void>>(async () => undefined);
   const save = async (andPrint: boolean) => {
     setError(null);
     const valid = computed.filter((l) => l.description.trim() || l.productId);
@@ -115,7 +144,12 @@ export function DocumentEditorPage({ navigate, goBack, kind, customerId }: PageP
     }
   };
 
-  const title = isInvoice ? "Nueva factura" : "Nueva cotización";
+  saveRef.current = save;
+  useHotkey((e) => (e.ctrlKey || e.metaKey) && e.key === "Enter", () => {
+    if (!busy) void saveRef.current(false);
+  });
+
+  const title = source ? (isInvoice ? "Nueva factura (copia)" : "Nueva cotización (copia)") : isInvoice ? "Nueva factura" : "Nueva cotización";
   const nextNumber = settings
     ? `${isInvoice ? settings.invoicePrefix : settings.quotePrefix}${String(isInvoice ? settings.invoiceNextNumber : settings.quoteNextNumber).padStart(5, "0")}`
     : "";
@@ -320,6 +354,7 @@ export function DocumentEditorPage({ navigate, goBack, kind, customerId }: PageP
             </Button>
           </div>
           <p className="subtle" style={{ fontSize: 12, textAlign: "center" }}>
+            <span className="kbd">Ctrl</span> + <span className="kbd">Enter</span> guarda ·{" "}
             {isInvoice ? "Factura interna, sin validez fiscal ante la DIAN." : "La cotización no descuenta inventario."}
           </p>
         </div>

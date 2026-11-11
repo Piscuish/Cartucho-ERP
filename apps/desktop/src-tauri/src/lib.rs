@@ -35,11 +35,13 @@ impl AppState {
     }
 
     /// Ejecuta una operación con acceso a la base de datos abierta.
-    pub fn with_db<T>(&self, f: impl FnOnce(&mut LocalDatabase) -> Result<T, String>) -> Result<T, String> {
-        let mut guard = self
-            .db
-            .lock()
-            .map_err(|_| "Error interno al bloquear el gestor de base de datos local.".to_string())?;
+    pub fn with_db<T>(
+        &self,
+        f: impl FnOnce(&mut LocalDatabase) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut guard = self.db.lock().map_err(|_| {
+            "Error interno al bloquear el gestor de base de datos local.".to_string()
+        })?;
         match guard.as_mut() {
             Some(db) => f(db),
             None => {
@@ -63,7 +65,10 @@ impl AppState {
 
     pub fn retry_open(&self) -> Result<(), String> {
         let db = LocalDatabase::open_in_os_app_data()?;
-        let mut guard = self.db.lock().map_err(|_| "Error interno de bloqueo.".to_string())?;
+        let mut guard = self
+            .db
+            .lock()
+            .map_err(|_| "Error interno de bloqueo.".to_string())?;
         *guard = Some(db);
         if let Ok(mut e) = self.startup_error.lock() {
             *e = None;
@@ -76,16 +81,19 @@ impl AppState {
 mod tauri_commands {
     use super::*;
     use crate::data_admin::{DataLocationInfo, RestoreResult};
-    use crate::erp::catalog::{Category, InventoryMovement, Product, ProductInput, StockAdjustmentInput};
+    use crate::erp::catalog::{
+        Category, InventoryMovement, Product, ProductInput, StockAdjustmentInput,
+    };
     use crate::erp::customers::{Customer, CustomerInput};
     use crate::erp::finance::{DashboardData, Expense, ExpenseInput, FinanceSummary, SearchHit};
     use crate::erp::sales::{
-        InvoiceDetail, InvoiceFilter, InvoiceInput, InvoiceSummary, Payment, PaymentInput, QuoteDetail,
-        QuoteInput, QuoteSummary,
+        InvoiceDetail, InvoiceFilter, InvoiceInput, InvoiceSummary, Payment, PaymentInput,
+        QuoteDetail, QuoteInput, QuoteSummary,
     };
     use crate::erp::settings::BusinessSettings;
     use db::{
-        ChangePasswordInput, CompleteInitialSetupInput, LoginInput, SaveCompanyProfileInput, SystemOverview,
+        ChangePasswordInput, CompleteInitialSetupInput, LoginInput, SaveCompanyProfileInput,
+        SystemOverview,
     };
     use tauri::State;
 
@@ -111,7 +119,10 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn complete_initial_setup(input: CompleteInitialSetupInput, state: S<'_>) -> Result<SystemOverview, String> {
+    pub fn complete_initial_setup(
+        input: CompleteInitialSetupInput,
+        state: S<'_>,
+    ) -> Result<SystemOverview, String> {
         state.with_db(|db| {
             db.complete_initial_setup(&input)?;
             db.build_system_overview()
@@ -135,7 +146,10 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn change_user_password(input: ChangePasswordInput, state: S<'_>) -> Result<SystemOverview, String> {
+    pub fn change_user_password(
+        input: ChangePasswordInput,
+        state: S<'_>,
+    ) -> Result<SystemOverview, String> {
         state.with_db(|db| {
             db.change_authenticated_user_password(&input)?;
             db.build_system_overview()
@@ -159,7 +173,10 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn save_company_profile(input: SaveCompanyProfileInput, state: S<'_>) -> Result<SystemOverview, String> {
+    pub fn save_company_profile(
+        input: SaveCompanyProfileInput,
+        state: S<'_>,
+    ) -> Result<SystemOverview, String> {
         state.with_db(|db| {
             db.save_company_profile(&input)?;
             db.build_system_overview()
@@ -169,7 +186,11 @@ mod tauri_commands {
     // ------------------------------------------------------------ Clientes
 
     #[tauri::command]
-    pub fn list_customers(search: Option<String>, include_inactive: bool, state: S<'_>) -> Result<Vec<Customer>, String> {
+    pub fn list_customers(
+        search: Option<String>,
+        include_inactive: bool,
+        state: S<'_>,
+    ) -> Result<Vec<Customer>, String> {
         state.with_db(|db| db.list_customers(search, include_inactive))
     }
 
@@ -191,7 +212,12 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn save_category(id: Option<i64>, kind: String, name: String, state: S<'_>) -> Result<Category, String> {
+    pub fn save_category(
+        id: Option<i64>,
+        kind: String,
+        name: String,
+        state: S<'_>,
+    ) -> Result<Category, String> {
         state.with_db(|db| db.save_category(id, &kind, &name))
     }
 
@@ -243,7 +269,10 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn list_invoices(filter: InvoiceFilter, state: S<'_>) -> Result<Vec<InvoiceSummary>, String> {
+    pub fn list_invoices(
+        filter: InvoiceFilter,
+        state: S<'_>,
+    ) -> Result<Vec<InvoiceSummary>, String> {
         state.with_db(|db| db.list_invoices(&filter))
     }
 
@@ -253,17 +282,29 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn add_payment(invoice_id: i64, payment: PaymentInput, state: S<'_>) -> Result<InvoiceDetail, String> {
+    pub fn add_payment(
+        invoice_id: i64,
+        payment: PaymentInput,
+        state: S<'_>,
+    ) -> Result<InvoiceDetail, String> {
         state.with_db(|db| db.add_payment(invoice_id, &payment))
     }
 
     #[tauri::command]
-    pub fn void_invoice(invoice_id: i64, reason: String, state: S<'_>) -> Result<InvoiceDetail, String> {
+    pub fn void_invoice(
+        invoice_id: i64,
+        reason: String,
+        state: S<'_>,
+    ) -> Result<InvoiceDetail, String> {
         state.with_db(|db| db.void_invoice(invoice_id, &reason))
     }
 
     #[tauri::command]
-    pub fn list_payments(date_from: Option<String>, date_to: Option<String>, state: S<'_>) -> Result<Vec<Payment>, String> {
+    pub fn list_payments(
+        date_from: Option<String>,
+        date_to: Option<String>,
+        state: S<'_>,
+    ) -> Result<Vec<Payment>, String> {
         state.with_db(|db| db.list_payments(date_from, date_to))
     }
 
@@ -273,7 +314,11 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn list_quotes(search: Option<String>, status: Option<String>, state: S<'_>) -> Result<Vec<QuoteSummary>, String> {
+    pub fn list_quotes(
+        search: Option<String>,
+        status: Option<String>,
+        state: S<'_>,
+    ) -> Result<Vec<QuoteSummary>, String> {
         state.with_db(|db| db.list_quotes(search, status))
     }
 
@@ -321,7 +366,11 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn finance_summary(date_from: String, date_to: String, state: S<'_>) -> Result<FinanceSummary, String> {
+    pub fn finance_summary(
+        date_from: String,
+        date_to: String,
+        state: S<'_>,
+    ) -> Result<FinanceSummary, String> {
         state.with_db(|db| db.finance_summary(&date_from, &date_to))
     }
 
@@ -354,7 +403,10 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn save_business_settings(settings: BusinessSettings, state: S<'_>) -> Result<BusinessSettings, String> {
+    pub fn save_business_settings(
+        settings: BusinessSettings,
+        state: S<'_>,
+    ) -> Result<BusinessSettings, String> {
         state.with_db(|db| db.save_business_settings(&settings))
     }
 
@@ -364,7 +416,11 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn save_auto_backup_settings(enabled: bool, keep: i64, state: S<'_>) -> Result<DataLocationInfo, String> {
+    pub fn save_auto_backup_settings(
+        enabled: bool,
+        keep: i64,
+        state: S<'_>,
+    ) -> Result<DataLocationInfo, String> {
         state.with_db(|db| {
             db.save_auto_backup_settings(enabled, keep)?;
             db.get_data_location_info()
