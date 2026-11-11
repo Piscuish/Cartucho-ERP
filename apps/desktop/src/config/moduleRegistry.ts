@@ -1,98 +1,90 @@
-import type { ErpModuleDescriptor, NavigationSectionId } from "@cartucho/shared";
+import type { NavigationSectionId } from "@cartucho/shared";
+import {
+  BarChart3,
+  Boxes,
+  FilePlus2,
+  FileSignature,
+  FileText,
+  LayoutDashboard,
+  LucideIcon,
+  Package,
+  Receipt,
+  Settings,
+  Users,
+} from "lucide-react";
 
-/**
- * Catálogo desacoplado de módulos de gestión del ERP.
- *
- * Importante:
- * - Por defecto ningún módulo comercial viene habilitado (`enabled: false`),
- *   en concordancia con `enabled_modules_json = '[]'` en SQLite.
- * - Cada instalación habilitará explícitamente sus módulos cuando estén
- *   desarrollados y contratados/configurados según el perfil de negocio,
- *   plan comercial y complementos adicionales.
- */
-export const MANAGEMENT_MODULE_CATALOG: ErpModuleDescriptor[] = [
+export type SettingsTab = "company" | "billing" | "appearance" | "security" | "data" | "about";
+
+/** Ruta interna de la aplicación (navegación sin recargar). */
+export type Route =
+  | { page: "dashboard" }
+  | { page: "invoices"; status?: string }
+  | { page: "invoice"; id: number; print?: boolean }
+  | { page: "invoice-new"; customerId?: number }
+  | { page: "quotes" }
+  | { page: "quote"; id: number; print?: boolean }
+  | { page: "quote-new"; customerId?: number }
+  | { page: "customers"; openId?: number }
+  | { page: "catalog"; openId?: number }
+  | { page: "inventory" }
+  | { page: "finance" }
+  | { page: "expenses" }
+  | { page: "settings"; tab?: SettingsTab };
+
+export interface NavItem {
+  id: NavigationSectionId;
+  label: string;
+  icon: LucideIcon;
+  route: Route;
+  /** Páginas que deben marcar este elemento como activo. */
+  matches: Route["page"][];
+}
+
+export interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+/** Estructura del menú lateral. */
+export const NAVIGATION: NavGroup[] = [
   {
-    id: "module-inventory",
-    key: "inventory",
-    label: "Inventario",
-    description:
-      "Control de productos, insumos, existencias locales y movimientos de almacén adaptables al giro del negocio.",
-    category: "management",
-    enabled: false,
-    status: "planned",
+    label: "General",
+    items: [{ id: "dashboard", label: "Inicio", icon: LayoutDashboard, route: { page: "dashboard" }, matches: ["dashboard"] }],
   },
   {
-    id: "module-sales",
-    key: "sales",
     label: "Ventas",
-    description:
-      "Emisión de documentos de venta internos y registro manual de pagos recibidos (Efectivo, Transferencia, Tarjeta u Otro).",
-    category: "management",
-    enabled: false,
-    status: "planned",
+    items: [
+      { id: "invoice-new", label: "Nueva factura", icon: FilePlus2, route: { page: "invoice-new" }, matches: ["invoice-new"] },
+      { id: "invoices", label: "Facturas", icon: FileText, route: { page: "invoices" }, matches: ["invoices", "invoice"] },
+      { id: "quotes", label: "Cotizaciones", icon: FileSignature, route: { page: "quotes" }, matches: ["quotes", "quote", "quote-new"] },
+      { id: "customers", label: "Clientes", icon: Users, route: { page: "customers" }, matches: ["customers"] },
+    ],
   },
   {
-    id: "module-customers",
-    key: "customers",
-    label: "Clientes",
-    description:
-      "Directorio local de clientes, datos de contacto e historial operativo dentro de la empresa.",
-    category: "management",
-    enabled: false,
-    status: "planned",
+    label: "Productos",
+    items: [
+      { id: "catalog", label: "Catálogo", icon: Package, route: { page: "catalog" }, matches: ["catalog"] },
+      { id: "inventory", label: "Inventario", icon: Boxes, route: { page: "inventory" }, matches: ["inventory"] },
+    ],
   },
   {
-    id: "module-future",
-    key: "custom-extensions",
-    label: "Otros módulos futuros",
-    description:
-      "Espacio reservado para módulos especializados según el tipo de empresa (ej. órdenes de producción, mesas/comandas, compras o gastos).",
-    category: "management",
-    enabled: false,
-    status: "planned",
+    label: "Finanzas",
+    items: [
+      { id: "finance", label: "Resumen", icon: BarChart3, route: { page: "finance" }, matches: ["finance"] },
+      { id: "expenses", label: "Gastos", icon: Receipt, route: { page: "expenses" }, matches: ["expenses"] },
+    ],
+  },
+  {
+    label: "Sistema",
+    items: [{ id: "settings", label: "Configuración", icon: Settings, route: { page: "settings" }, matches: ["settings"] }],
   },
 ];
 
-/**
- * Devuelve únicamente los módulos explícitamente habilitados en la instalación
- * (`enabled_modules_json`). Inicialmente devuelve `[]` hasta que los módulos
- * estén desarrollados y se habiliten para la empresa.
- */
-export function resolveEnabledManagementModules(
-  enabledModuleKeys?: string[] | null
-): ErpModuleDescriptor[] {
-  if (!enabledModuleKeys || enabledModuleKeys.length === 0) {
-    return [];
-  }
-  const keySet = new Set(enabledModuleKeys);
-  return MANAGEMENT_MODULE_CATALOG.filter((mod) => keySet.has(mod.key)).map(
-    (mod) => ({
-      ...mod,
-      enabled: true,
-    })
-  );
-}
-
-/**
- * Resuelve los espacios de navegación de la categoría Gestión combinando el estado real
- * de habilitación (`enabledModuleKeys`, inicialmente `[]`) con los espacios preparados
- * en la estructura de navegación.
- */
-export function resolveManagementNavigationSpaces(
-  enabledModuleKeys?: string[] | null
-): ErpModuleDescriptor[] {
-  const keySet = new Set(enabledModuleKeys ?? []);
-  return MANAGEMENT_MODULE_CATALOG.map((mod) => ({
-    ...mod,
-    enabled: keySet.has(mod.key),
-  }));
-}
-
-export function findModuleDescriptor(
-  sectionId: NavigationSectionId,
-  enabledModuleKeys?: string[] | null
-): ErpModuleDescriptor | undefined {
-  return resolveManagementNavigationSpaces(enabledModuleKeys).find(
-    (mod) => mod.id === sectionId
-  );
-}
+export const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: "company", label: "Mi empresa" },
+  { id: "billing", label: "Facturación e impresión" },
+  { id: "appearance", label: "Apariencia" },
+  { id: "security", label: "Usuario y seguridad" },
+  { id: "data", label: "Base de datos y respaldos" },
+  { id: "about", label: "Acerca de" },
+];

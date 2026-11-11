@@ -10,36 +10,19 @@ export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
 /**
- * Secciones de navegación del núcleo y espacios preparados para módulos.
+ * Identificadores de las pantallas principales de la aplicación.
  */
 export type NavigationSectionId =
-  | "home"
-  | "company"
-  | "module-inventory"
-  | "module-sales"
-  | "module-customers"
-  | "module-future"
-  | "settings-appearance"
-  | "settings-users"
-  | "settings-database"
-  | "settings-about";
-
-export type ModuleCategoryId = "general" | "company" | "management" | "application";
-
-/**
- * Descriptor desacoplado de módulo para construir la navegación dinámicamente.
- * Distingue claramente entre un módulo realmente habilitado en la instalación (`enabled`)
- * y su estado de desarrollo o disponibilidad (`status`).
- */
-export interface ErpModuleDescriptor {
-  id: NavigationSectionId;
-  key: string;
-  label: string;
-  description: string;
-  category: ModuleCategoryId;
-  enabled: boolean;
-  status: "active" | "planned";
-}
+  | "dashboard"
+  | "invoices"
+  | "invoice-new"
+  | "quotes"
+  | "customers"
+  | "catalog"
+  | "inventory"
+  | "finance"
+  | "expenses"
+  | "settings";
 
 export interface MigrationRecord {
   version: number;

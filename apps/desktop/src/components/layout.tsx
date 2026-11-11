@@ -1,506 +1,306 @@
-import React, { useState } from "react";
+/**
+ * Estructura principal: menú lateral colapsable, barra superior y búsqueda rápida (Ctrl+K).
+ */
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
-  Blocks,
-  Building2,
-  ChevronDown,
-  ChevronRight,
-  Database,
-  Home,
-  Info,
-  Layers,
+  ChevronsLeft,
+  ChevronsRight,
+  CornerDownLeft,
+  FilePlus2,
+  FileSignature,
+  FileText,
   LogOut,
-  Minus,
+  Moon,
   Package,
-  Palette,
-  ReceiptText,
-  RefreshCw,
-  Settings,
-  ShieldCheck,
-  Square,
+  Plus,
+  Search,
+  Sun,
   Users,
-  X,
 } from "lucide-react";
-import { isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import type {
-  CompanyProfile,
-  ErpModuleDescriptor,
-  NavigationSectionId,
-  ResolvedTheme,
-  SystemOverview,
-  ThemePreference,
-} from "@cartucho/shared";
+import type { AuthenticatedUserSummary, CompanyProfile, ResolvedTheme, SearchHit } from "@cartucho/shared";
+import { NAVIGATION, Route } from "../config/moduleRegistry";
+import { api } from "../services/systemClient";
+import { useDebounced, useHotkey } from "../lib/hooks";
+import { initials } from "../lib/format";
 import { Button } from "./ui";
 
-/* ==========================================================================
-   Iconos por Clave de Módulo Dinámico
-   ========================================================================== */
-
-function getModuleIcon(moduleKey: string): React.ReactNode {
-  switch (moduleKey) {
-    case "inventory":
-      return <Package size={15} />;
-    case "sales":
-      return <ReceiptText size={15} />;
-    case "customers":
-      return <Users size={15} />;
-    default:
-      return <Blocks size={15} />;
-  }
-}
-
-/* ==========================================================================
-   Sidebar Reorganizado con Categorías y Submenús Expandibles
-   ========================================================================== */
-
-interface SettingsSubItem {
-  id: NavigationSectionId;
-  label: string;
-  icon: React.ReactNode;
-}
-
-const SETTINGS_SUBMENU: SettingsSubItem[] = [
-  { id: "settings-appearance", label: "Apariencia", icon: <Palette size={14} /> },
-  {
-    id: "settings-users",
-    label: "Usuarios y acceso",
-    icon: <ShieldCheck size={14} />,
-  },
-  { id: "settings-database", label: "Base de datos", icon: <Database size={14} /> },
-  { id: "settings-about", label: "Acerca de", icon: <Info size={14} /> },
-];
-
-export interface SidebarProps {
-  activeSection: NavigationSectionId;
-  onSelectSection: (section: NavigationSectionId) => void;
-  appVersion: string;
-  company: CompanyProfile | null;
-  managementModules: ErpModuleDescriptor[];
-}
-
-export function Sidebar({
-  activeSection,
-  onSelectSection,
-  appVersion,
+export function AppShell({
   company,
-  managementModules,
-}: SidebarProps) {
-  const isSettingsSection = activeSection.startsWith("settings-");
-  const [settingsExpanded, setSettingsExpanded] = useState<boolean>(true);
-  const [managementExpanded, setManagementExpanded] = useState<boolean>(true);
+  user,
+  route,
+  navigate,
+  onLogout,
+  resolvedTheme,
+  onToggleTheme,
+  lowStockCount,
+  children,
+}: {
+  company: CompanyProfile;
+  user: AuthenticatedUserSummary;
+  route: Route;
+  navigate: (r: Route) => void;
+  onLogout: () => void;
+  resolvedTheme: ResolvedTheme;
+  onToggleTheme: () => void;
+  lowStockCount: number;
+  children: ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("cartucho_sidebar_collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const handleToggleSettings = () => {
-    setSettingsExpanded((prev) => !prev);
-  };
+  useEffect(() => {
+    try {
+      localStorage.setItem("cartucho_sidebar_collapsed", collapsed ? "1" : "0");
+    } catch {
+      /* ignorar */
+    }
+  }, [collapsed]);
 
-  const handleToggleManagement = () => {
-    setManagementExpanded((prev) => !prev);
-  };
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [route]);
+
+  useHotkey((e) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k", () => setPaletteOpen(true));
+  useHotkey((e) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b", () => setCollapsed((c) => !c));
 
   return (
-    <aside className="app-sidebar" aria-label="Navegación principal">
-      <div className="sidebar-top">
-        <div className="brand-header">
-          <div className="brand-mark" aria-hidden="true">
-            {company?.logoDataUrl ? (
-              <img src={company.logoDataUrl} alt={company.tradeName} />
-            ) : (
-              <Layers size={17} />
-            )}
+    <div className={`app-shell ${collapsed ? "is-collapsed" : ""}`}>
+      <aside className="sidebar">
+        <div className="sb-brand">
+          <div className="sb-logo">
+            {company.logoDataUrl ? <img src={company.logoDataUrl} alt="" /> : initials(company.tradeName)}
           </div>
-          <div className="brand-text">
-            <span className="brand-title">
-              {company?.tradeName ? company.tradeName : "CARTUCHO"}
-            </span>
-            <span className="brand-descriptor">
-              {company?.tradeName ? "Cartucho ERP" : "ERP · Espacio de Trabajo"}
-            </span>
+          <div className="sb-brand-text">
+            <div className="sb-company">{company.tradeName}</div>
+            <div className="sb-app">Cartucho ERP</div>
           </div>
         </div>
 
-        <nav className="nav-groups">
-          {/* Categoría: GENERAL */}
-          <div className="nav-group">
-            <div className="nav-group-label">General</div>
-            <ul className="nav-list">
-              <li>
-                <button
-                  type="button"
-                  className={`nav-item-btn ${
-                    activeSection === "home" ? "active" : ""
-                  }`}
-                  onClick={() => onSelectSection("home")}
-                  aria-current={activeSection === "home" ? "page" : undefined}
-                >
-                  <span className="nav-item-main">
-                    <Home size={15} />
-                    <span>Inicio</span>
-                  </span>
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          {/* Categoría: EMPRESA */}
-          <div className="nav-group">
-            <div className="nav-group-label">Empresa</div>
-            <ul className="nav-list">
-              <li>
-                <button
-                  type="button"
-                  className={`nav-item-btn ${
-                    activeSection === "company" ? "active" : ""
-                  }`}
-                  onClick={() => onSelectSection("company")}
-                  aria-current={activeSection === "company" ? "page" : undefined}
-                >
-                  <span className="nav-item-main">
-                    <Building2 size={15} />
-                    <span>Mi empresa</span>
-                  </span>
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          {/* Categoría: GESTIÓN (Construida dinámicamente según módulos habilitados) */}
-          <div className="nav-group">
-            <button
-              type="button"
-              className="nav-item-btn"
-              style={{ padding: "2px 10px" }}
-              onClick={handleToggleManagement}
-              aria-expanded={managementExpanded}
-            >
-              <span className="nav-group-label" style={{ padding: 0, margin: 0 }}>
-                Gestión
-              </span>
-              {managementExpanded ? (
-                <ChevronDown size={13} color="var(--text-secondary)" />
-              ) : (
-                <ChevronRight size={13} color="var(--text-secondary)" />
-              )}
-            </button>
-
-            {managementExpanded && (
-              <ul className="nav-list">
-                {managementModules.map((mod) => (
-                  <li key={mod.id}>
-                    <button
-                      type="button"
-                      className={`nav-item-btn ${
-                        activeSection === mod.id ? "active" : ""
-                      }`}
-                      onClick={() => onSelectSection(mod.id)}
-                      aria-current={
-                        activeSection === mod.id ? "page" : undefined
-                      }
-                    >
-                      <span className="nav-item-main">
-                        {getModuleIcon(mod.key)}
-                        <span>{mod.label}</span>
+        <nav className="sb-nav" aria-label="Menú principal">
+          {NAVIGATION.map((group) => (
+            <div className="sb-group" key={group.label}>
+              <div className="sb-group-label">{group.label}</div>
+              {group.items.map((item) => {
+                const active = item.matches.includes(route.page);
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    className={`sb-item ${active ? "is-active" : ""}`}
+                    data-tip={item.label}
+                    onClick={() => navigate(item.route)}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <Icon size={18} />
+                    <span className="sb-item-label">{item.label}</span>
+                    {item.id === "inventory" && lowStockCount > 0 && (
+                      <span className="sb-badge" title="Productos con stock bajo">
+                        {lowStockCount}
                       </span>
-                      {mod.status === "planned" && (
-                        <span className="nav-tag-planned">Próximo</span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Categoría: APLICACIÓN -> Submenú Configuración */}
-          <div className="nav-group">
-            <div className="nav-group-label">Aplicación</div>
-            <ul className="nav-list">
-              <li>
-                <button
-                  type="button"
-                  className={`nav-item-btn ${
-                    isSettingsSection ? "active" : ""
-                  }`}
-                  onClick={handleToggleSettings}
-                  aria-expanded={settingsExpanded}
-                >
-                  <span className="nav-item-main">
-                    <Settings size={15} />
-                    <span>Configuración</span>
-                  </span>
-                  {settingsExpanded ? (
-                    <ChevronDown size={14} />
-                  ) : (
-                    <ChevronRight size={14} />
-                  )}
-                </button>
-
-                {settingsExpanded && (
-                  <ul className="nav-sublist">
-                    {SETTINGS_SUBMENU.map((sub) => (
-                      <li key={sub.id}>
-                        <button
-                          type="button"
-                          className={`nav-subitem-btn ${
-                            activeSection === sub.id ? "active" : ""
-                          }`}
-                          onClick={() => onSelectSection(sub.id)}
-                          aria-current={
-                            activeSection === sub.id ? "page" : undefined
-                          }
-                        >
-                          {sub.icon}
-                          <span>{sub.label}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            </ul>
-          </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
+
+        <div className="sb-footer">
+          <div className="sb-user">
+            <div className="sb-avatar">{initials(user.fullName)}</div>
+            <div className="sb-user-text">
+              <div className="sb-user-name">{user.fullName}</div>
+              <div className="sb-user-role">Administrador</div>
+            </div>
+            <button className="sb-icon-btn sb-hide-collapsed" onClick={onLogout} title="Cerrar sesión" aria-label="Cerrar sesión">
+              <LogOut size={16} />
+            </button>
+          </div>
+          <button className="sb-item" onClick={() => setCollapsed((c) => !c)} data-tip={collapsed ? "Expandir menú" : "Contraer menú"}>
+            {collapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+            <span className="sb-item-label">Contraer menú</span>
+          </button>
+        </div>
+      </aside>
+
+      <div className="main-area">
+        <header className="topbar">
+          <button className="topbar-search" onClick={() => setPaletteOpen(true)}>
+            <Search size={16} />
+            <span>Buscar facturas, clientes, productos…</span>
+            <span className="kbd">Ctrl K</span>
+          </button>
+          <div className="topbar-spacer" />
+          <button className="icon-btn" onClick={onToggleTheme} title="Cambiar tema" aria-label="Cambiar tema">
+            {resolvedTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <Button variant="secondary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
+            Cotización
+          </Button>
+          <Button variant="primary" icon={<Plus size={16} />} onClick={() => navigate({ page: "invoice-new" })}>
+            Nueva factura
+          </Button>
+        </header>
+        <div className="main-scroll" ref={scrollRef}>
+          {children}
+        </div>
       </div>
 
-      <div className="sidebar-footer">
-        <span>Cartucho ERP</span>
-        <span className="mono">v{appVersion}</span>
-      </div>
-    </aside>
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} navigate={navigate} />}
+    </div>
   );
 }
 
-/* ==========================================================================
-   Topbar Sencilla y Profesional + Controles Discretos de Ventana
-   ========================================================================== */
+// ------------------------------------------------------------------ Búsqueda rápida
 
-const SECTION_META: Record<
-  NavigationSectionId,
-  { category: string; title: string; subtitle: string }
-> = {
-  home: {
-    category: "General",
-    title: "Inicio",
-    subtitle: "Espacio principal de trabajo",
-  },
-  company: {
-    category: "Empresa",
-    title: "Mi empresa",
-    subtitle: "Información e identidad de la empresa registrada",
-  },
-  "module-inventory": {
-    category: "Gestión",
-    title: "Inventario",
-    subtitle: "Espacio preparado para gestión de productos y existencias",
-  },
-  "module-sales": {
-    category: "Gestión",
-    title: "Ventas",
-    subtitle: "Espacio preparado para documentos de venta internos y pagos manuales",
-  },
-  "module-customers": {
-    category: "Gestión",
-    title: "Clientes",
-    subtitle: "Espacio preparado para directorio de clientes",
-  },
-  "module-future": {
-    category: "Gestión",
-    title: "Módulos personalizables",
-    subtitle: "Arquitectura preparada para distintos tipos de negocio",
-  },
-  "settings-appearance": {
-    category: "Configuración",
-    title: "Apariencia",
-    subtitle: "Preferencia de tema visual de la aplicación",
-  },
-  "settings-users": {
-    category: "Configuración",
-    title: "Usuarios y acceso",
-    subtitle: "Administrador de la instalación y seguridad de acceso",
-  },
-  "settings-database": {
-    category: "Configuración",
-    title: "Base de datos",
-    subtitle: "Estado de almacenamiento local y persistencia",
-  },
-  "settings-about": {
-    category: "Configuración",
-    title: "Acerca de",
-    subtitle: "Información del producto y versión instalada",
-  },
+interface PaletteEntry {
+  key: string;
+  section: string;
+  title: string;
+  subtitle?: string;
+  icon: ReactNode;
+  run: () => void;
+}
+
+const HIT_ICON: Record<SearchHit["kind"], ReactNode> = {
+  invoice: <FileText size={16} />,
+  customer: <Users size={16} />,
+  product: <Package size={16} />,
+  quote: <FileSignature size={16} />,
 };
 
-export interface TopbarProps {
-  activeSection: NavigationSectionId;
-  companyName: string | null;
-  currentUserName: string | null;
-  onRefresh: () => void;
-  onLogout: () => void;
-  refreshing: boolean;
-}
+const HIT_SECTION: Record<SearchHit["kind"], string> = {
+  invoice: "Facturas",
+  customer: "Clientes",
+  product: "Productos",
+  quote: "Cotizaciones",
+};
 
-export function Topbar({
-  activeSection,
-  companyName,
-  currentUserName,
-  onRefresh,
-  onLogout,
-  refreshing,
-}: TopbarProps) {
-  const meta = SECTION_META[activeSection];
-  const inTauri = isTauri();
+function CommandPalette({ onClose, navigate }: { onClose: () => void; navigate: (r: Route) => void }) {
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [selected, setSelected] = useState(0);
+  const debounced = useDebounced(query, 160);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const handleMinimize = async () => {
-    if (!inTauri) return;
-    await getCurrentWindow().minimize();
+  useEffect(() => {
+    let alive = true;
+    if (!debounced.trim()) {
+      setHits([]);
+      return;
+    }
+    api
+      .search(debounced)
+      .then((h) => alive && setHits(h))
+      .catch(() => alive && setHits([]));
+    return () => {
+      alive = false;
+    };
+  }, [debounced]);
+
+  const go = (r: Route) => {
+    navigate(r);
+    onClose();
   };
 
-  const handleToggleMaximize = async () => {
-    if (!inTauri) return;
-    await getCurrentWindow().toggleMaximize();
+  const entries: PaletteEntry[] = useMemo(() => {
+    const actions: PaletteEntry[] = [
+      { key: "a-inv", section: "Acciones", title: "Nueva factura", icon: <FilePlus2 size={16} />, run: () => go({ page: "invoice-new" }) },
+      { key: "a-quote", section: "Acciones", title: "Nueva cotización", icon: <FileSignature size={16} />, run: () => go({ page: "quote-new" }) },
+    ];
+    const pages: PaletteEntry[] = NAVIGATION.flatMap((g) =>
+      g.items
+        .filter((i) => i.id !== "invoice-new")
+        .map((i) => {
+          const Icon = i.icon;
+          return { key: `p-${i.id}`, section: "Ir a", title: i.label, subtitle: g.label, icon: <Icon size={16} />, run: () => go(i.route) };
+        }),
+    );
+    const q = query.trim().toLowerCase();
+    const filteredStatic = [...actions, ...pages].filter((e) => !q || e.title.toLowerCase().includes(q));
+    const found: PaletteEntry[] = hits.map((h) => ({
+      key: `${h.kind}-${h.id}`,
+      section: HIT_SECTION[h.kind],
+      title: h.title,
+      subtitle: h.subtitle,
+      icon: HIT_ICON[h.kind],
+      run: () => {
+        if (h.kind === "invoice") go({ page: "invoice", id: h.id });
+        else if (h.kind === "quote") go({ page: "quote", id: h.id });
+        else if (h.kind === "customer") go({ page: "customers", openId: h.id });
+        else go({ page: "catalog", openId: h.id });
+      },
+    }));
+    return [...found, ...filteredStatic];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hits, query]);
+
+  useEffect(() => setSelected(0), [entries.length]);
+
+  useEffect(() => {
+    listRef.current?.querySelector(".is-selected")?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelected((s) => Math.min(entries.length - 1, s + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelected((s) => Math.max(0, s - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      entries[selected]?.run();
+    } else if (e.key === "Escape") {
+      onClose();
+    }
   };
 
-  const handleClose = async () => {
-    if (!inTauri) return;
-    await getCurrentWindow().close();
-  };
-
-  return (
-    <header className="app-topbar" data-tauri-drag-region>
-      <div className="topbar-left" data-tauri-drag-region>
-        <span className="topbar-breadcrumb">{meta.category} /</span>
-        <h1 className="topbar-section-title">{meta.title}</h1>
-        <span className="topbar-subtitle">{meta.subtitle}</span>
+  let lastSection = "";
+  return createPortal(
+    <>
+      <div className="overlay" onClick={onClose} />
+      <div className="cmdk" role="dialog" aria-label="Búsqueda rápida">
+        <div className="cmdk-input">
+          <Search size={18} color="var(--text-3)" />
+          <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} placeholder="Busca o escribe un comando…" />
+          <span className="kbd">Esc</span>
+        </div>
+        <div className="cmdk-list" ref={listRef}>
+          {entries.length === 0 && <div className="empty-text" style={{ padding: 24, textAlign: "center" }}>Sin resultados para “{query}”.</div>}
+          {entries.map((e, i) => {
+            const header = e.section !== lastSection ? <div className="cmdk-section">{e.section}</div> : null;
+            lastSection = e.section;
+            return (
+              <div key={e.key}>
+                {header}
+                <button className={`cmdk-item ${i === selected ? "is-selected" : ""}`} onMouseEnter={() => setSelected(i)} onClick={e.run}>
+                  <span className="cmdk-item-icon">{e.icon}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <div className="cmdk-item-title">{e.title}</div>
+                    {e.subtitle && <div className="cmdk-item-sub">{e.subtitle}</div>}
+                  </span>
+                  {i === selected && <CornerDownLeft size={14} color="var(--text-3)" />}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="cmdk-footer">
+          <span>↑ ↓ para moverte</span>
+          <span>Enter para abrir</span>
+          <span>Ctrl B contrae el menú</span>
+        </div>
       </div>
-
-      <div className="topbar-right">
-        {companyName && (
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--text-secondary)",
-              padding: "4px 10px",
-              borderRadius: "var(--radius-sm)",
-              backgroundColor: "var(--bg-subtle)",
-              border: "1px solid var(--border-default)",
-            }}
-          >
-            {companyName}
-          </span>
-        )}
-
-        {currentUserName && (
-          <span
-            style={{
-              fontSize: 12,
-              color: "var(--text-secondary)",
-            }}
-          >
-            {currentUserName}
-          </span>
-        )}
-
-        <Button
-          variant="ghost"
-          onClick={onRefresh}
-          disabled={refreshing}
-          title="Actualizar vista"
-          aria-label="Actualizar vista"
-          icon={<RefreshCw size={14} />}
-        />
-
-        <Button
-          variant="ghost"
-          onClick={onLogout}
-          title="Cerrar sesión"
-          aria-label="Cerrar sesión"
-          icon={<LogOut size={14} />}
-        >
-          Salir
-        </Button>
-
-        {inTauri && (
-          <div
-            className="window-controls"
-            aria-label="Controles de ventana"
-          >
-            <button
-              type="button"
-              className="win-ctrl-btn"
-              onClick={handleMinimize}
-              title="Minimizar"
-              aria-label="Minimizar ventana"
-            >
-              <Minus size={14} />
-            </button>
-            <button
-              type="button"
-              className="win-ctrl-btn"
-              onClick={handleToggleMaximize}
-              title="Maximizar o restaurar"
-              aria-label="Maximizar o restaurar ventana"
-            >
-              <Square size={12} />
-            </button>
-            <button
-              type="button"
-              className="win-ctrl-btn"
-              onClick={handleClose}
-              title="Cerrar"
-              aria-label="Cerrar ventana"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
-      </div>
-    </header>
-  );
-}
-
-/* ==========================================================================
-   Statusbar Discreta
-   ========================================================================== */
-
-export interface StatusbarProps {
-  overview: SystemOverview;
-  themePreference: ThemePreference;
-  resolvedTheme: ResolvedTheme;
-}
-
-export function Statusbar({
-  overview,
-  themePreference,
-  resolvedTheme,
-}: StatusbarProps) {
-  const { database } = overview;
-
-  const themeLabel =
-    themePreference === "system"
-      ? `Sistema (${resolvedTheme === "dark" ? "Oscuro" : "Claro"})`
-      : themePreference === "dark"
-      ? "Oscuro"
-      : "Claro";
-
-  return (
-    <footer className="app-statusbar" aria-label="Barra de estado de la aplicación">
-      <div className="statusbar-group">
-        <span className="statusbar-item">
-          <span
-            className={`status-dot ${database.connected ? "online" : "offline"}`}
-          />
-          <span>
-            {database.connected
-              ? "Almacenamiento local activo"
-              : "Almacenamiento desconectado"}
-          </span>
-        </span>
-      </div>
-
-      <div className="statusbar-group">
-        <span className="statusbar-item">Apariencia: {themeLabel}</span>
-        <span className="statusbar-item mono">v{overview.appVersion}</span>
-      </div>
-    </footer>
+    </>,
+    document.body,
   );
 }
