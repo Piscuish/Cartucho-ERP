@@ -79,7 +79,7 @@ function fresh(): Store {
   return {
     startupCount: 0,
     firstInitializedAt: t,
-    theme: "system",
+    theme: "light",
     company: null,
     admin: null,
     seq: { category: expenseCats.length + 1, customer: 0, product: 0, movement: 0, invoice: 0, line: 0, payment: 0, quote: 0, expense: 0 },

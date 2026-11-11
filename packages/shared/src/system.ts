@@ -146,7 +146,7 @@ export interface AppearancePreset {
 }
 
 export const APPEARANCE_PRESETS: AppearancePreset[] = [
-  { id: "violeta", label: "Violeta", description: "El original.", theme: "light", appearance: { ...DEFAULT_APPEARANCE } },
+  { id: "clasico", label: "Clásico", description: "La plantilla predeterminada.", theme: "light", appearance: { ...DEFAULT_APPEARANCE } },
   { id: "oceano", label: "Océano", description: "Azul profesional.", theme: "light", appearance: { layout: "clasico", bgLight: "hielo", bgDark: "noche", accent: "azul", tintedBorders: false } },
   { id: "bosque", label: "Bosque", description: "Verde y cálido.", theme: "light", appearance: { layout: "clasico", bgLight: "calido", bgDark: "bosque", accent: "verde", tintedBorders: false } },
   { id: "coral", label: "Coral", description: "Naranja amigable.", theme: "light", appearance: { layout: "flotante", bgLight: "calido", bgDark: "grafito", accent: "naranja", tintedBorders: false } },
