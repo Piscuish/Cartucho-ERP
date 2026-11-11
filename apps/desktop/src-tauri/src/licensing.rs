@@ -237,6 +237,12 @@ pub struct HttpTransport {
     base_url: String,
 }
 
+impl HttpTransport {
+    pub fn new(base_url: &str) -> Self {
+        Self { base_url: base_url.to_string() }
+    }
+}
+
 impl LicenseTransport for HttpTransport {
     fn post(&self, path: &str, body: serde_json::Value) -> Result<serde_json::Value, String> {
         let url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
@@ -769,5 +775,119 @@ mod tests {
         assert_eq!(m.status(now + 2 * DAY).reason.as_deref(), Some("license_expired"));
         m.activate_offline(&sign(&payload(now, "device_revoked", &["invoices"])), now).unwrap();
         assert_eq!(m.status(now).reason.as_deref(), Some("device_revoked"));
+    }
+}
+
+/// Prueba de punta a punta contra el servidor de licencias local (`wrangler dev --local`).
+/// No corre con `cargo test` normal. Ver `license-server/scripts/e2e-local.mjs`.
+#[cfg(test)]
+mod e2e_local_server {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn env(name: &str) -> String {
+        std::env::var(name).unwrap_or_else(|_| panic!("Falta la variable {}", name))
+    }
+
+    fn admin(method: &str, path: &str, body: serde_json::Value) -> serde_json::Value {
+        let url = format!("{}{}", env("CARTUCHO_E2E_SERVER"), path);
+        let req = ureq::request(method, &url).set("authorization", &format!("Bearer {}", env("CARTUCHO_E2E_ADMIN")));
+        let res = if method == "GET" { req.call() } else { req.send_json(body) };
+        match res {
+            Ok(r) => r.into_json().unwrap(),
+            Err(ureq::Error::Status(_, r)) => r.into_json().unwrap(),
+            Err(e) => panic!("{}", e),
+        }
+    }
+
+    fn device(dir: &TempDir, code: &str) -> LicenseManager {
+        LicenseManager::with_parts(
+            dir.path(),
+            parse_public_key(&env("CARTUCHO_E2E_PUBKEY")),
+            Some(Box::new(HttpTransport::new(&env("CARTUCHO_E2E_SERVER")))),
+            false,
+            code,
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn activation_limits_revocation_and_offline_code() {
+        let now = chrono::Utc::now().timestamp();
+        let created = admin("POST", "/api/licenses", serde_json::json!({
+            "customer": "Ferretería E2E", "plan": "basico", "maxDevices": 1, "support": "WhatsApp 300 E2E"
+        }));
+        assert_eq!(created["ok"], true, "{created}");
+        let key = created["license"]["key"].as_str().unwrap().to_string();
+        let lic_path = format!("/api/licenses/{}", key);
+
+        // 1. Equipo A activa con la clave.
+        let (da, db, dc) = (TempDir::new().unwrap(), TempDir::new().unwrap(), TempDir::new().unwrap());
+        let mut a = device(&da, "AAAA-BBBB-CCCC-DDDD");
+        let st = a.activate_online(&key.to_lowercase().replace('-', ""), "PC-A", "0.3.0", now).unwrap();
+        assert_eq!(st.mode, LicenseMode::Licensed);
+        assert_eq!(st.modules, vec!["customers", "invoices"]);
+        assert_eq!(st.customer.as_deref(), Some("Ferretería E2E"));
+        assert_eq!(st.support.as_deref(), Some("WhatsApp 300 E2E"));
+        assert_eq!(st.days_left, Some(30));
+        println!("1. activación OK: {:?}", st.modules);
+
+        // 2. Equipo B: límite de 1 equipo.
+        let mut b = device(&db, "EEEE-FFFF-GGGG-HHHH");
+        let err = b.activate_online(&key, "PC-B", "0.3.0", now).unwrap_err();
+        assert!(err.contains("máximo"), "{err}");
+        assert_eq!(b.status(now).mode, LicenseMode::Unlicensed);
+        println!("2. límite de equipos OK: {err}");
+
+        // 3. Cambio de plan → llega en la siguiente validación.
+        assert_eq!(admin("PATCH", &lic_path, serde_json::json!({ "plan": "completo" }))["ok"], true);
+        let st = a.check_in("PC-A", "0.3.0", now).unwrap();
+        assert_eq!(st.modules.len(), ALL_MODULES.len());
+        println!("3. cambio de plan OK: {:?}", st.modules);
+
+        // 4. Licencia desactivada → solo facturas.
+        assert_eq!(admin("PATCH", &lic_path, serde_json::json!({ "status": "revoked" }))["ok"], true);
+        let st = a.check_in("PC-A", "0.3.0", now).unwrap();
+        assert_eq!(st.mode, LicenseMode::Restricted);
+        assert_eq!(st.reason.as_deref(), Some("revoked"));
+        assert_eq!(st.modules, vec!["invoices"]);
+        assert!(check_gate(&a.entitlements(now), Gate::Read("invoices")).is_ok());
+        assert!(check_gate(&a.entitlements(now), Gate::Write("invoices")).is_err());
+        println!("4. desactivación OK: {:?}", st.message);
+
+        // 5. Reactivada.
+        admin("PATCH", &lic_path, serde_json::json!({ "status": "active" }));
+        assert_eq!(a.check_in("PC-A", "0.3.0", now).unwrap().mode, LicenseMode::Licensed);
+        println!("5. reactivación OK");
+
+        // 6. Desactivar el equipo A (duplicado) libera el cupo para B.
+        let detail = admin("GET", &lic_path, serde_json::Value::Null);
+        let id_a = detail["devices"][0]["id"].as_i64().unwrap();
+        assert_eq!(detail["devices"][0]["online"], true);
+        assert_eq!(admin("POST", &format!("/api/devices/{}/revoke", id_a), serde_json::json!({}))["ok"], true);
+        let st = a.check_in("PC-A", "0.3.0", now).unwrap();
+        assert_eq!((st.mode, st.reason.as_deref()), (LicenseMode::Restricted, Some("device_revoked")));
+        let st = b.activate_online(&key, "PC-B", "0.3.0", now).unwrap();
+        assert_eq!(st.mode, LicenseMode::Licensed);
+        println!("6. equipo desactivado y cupo liberado OK");
+
+        // 7. Activación sin Internet: requiere cupo.
+        let r = admin("POST", &format!("{}/offline-code", lic_path), serde_json::json!({ "deviceCode": "JJJJ-KKKK-LLLL-MMMM" }));
+        assert_eq!(r["ok"], false);
+        admin("PATCH", &lic_path, serde_json::json!({ "maxDevices": 2 }));
+        let r = admin("POST", &format!("{}/offline-code", lic_path), serde_json::json!({ "deviceCode": "jjjjkkkkllllmmmm" }));
+        let code = r["token"].as_str().unwrap();
+        let mut c = LicenseManager::with_parts(dc.path(), parse_public_key(&env("CARTUCHO_E2E_PUBKEY")), None, false, "JJJJ-KKKK-LLLL-MMMM");
+        assert_eq!(c.activate_offline(code, now).unwrap().mode, LicenseMode::Licensed);
+        // El mismo código no sirve en otro equipo.
+        assert!(device(&TempDir::new().unwrap(), "NNNN-PPPP-QQQQ-RRRR").activate_offline(code, now).is_err());
+        println!("7. código sin Internet OK");
+
+        // 8. Clave inexistente y equipos conectados.
+        let err = device(&TempDir::new().unwrap(), "SSSS-TTTT-UUUU-VVVV").activate_online("CE-2222-3333-4444-5555", "X", "0.3.0", now).unwrap_err();
+        assert!(err.contains("no existe"), "{err}");
+        let online = admin("GET", "/api/online", serde_json::Value::Null);
+        assert!(online["devices"].as_array().unwrap().iter().any(|d| d["deviceCode"] == "EEEE-FFFF-GGGG-HHHH"));
+        println!("8. clave inexistente y lista de conectados OK");
     }
 }

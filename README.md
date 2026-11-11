@@ -19,6 +19,7 @@ Programa de **facturación y gestión para pequeñas empresas**. Funciona sin In
 | **Inventario** | Existencias, compras (opcionalmente registradas como gasto), ajustes por conteo y movimientos. |
 | **Finanzas** | Ventas, dinero recibido, gastos operativos (arriendo, luz, internet, nómina…), compras de inventario, balance de caja, ganancia bruta estimada, gráficos y exportación CSV para Excel. |
 | **Datos** | Exportar copia (por ejemplo, a una USB), crear respaldo, restaurar, mover la carpeta de datos, usar una carpeta traída de otro equipo y respaldo automático diario. |
+| **Licencias y módulos** | Activación con clave `CE-XXXX-…` o código sin Internet; cada licencia define módulos (Básico, Tienda, Completo o personalizado) y equipos (1 a 5). Valida cada hora y funciona 30 días sin Internet. Si se desactiva, solo permite ver facturas y el inicio muestra «Contacta a soporte». Servidor y panel en `license-server/` (ver su README). |
 | **Interfaz** | Estilo «lateral oscuro» con acento violeta, tema claro/oscuro, menú colapsable (Ctrl+B) y búsqueda rápida (Ctrl+K). |
 
 **Fuera del alcance actual:** facturación electrónica DIAN e impuestos (las facturas son documentos internos), varios usuarios con roles, trabajo en red local y nube. La arquitectura está preparada para red local y nube (ver `docs/01-architecture/adr/0003-lan-and-cloud-readiness.md`).
@@ -33,6 +34,8 @@ Programa de **facturación y gestión para pequeñas empresas**. Funciona sin In
 ### Vista previa en el navegador
 
 `pnpm dev` abre la interfaz en `http://localhost:1420` con un backend de demostración que guarda datos en el navegador (no en SQLite). Para cargar datos de ejemplo, abre la consola del navegador y ejecuta `__cartuchoDemo()` (usuario `admin`, contraseña `demo1234`).
+
+Para ver cómo queda cada licencia: `__cartuchoLicencia("restricted")`, `__cartuchoLicencia("unlicensed")`, `__cartuchoLicencia("licensed", ["invoices", "customers"])` o `__cartuchoLicencia("dev")`.
 
 ---
 
@@ -154,6 +157,8 @@ pnpm tauri:build
 
 Los artefactos compilados se generan en:
 `apps/desktop/src-tauri/target/release/bundle/`
+
+> **Licencias:** antes de compilar un instalador para clientes, configura `apps/desktop/src-tauri/license_public_key.txt` y `license_server_url.txt` (ver `license-server/README.md`). Sin clave pública, el instalador de producción no podrá activarse. `pnpm tauri:dev` sin clave abre en modo desarrollo con todo habilitado.
 
 ---
 
