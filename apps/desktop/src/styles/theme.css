@@ -577,6 +577,12 @@ a {
   justify-content: center;
 }
 
+/* El texto oculto tenía flex: 1 y ocupaba el espacio sobrante, empujando el ícono a la izquierda. */
+.is-collapsed .sb-item-label,
+.is-collapsed .sb-item .sb-badge {
+  display: none;
+}
+
 .is-collapsed .sb-user {
   justify-content: center;
   padding: 8px 0;
