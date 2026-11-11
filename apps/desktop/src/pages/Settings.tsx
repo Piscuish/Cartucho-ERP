@@ -1,5 +1,5 @@
 import { CSSProperties, useEffect, useState } from "react";
-import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, BadgeCheck, Check, Save, ShieldCheck } from "lucide-react";
+import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, BadgeCheck, Check, Save, ShieldCheck, Users } from "lucide-react";
 import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
 import { ACCENTS, APPEARANCE_PRESETS, DARK_BACKGROUNDS, DEFAULT_APPEARANCE, LAYOUTS, LIGHT_BACKGROUNDS } from "@cartucho/shared";
 import type { AccentId, Appearance, AppearancePreset, LayoutId } from "@cartucho/shared";
@@ -10,6 +10,7 @@ import { bytes, errorMessage, fmtDate, fmtDateTime } from "../lib/format";
 import { Alert, Badge, Button, ConfirmDialog, Field, ImagePicker, PageHeader, SkeletonRows, Switch, useToast } from "../components/ui";
 import { PAPER_OPTIONS, PaperIcon } from "../components/print";
 import { LicenseSettings } from "../components/license";
+import { UsersSettings } from "../components/usersAdmin";
 import { useAccess } from "../lib/access";
 
 const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
@@ -18,6 +19,7 @@ const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   appearance: <Palette size={16} />,
   security: <KeyRound size={16} />,
   data: <Database size={16} />,
+  users: <Users size={16} />,
   license: <BadgeCheck size={16} />,
   about: <Info size={16} />,
 };
@@ -25,11 +27,19 @@ const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
 export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
   const access = useAccess();
   // Con la licencia desactivada solo quedan las opciones que no modifican datos del negocio.
-  const tabs = access.restricted ? SETTINGS_TABS.filter((t) => t.id !== "company" && t.id !== "billing") : SETTINGS_TABS;
-  const [tab, setTab] = useState<SettingsTab>(props.tab ?? (access.restricted ? "license" : "company"));
+  // Usuarios que no son administradores solo cambian su contraseña.
+  const tabs = !access.isAdmin
+    ? SETTINGS_TABS.filter((t) => t.id === "security" || t.id === "about")
+    : access.restricted
+      ? SETTINGS_TABS.filter((t) => t.id !== "company" && t.id !== "billing")
+      : SETTINGS_TABS;
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const wanted = props.tab ?? (access.restricted ? "license" : "company");
+    return tabs.some((t) => t.id === wanted) ? wanted : tabs[0].id;
+  });
   return (
     <div className="page">
-      <PageHeader title="Configuración" subtitle="Datos de la empresa, facturación, apariencia, seguridad y respaldos." />
+      <PageHeader title="Configuración" subtitle={access.isAdmin ? "Datos de la empresa, facturación, apariencia, usuarios, seguridad y respaldos." : "Tu cuenta y contraseña."} />
       <div className="settings-layout">
         <nav className="settings-nav">
           {tabs.map((t) => (
@@ -45,6 +55,7 @@ export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
           {tab === "security" && <SecuritySettings {...props} />}
           {tab === "data" && <DataSettings {...props} />}
           {tab === "license" && <LicenseSettings {...props} />}
+          {tab === "users" && <UsersSettings {...props} />}
           {tab === "about" && <AboutSettings {...props} />}
         </div>
       </div>
@@ -467,7 +478,7 @@ function SecuritySettings({ overview, setOverview }: PageProps) {
           <dd>{user.username}</dd>
           <dt>Rol</dt>
           <dd>
-            <Badge tone="accent">Administrador</Badge>
+            <Badge tone="accent">{user.roleName || (user.role === "admin" ? "Administrador" : user.role)}</Badge>
           </dd>
           <dt>Último ingreso</dt>
           <dd>{fmtDateTime(user.lastLoginAt)}</dd>

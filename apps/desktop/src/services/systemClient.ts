@@ -28,6 +28,11 @@ import {
   InvoiceSummary,
   LICENSE_CHANGED_EVENT,
   LICENSE_COMMANDS,
+  USER_COMMANDS,
+  Role,
+  RoleInput,
+  UserAccount,
+  UserInput,
   LicenseStatus,
   LoginInput,
   Payment,
@@ -66,7 +71,7 @@ async function call<T>(command: string, args: Record<string, unknown> = {}): Pro
   return mod.handlePreviewCommand(command, args) as Promise<T>;
 }
 
-const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS };
+const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS, ...USER_COMMANDS };
 
 export const api = {
   // Sistema y sesión
@@ -81,6 +86,13 @@ export const api = {
   saveCompany: (input: SaveCompanyProfileInput) => call<SystemOverview>(C.SAVE_COMPANY_PROFILE, { input }),
   resetDataLocation: () => call<SystemOverview>(C.RESET_DATA_LOCATION),
   retryOpenDatabase: () => call<SystemOverview>(C.RETRY_OPEN_DATABASE),
+
+  // Usuarios y roles (solo administrador)
+  listRoles: () => call<Role[]>(C.LIST_ROLES),
+  saveRole: (input: RoleInput) => call<Role>(C.SAVE_ROLE, { input }),
+  deleteRole: (id: number) => call<void>(C.DELETE_ROLE, { id }),
+  listUsers: () => call<UserAccount[]>(C.LIST_USERS),
+  saveUser: (input: UserInput) => call<UserAccount>(C.SAVE_USER, { input }),
 
   // Licencia
   licenseStatus: () => call<LicenseStatus>(C.GET_LICENSE_STATUS),

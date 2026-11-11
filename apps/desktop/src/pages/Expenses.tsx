@@ -3,6 +3,7 @@ import { Download, Pencil, Plus, Receipt, ShoppingCart, Tags, Trash2 } from "luc
 import type { Category, Expense, ExpenseInput, PaymentMethod } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync, useDebounced } from "../lib/hooks";
 import { errorMessage, fmtDate, METHOD_LABELS, money, monthStart, todayISO } from "../lib/format";
 import { Alert, Badge, Button, ConfirmDialog, Drawer, EmptyState, Field, IconButton, MoneyInput, PageHeader, SearchBox, Segmented, SkeletonRows, useToast } from "../components/ui";
@@ -10,6 +11,7 @@ import { CategoryManager } from "../components/categories";
 import { Period, PeriodPicker, periodRange } from "./Finance";
 
 export function ExpensesPage(_props: PageProps) {
+  const canEdit = useAccess().canWrite("expenses");
   const toast = useToast();
   const [period, setPeriod] = useState<Period>("month");
   const [custom, setCustom] = useState({ from: monthStart(), to: todayISO() });
@@ -42,17 +44,21 @@ export function ExpensesPage(_props: PageProps) {
         subtitle="Arriendo, servicios públicos, nómina, transporte, compras de mercancía y más."
         actions={
           <>
-            <Button icon={<Tags size={16} />} onClick={() => setManagingCats(true)}>
-              Categorías
-            </Button>
+            {canEdit && (
+              <Button icon={<Tags size={16} />} onClick={() => setManagingCats(true)}>
+                Categorías
+              </Button>
+            )}
             {isDesktop() && (
               <Button icon={<Download size={16} />} onClick={exportCsv}>
                 Exportar
               </Button>
             )}
-            <Button variant="primary" icon={<Plus size={16} />} onClick={() => setEditing("new")}>
-              Registrar gasto
-            </Button>
+            {canEdit && (
+              <Button variant="primary" icon={<Plus size={16} />} onClick={() => setEditing("new")}>
+                Registrar gasto
+              </Button>
+            )}
           </>
         }
       />
@@ -87,9 +93,11 @@ export function ExpensesPage(_props: PageProps) {
             title="No hay gastos en este periodo"
             text="Registra arriendo, luz, agua, internet, nómina o cualquier pago del negocio para conocer tu ganancia real."
             action={
-              <Button variant="primary" onClick={() => setEditing("new")}>
-                Registrar gasto
-              </Button>
+              canEdit ? (
+                <Button variant="primary" onClick={() => setEditing("new")}>
+                  Registrar gasto
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -220,6 +228,7 @@ function ExpenseDrawer({ expense, categories, onClose, onSaved }: { expense: Exp
 
   return (
     <Drawer
+      readOnly={!useAccess().canWrite("expenses")}
       title={expense ? "Editar gasto" : "Registrar gasto"}
       subtitle="Todo lo que sale de la caja del negocio."
       onClose={onClose}

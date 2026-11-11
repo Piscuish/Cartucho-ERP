@@ -5,7 +5,7 @@
  * usa para no mostrar menús, botones o pantallas que el backend rechazaría.
  */
 import { createContext, ReactNode, useContext, useMemo } from "react";
-import { ALL_MODULES, LicenseStatus, ModuleKey } from "@cartucho/shared";
+import { ALL_MODULES, AuthenticatedUserSummary, LicenseStatus, ModuleKey } from "@cartucho/shared";
 import type { Route } from "../config/moduleRegistry";
 
 export interface Access {
@@ -18,15 +18,31 @@ export interface Access {
   canWrite: (m: ModuleKey) => boolean;
   /** Puede abrir la ruta. */
   canOpen: (r: Route) => boolean;
+  /** Administrador: usuarios, roles, empresa, apariencia, licencia y respaldos. */
+  isAdmin: boolean;
 }
 
-export function buildAccess(license: LicenseStatus | null | undefined): Access {
+/** Permisos del rol: null = sin restricción (administrador o sin sesión). */
+function rolePermissions(user: AuthenticatedUserSummary | null | undefined): Map<string, "read" | "write"> | null {
+  if (!user) return null;
+  if (user.isAdmin || user.permissions.includes("*")) return null;
+  const map = new Map<string, "read" | "write">();
+  for (const p of user.permissions) {
+    const [m, l] = p.split(":");
+    if (l === "read" || l === "write") map.set(m, l);
+  }
+  return map;
+}
+
+export function buildAccess(license: LicenseStatus | null | undefined, user?: AuthenticatedUserSummary | null): Access {
   // Backend sin información de licencia (versiones antiguas): todo habilitado.
   const lic = license ?? null;
   const modules = new Set<ModuleKey>(lic ? lic.modules : ALL_MODULES);
   const restricted = lic?.mode === "restricted";
-  const can = (m: ModuleKey) => modules.has(m);
-  const canWrite = (m: ModuleKey) => !restricted && modules.has(m);
+  const role = rolePermissions(user);
+  const isAdmin = role === null;
+  const can = (m: ModuleKey) => modules.has(m) && (role === null || role.has(m));
+  const canWrite = (m: ModuleKey) => !restricted && modules.has(m) && (role === null || role.get(m) === "write");
   const canOpen = (r: Route): boolean => {
     switch (r.page) {
       case "dashboard":
@@ -54,13 +70,21 @@ export function buildAccess(license: LicenseStatus | null | undefined): Access {
         return can("expenses");
     }
   };
-  return { license: lic, restricted, can, canWrite, canOpen };
+  return { license: lic, restricted, can, canWrite, canOpen, isAdmin };
 }
 
 const AccessContext = createContext<Access>(buildAccess(null));
 
-export function AccessProvider({ license, children }: { license: LicenseStatus | null | undefined; children: ReactNode }) {
-  const value = useMemo(() => buildAccess(license), [license]);
+export function AccessProvider({
+  license,
+  user,
+  children,
+}: {
+  license: LicenseStatus | null | undefined;
+  user?: AuthenticatedUserSummary | null;
+  children: ReactNode;
+}) {
+  const value = useMemo(() => buildAccess(license, user), [license, user]);
   return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>;
 }
 

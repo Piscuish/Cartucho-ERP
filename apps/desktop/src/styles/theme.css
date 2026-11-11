@@ -537,6 +537,16 @@ a {
   width: 0;
 }
 
+/* Contraído: el usuario muestra solo su avatar completo y centrado. */
+.is-collapsed .sb-user-text,
+.is-collapsed .sb-hide-collapsed {
+  display: none;
+}
+
+.is-collapsed .sb-user {
+  gap: 0;
+}
+
 .is-collapsed .sb-group-label {
   opacity: 0;
   height: 6px;

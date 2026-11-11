@@ -13,7 +13,7 @@ import {
   Users,
 } from "lucide-react";
 
-export type SettingsTab = "company" | "billing" | "appearance" | "security" | "data" | "license" | "about";
+export type SettingsTab = "company" | "billing" | "appearance" | "users" | "security" | "data" | "license" | "about";
 
 /** Ruta interna de la aplicación (navegación sin recargar). */
 export type Route =
@@ -123,6 +123,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "company", label: "Mi empresa" },
   { id: "billing", label: "Facturación e impresión" },
   { id: "appearance", label: "Apariencia" },
+  { id: "users", label: "Usuarios y roles" },
   { id: "security", label: "Usuario y seguridad" },
   { id: "data", label: "Base de datos y respaldos" },
   { id: "license", label: "Licencia" },

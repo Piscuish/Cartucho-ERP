@@ -63,7 +63,7 @@ export interface AppPreferences {
 // ------------------------------------------------------------------ Apariencia
 
 /** Diseño: estructura y forma (menú, tarjetas, esquinas). */
-export type LayoutId = "clasico" | "neon" | "riel" | "flotante" | "estudio";
+export type LayoutId = "clasico" | "riel" | "flotante" | "estudio";
 /** Fondos para el tema claro. */
 export type LightBgId = "blanco" | "calido" | "hielo";
 /** Fondos para el tema oscuro. */
@@ -90,7 +90,6 @@ export interface LayoutInfo {
 
 export const LAYOUTS: LayoutInfo[] = [
   { id: "clasico", label: "Clásico", description: "Menú con secciones y tarjetas limpias." },
-  { id: "neon", label: "Neón", description: "Fondo con brillo de color y tarjetas de vidrio." },
   { id: "riel", label: "Riel", description: "Menú de íconos de colores y métricas en bloques de color." },
   { id: "flotante", label: "Flotante", description: "La ventana flota sobre un degradado; menú con píldora brillante." },
   { id: "estudio", label: "Estudio", description: "Logo grande, menú amplio e inicio con módulos." },
@@ -151,7 +150,7 @@ export const APPEARANCE_PRESETS: AppearancePreset[] = [
   { id: "oceano", label: "Océano", description: "Azul profesional.", theme: "light", appearance: { layout: "clasico", bgLight: "hielo", bgDark: "noche", accent: "azul", tintedBorders: false } },
   { id: "bosque", label: "Bosque", description: "Verde y cálido.", theme: "light", appearance: { layout: "clasico", bgLight: "calido", bgDark: "bosque", accent: "verde", tintedBorders: false } },
   { id: "coral", label: "Coral", description: "Naranja amigable.", theme: "light", appearance: { layout: "flotante", bgLight: "calido", bgDark: "grafito", accent: "naranja", tintedBorders: false } },
-  { id: "neon", label: "Neón", description: "Morado con brillo rosa.", theme: "dark", appearance: { layout: "neon", bgLight: "blanco", bgDark: "morado", accent: "rosa", tintedBorders: true } },
+  { id: "berenjena", label: "Berenjena", description: "Morado noche, sobrio.", theme: "dark", appearance: { layout: "clasico", bgLight: "blanco", bgDark: "morado", accent: "violeta", tintedBorders: false } },
   { id: "panel", label: "Panel", description: "Íconos de colores, azul noche.", theme: "dark", appearance: { layout: "riel", bgLight: "hielo", bgDark: "noche", accent: "azul", tintedBorders: false } },
   { id: "medianoche", label: "Medianoche", description: "Negro con píldora violeta.", theme: "dark", appearance: { layout: "flotante", bgLight: "blanco", bgDark: "negro", accent: "violeta", tintedBorders: false } },
   { id: "estudio", label: "Estudio", description: "Grafito y blanco, sobrio.", theme: "dark", appearance: { layout: "estudio", bgLight: "blanco", bgDark: "grafito", accent: "mono", tintedBorders: false } },
@@ -248,11 +247,68 @@ export interface AuthenticatedUserSummary {
   id: number;
   fullName: string;
   username: string;
+  /** Clave del rol ("admin", "vendedor"…). */
   role: string;
+  /** Nombre visible del rol. */
+  roleName?: string;
+  isAdmin?: boolean;
+  /** ["*"] para el administrador; si no, "modulo:read" o "modulo:write". */
   permissions: string[];
   createdAt: string;
   lastLoginAt: string | null;
 }
+
+// ------------------------------------------------------------------ Usuarios y roles
+
+export type AccessLevel = "none" | "read" | "write";
+
+export interface Role {
+  id: number;
+  key: string;
+  name: string;
+  description: string | null;
+  /** El rol Administrador: acceso total, no se borra. */
+  isSystem: boolean;
+  /** Módulo → "read" | "write" (vacío para el administrador). */
+  permissions: Partial<Record<ModuleKey, "read" | "write">>;
+  userCount: number;
+}
+
+export interface RoleInput {
+  id: number | null;
+  name: string;
+  description: string | null;
+  permissions: Partial<Record<ModuleKey, AccessLevel>>;
+}
+
+export interface UserAccount {
+  id: number;
+  username: string;
+  fullName: string;
+  roleKey: string;
+  roleName: string;
+  isActive: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface UserInput {
+  id: number | null;
+  fullName: string;
+  username: string;
+  roleKey: string;
+  /** Obligatoria al crear; al editar, solo para cambiarla. */
+  password: string | null;
+  isActive: boolean;
+}
+
+export const USER_COMMANDS = {
+  LIST_ROLES: "list_roles",
+  SAVE_ROLE: "save_role",
+  DELETE_ROLE: "delete_role",
+  LIST_USERS: "list_users",
+  SAVE_USER: "save_user",
+} as const;
 
 export interface SystemOverview {
   appName: string;

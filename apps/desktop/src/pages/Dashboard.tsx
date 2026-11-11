@@ -13,9 +13,29 @@ import { NAV_DESCRIPTION, NAVIGATION } from "../config/moduleRegistry";
 
 export function DashboardPage({ navigate, overview }: PageProps) {
   const today = todayISO();
-  const { data, loading, error } = useAsync(() => api.dashboard(today), [today]);
-  const firstName = overview.currentUser?.fullName.split(" ")[0] ?? "";
   const access = useAccess();
+  // Las cifras del inicio salen de las facturas: un rol sin acceso a Facturas ve sus módulos.
+  const withFigures = access.can("invoices");
+  const { data, loading, error } = useAsync(() => (withFigures ? api.dashboard(today) : Promise.resolve(null)), [today, withFigures]);
+  const firstName = overview.currentUser?.fullName.split(" ")[0] ?? "";
+  // Balance y gráfico de ingresos vs. gastos: administrador o rol con Resumen financiero.
+  const showMoney = access.isAdmin || access.can("finance");
+
+  if (!withFigures && !access.restricted) {
+    return (
+      <div className="page">
+        <div className="hero">
+          <div>
+            <div className="hero-greeting">
+              {greeting()}, {firstName}
+            </div>
+            <p className="muted">Estos son los módulos a los que tienes acceso.</p>
+          </div>
+        </div>
+        <ModuleTiles navigate={navigate} />
+      </div>
+    );
+  }
 
   if (access.restricted) {
     return <RestrictedDashboard navigate={navigate} overview={overview} recent={data?.recentInvoices ?? []} loading={loading} />;
@@ -105,7 +125,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
             </div>
           )}
 
-          <div className={`grid ${access.can("expenses") ? "grid-4" : "grid-3"} mb-16`}>
+          <div className={`grid ${["grid-2", "grid-3", "grid-4"][Number(access.can("expenses")) + Number(showMoney)]} mb-16`}>
             <StatCard label="Ventas del mes" value={money(data.month.invoicedTotal)} icon={<TrendingUp size={18} />} foot={`${data.month.invoiceCount} facturas emitidas`} />
             <StatCard label="Dinero recibido" value={money(data.month.collectedTotal)} icon={<Wallet size={18} />} tone="success" foot={`Hoy: ${money(data.todayCollected)}`} />
             {access.can("expenses") && (
@@ -117,6 +137,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
               foot={`Inventario: ${money(data.month.inventoryPurchases)}`}
             />
             )}
+            {showMoney && (
             <StatCard
               label="Balance del mes"
               value={<span className={data.month.netCashFlow >= 0 ? "profit-positive" : "profit-negative"}>{money(data.month.netCashFlow)}</span>}
@@ -124,10 +145,12 @@ export function DashboardPage({ navigate, overview }: PageProps) {
               tone="info"
               foot={`Por cobrar: ${money(data.month.receivableTotal)}`}
             />
+            )}
           </div>
 
           <div className="grid grid-main-side">
             <div className="stack-lg">
+              {showMoney && (
               <div className="card">
                 <div className="card-header">
                   <div>
@@ -144,6 +167,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
                   <MonthlyBars data={data.month.monthly} months={6} />
                 </div>
               </div>
+              )}
 
               <div className="card">
                 <div className="card-header">
@@ -158,9 +182,11 @@ export function DashboardPage({ navigate, overview }: PageProps) {
                     title="Crea tu primera factura"
                     text="Agrega productos o servicios, imprímela en el tamaño que necesites y registra el pago."
                     action={
-                      <Button variant="primary" onClick={() => navigate({ page: "invoice-new" })}>
-                        Nueva factura
-                      </Button>
+                      access.canWrite("invoices") ? (
+                        <Button variant="primary" onClick={() => navigate({ page: "invoice-new" })}>
+                          Nueva factura
+                        </Button>
+                      ) : undefined
                     }
                   />
                 ) : (

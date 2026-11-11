@@ -208,94 +208,6 @@ html[data-borders="accent"][data-bg] {
    Diseños
    ============================================================================= */
 
-/* ------------------------------------------------------------------ Neón */
-
-html[data-layout="neon"] {
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
-}
-
-html[data-layout="neon"] .main-area {
-  background: radial-gradient(900px 520px at 100% 0%, color-mix(in srgb, var(--accent-2) 30%, transparent), transparent 65%),
-    radial-gradient(820px 620px at 10% 105%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 65%), var(--bg);
-}
-
-html[data-theme="light"][data-layout="neon"] .main-area {
-  background: radial-gradient(900px 520px at 100% 0%, color-mix(in srgb, var(--accent-2) 16%, transparent), transparent 65%),
-    radial-gradient(820px 620px at 10% 105%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 65%), var(--bg);
-}
-
-html[data-layout="neon"] .topbar {
-  background: transparent;
-  border-bottom-color: transparent;
-}
-
-html[data-layout="neon"] .topbar-search {
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
-}
-
-/* Vidrio sin desenfoque: el blur en cada tarjeta era la causa principal del lag. */
-html[data-layout="neon"] .main-area .card,
-html[data-layout="neon"] .quick-action {
-  background: color-mix(in srgb, var(--surface) 78%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-}
-
-html[data-layout="neon"] .stat-value {
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-html[data-layout="neon"] .stat-value * {
-  color: transparent !important;
-}
-
-html[data-layout="neon"] .stat-icon {
-  border-radius: 50%;
-  background: #ffffff;
-  color: var(--accent);
-  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--accent) 60%, transparent);
-}
-
-html[data-layout="neon"] .stat-icon.is-success { color: #12a26b; }
-html[data-layout="neon"] .stat-icon.is-warning { color: #e8590c; }
-html[data-layout="neon"] .stat-icon.is-danger { color: #e03131; }
-html[data-layout="neon"] .stat-icon.is-info { color: #1c7ed6; }
-
-html[data-layout="neon"] .sidebar {
-  background: linear-gradient(180deg, var(--sb-bg) 0%, color-mix(in srgb, var(--accent) 18%, var(--sb-bg)) 100%);
-}
-
-html[data-layout="neon"] .sb-logo {
-  background: #ffffff;
-  color: var(--accent);
-  box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--accent) 70%, transparent);
-}
-
-html[data-layout="neon"] .sb-item.is-active {
-  background: color-mix(in srgb, var(--sb-text-strong) 9%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sb-text-strong) 16%, transparent);
-  color: var(--sb-text-strong);
-}
-
-html[data-layout="neon"] .sb-item.is-active::before {
-  display: none;
-}
-
-html[data-layout="neon"] .sb-item.is-active svg {
-  color: var(--sb-text-strong);
-}
-
-html[data-layout="neon"] .btn-primary {
-  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--accent-2)));
-  border-color: transparent;
-  box-shadow: 0 8px 20px -10px var(--accent);
-}
-
 /* ------------------------------------------------------------------ Riel (menú de íconos) */
 
 html[data-layout="riel"] {
@@ -772,21 +684,6 @@ html[data-layout="estudio"] .page-header h1 {
 }
 
 /* Variantes de la miniatura */
-.lm.is-neon {
-  --m-r: 6px;
-  background: radial-gradient(80px 60px at 100% 0%, color-mix(in srgb, var(--m-accent) 45%, transparent), transparent 70%),
-    radial-gradient(90px 70px at 30% 110%, color-mix(in srgb, var(--m-accent) 35%, transparent), transparent 70%), var(--m-bg);
-}
-
-.lm.is-neon .lm-side {
-  background: linear-gradient(180deg, var(--m-side), color-mix(in srgb, var(--m-accent) 25%, var(--m-side)));
-}
-
-.lm.is-neon .lm-card {
-  background: color-mix(in srgb, var(--m-surface) 55%, transparent);
-  border-color: color-mix(in srgb, var(--m-accent) 45%, var(--m-line));
-}
-
 .lm.is-riel .lm-side {
   width: 14%;
   align-items: center;
@@ -940,4 +837,87 @@ html[data-layout="estudio"] .page-header h1 {
   letter-spacing: 0.05em;
   color: var(--text-3);
   margin: 4px 0 10px;
+}
+
+/* =============================================================================
+   Usuarios y roles
+   ============================================================================= */
+
+.avatar-sm,
+.role-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.role-icon {
+  border-radius: 10px;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.role-icon.is-admin {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.role-preview {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.perm-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.perm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 54px;
+}
+
+.perm-row + .perm-row {
+  border-top: 1px solid var(--border);
+}
+
+.perm-row.is-off {
+  background: var(--surface-2);
+  opacity: 0.7;
+}
+
+/* Paneles en modo solo lectura */
+.readonly-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.readonly-note {
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 13px;
 }

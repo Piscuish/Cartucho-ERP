@@ -92,7 +92,7 @@ function AppInner() {
 
   const authenticated = !!overview?.isAuthenticated;
   const license = overview?.license ?? null;
-  const access = buildAccess(license);
+  const access = buildAccess(license, overview?.currentUser);
 
   // La verificación periódica (cada hora) puede cambiar módulos o desactivar la licencia.
   useEffect(() => onLicenseChanged(() => void load()), [load]);
@@ -184,7 +184,7 @@ function AppInner() {
   }
 
   return (
-    <AccessProvider license={license}>
+    <AccessProvider license={license} user={overview.currentUser}>
     <AppShell
       company={overview.company}
       user={overview.currentUser}

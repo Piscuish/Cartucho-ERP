@@ -85,7 +85,7 @@ impl Default for Appearance {
     }
 }
 
-pub const VALID_LAYOUTS: &[&str] = &["clasico", "neon", "riel", "flotante", "estudio"];
+pub const VALID_LAYOUTS: &[&str] = &["clasico", "riel", "flotante", "estudio"];
 pub const VALID_LIGHT_BGS: &[&str] = &["blanco", "calido", "hielo"];
 pub const VALID_DARK_BGS: &[&str] = &["pizarra", "grafito", "negro", "noche", "morado", "bosque"];
 pub const VALID_ACCENTS: &[&str] = &["violeta", "azul", "cian", "verde", "naranja", "rosa", "rojo", "ambar", "mono"];
@@ -108,6 +108,23 @@ impl Appearance {
             accent: check(&self.accent, VALID_ACCENTS, "Color de acento")?,
             tinted_borders: self.tinted_borders,
         })
+    }
+
+    /// Para valores leídos de la base: cada campo desconocido (por ejemplo, el diseño «neon»,
+    /// que se retiró) vuelve a su valor por defecto sin perder los demás.
+    pub fn sanitized(&self) -> Self {
+        let d = Self::default();
+        let pick = |v: &str, list: &[&str], def: &str| -> String {
+            let n = v.trim().to_lowercase();
+            if list.contains(&n.as_str()) { n } else { def.to_string() }
+        };
+        Self {
+            layout: pick(&self.layout, VALID_LAYOUTS, &d.layout),
+            bg_light: pick(&self.bg_light, VALID_LIGHT_BGS, &d.bg_light),
+            bg_dark: pick(&self.bg_dark, VALID_DARK_BGS, &d.bg_dark),
+            accent: pick(&self.accent, VALID_ACCENTS, &d.accent),
+            tinted_borders: self.tinted_borders,
+        }
     }
 
     /// Traduce el estilo único de la versión anterior (`visual_style`).
@@ -208,6 +225,12 @@ pub struct AuthenticatedUserSummary {
     pub full_name: String,
     pub username: String,
     pub role: String,
+    /// Nombre visible del rol («Administrador», «Vendedor»…).
+    #[serde(default)]
+    pub role_name: String,
+    #[serde(default)]
+    pub is_admin: bool,
+    /// `["*"]` para el administrador; si no, `"modulo:read"` o `"modulo:write"`.
     pub permissions: Vec<String>,
     pub created_at: String,
     pub last_login_at: Option<String>,
@@ -527,6 +550,36 @@ const MIGRATIONS: &[Migration] = &[
             ('product', 'General', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
     ",
     },
+    Migration {
+        version: 5,
+        name: "0005_create_roles",
+        // Solo agrega la tabla de roles y sus valores iniciales. Los usuarios existentes
+        // conservan `role_key = 'admin'`, que corresponde al rol de sistema «Administrador».
+        sql: "
+        CREATE TABLE IF NOT EXISTS roles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_key TEXT NOT NULL UNIQUE CHECK (length(trim(role_key)) > 0),
+            name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (length(trim(name)) > 0),
+            description TEXT,
+            is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1)),
+            permissions_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        INSERT OR IGNORE INTO roles (role_key, name, description, is_system, permissions_json, created_at, updated_at) VALUES
+            ('admin', 'Administrador', 'Acceso total: usuarios, roles, empresa, licencia y respaldos.', 1, '{\"*\":\"write\"}',
+             strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('vendedor', 'Vendedor', 'Factura, cotiza y atiende clientes. Consulta productos e inventario.', 0,
+             '{\"invoices\":\"write\",\"quotes\":\"write\",\"customers\":\"write\",\"catalog\":\"read\",\"inventory\":\"read\"}',
+             strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            ('consulta', 'Solo consulta', 'Ve facturas, clientes y productos sin modificarlos.', 0,
+             '{\"invoices\":\"read\",\"quotes\":\"read\",\"customers\":\"read\",\"catalog\":\"read\",\"inventory\":\"read\"}',
+             strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'));
+
+        CREATE INDEX IF NOT EXISTS idx_app_users_role_key ON app_users (role_key);
+    ",
+    },
 ];
 
 /// Versión de esquema más reciente conocida por esta versión de la aplicación.
@@ -692,7 +745,7 @@ struct ValidatedAdminFields {
 
 /// Genera un hash seguro de contraseña usando Argon2id (v19) con sal aleatoria criptográfica.
 /// Cumple estrictamente AGENTS.md §6.1, §6.2 y §6.3.
-fn hash_password_argon2id(plain_password: &str) -> Result<String, String> {
+pub(crate) fn hash_password_argon2id(plain_password: &str) -> Result<String, String> {
     let salt = SaltString::generate(&mut OsRng);
     let params = Params::default();
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
@@ -1074,6 +1127,13 @@ impl LocalDatabase {
         Ok(())
     }
 
+    /// Solo para pruebas: deja una base en una versión anterior del esquema.
+    #[cfg(test)]
+    pub(crate) fn apply_migrations_slice_for_tests(conn: &mut Connection, up_to_version: i64) -> Result<(), String> {
+        let n = MIGRATIONS.iter().take_while(|m| m.version <= up_to_version).count();
+        Self::apply_migrations_slice(conn, &MIGRATIONS[..n])
+    }
+
     fn apply_migrations_slice(
         conn: &mut Connection,
         migrations: &[Migration],
@@ -1167,23 +1227,29 @@ impl LocalDatabase {
         conn: &Connection,
         user_id: i64,
     ) -> Result<Option<AuthenticatedUserSummary>, String> {
+        // Los permisos salen del rol (tabla `roles`); `app_users.permissions_json` queda sin uso.
         conn.query_row(
-            "SELECT id, full_name, username, role_key, permissions_json, created_at, last_login_at
-             FROM app_users
-             WHERE id = ?1 AND is_active = 1",
+            "SELECT u.id, u.full_name, u.username, u.role_key, r.name, r.permissions_json,
+                    u.created_at, u.last_login_at
+             FROM app_users u
+             LEFT JOIN roles r ON r.role_key = u.role_key
+             WHERE u.id = ?1 AND u.is_active = 1",
             params![user_id],
             |row| {
-                let perms_raw: String = row.get(4)?;
-                let permissions: Vec<String> =
-                    serde_json::from_str(&perms_raw).unwrap_or_else(|_| vec!["*".to_string()]);
+                let role: String = row.get(3)?;
+                let role_name: Option<String> = row.get(4)?;
+                let perms_raw: Option<String> = row.get(5)?;
+                let access = crate::users::UserAccess::from_role(&role, perms_raw.as_deref());
                 Ok(AuthenticatedUserSummary {
                     id: row.get(0)?,
                     full_name: row.get(1)?,
                     username: row.get(2)?,
-                    role: row.get(3)?,
-                    permissions,
-                    created_at: row.get(5)?,
-                    last_login_at: row.get(6)?,
+                    role_name: role_name.unwrap_or_else(|| role.clone()),
+                    is_admin: access.is_admin,
+                    permissions: access.as_list(),
+                    role,
+                    created_at: row.get(6)?,
+                    last_login_at: row.get(7)?,
                 })
             },
         )
@@ -1625,7 +1691,7 @@ impl LocalDatabase {
         // Apariencia guardada; si no existe se traduce el estilo anterior. Valores inválidos → por defecto.
         let appearance = read("appearance")
             .and_then(|(v, _)| serde_json::from_str::<Appearance>(&v).ok())
-            .and_then(|a| a.validated().ok())
+            .map(|a| a.sanitized())
             .or_else(|| read("visual_style").map(|(v, _)| Appearance::from_legacy_style(&v)))
             .unwrap_or_default();
         Ok(AppPreferences {
@@ -2180,6 +2246,16 @@ mod appearance_tests {
         .unwrap();
         let prefs = db.get_preferences().unwrap();
         assert_eq!((prefs.appearance.accent.as_str(), prefs.appearance.bg_dark.as_str()), ("azul", "noche"));
+
+        // Un diseño retirado («neon») vuelve a Clásico y conserva los colores.
+        conn.execute(
+            "INSERT INTO _app_metadata (key, value, updated_at) VALUES ('appearance', '{\"layout\":\"neon\",\"bgLight\":\"blanco\",\"bgDark\":\"morado\",\"accent\":\"rosa\",\"tintedBorders\":true}', '2026-11-11T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        let a = db.get_preferences().unwrap().appearance;
+        assert_eq!((a.layout.as_str(), a.bg_dark.as_str(), a.accent.as_str()), ("clasico", "morado", "rosa"));
+        conn.execute("DELETE FROM _app_metadata WHERE key = 'appearance'", []).unwrap();
 
         // Un JSON dañado vuelve a la apariencia por defecto en lugar de fallar.
         conn.execute(
