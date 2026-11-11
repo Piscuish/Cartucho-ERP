@@ -4,9 +4,9 @@ import type { Category, Product, ProductInput } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
 import { useAccess } from "../lib/access";
-import { useAsync, useDebounced } from "../lib/hooks";
+import { useAsync, useDebounced, useShowMore } from "../lib/hooks";
 import { errorMessage, money, parseQty, qty, todayISO } from "../lib/format";
-import { Alert, Badge, Button, Drawer, EmptyState, Field, ImagePicker, MoneyInput, PageHeader, SearchBox, Segmented, SkeletonRows, Switch, useToast } from "../components/ui";
+import { Alert, Badge, Button, Drawer, EmptyState, Field, ImagePicker, MoneyInput, PageHeader, SearchBox, Segmented, SkeletonRows, Switch, useToast, ShowMore } from "../components/ui";
 import { CategoryManager } from "../components/categories";
 
 const UNITS = ["und", "kg", "g", "l", "ml", "m", "cm", "caja", "paquete", "docena", "par", "serv", "hora"];
@@ -34,6 +34,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
   });
   const q = useDebounced(search);
   const { data, loading, error, reload } = useAsync(() => api.listProducts({ search: q, categoryId, includeInactive: showArchived }), [q, categoryId, showArchived]);
+  const page = useShowMore(data?.length ?? 0, 100, data);
   const cats = useAsync(() => api.listCategories("product"), []);
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [managingCats, setManagingCats] = useState(false);
@@ -137,7 +138,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
           />
         ) : view === "grid" ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14, padding: 16 }}>
-            {data?.map((p) => (
+            {data?.slice(0, page.limit).map((p) => (
               <button
                 key={p.id}
                 className="card"
@@ -161,6 +162,9 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
                 </div>
               </button>
             ))}
+            <div style={{ gridColumn: "1 / -1" }}>
+              <ShowMore remaining={page.remaining} onMore={page.more} />
+            </div>
           </div>
         ) : (
           <div className="table-wrap">
@@ -176,7 +180,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {data?.map((p) => (
+                {data?.slice(0, page.limit).map((p) => (
                   <tr key={p.id} className={`is-clickable ${p.isActive ? "" : "is-muted"}`} onClick={() => setEditing(p)}>
                     <td>
                       <div className="cell-flex">
@@ -196,6 +200,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
                 ))}
               </tbody>
             </table>
+            <ShowMore remaining={page.remaining} onMore={page.more} />
           </div>
         )}
       </div>

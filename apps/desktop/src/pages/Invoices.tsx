@@ -3,9 +3,9 @@ import { Download, FilePlus2, FileText } from "lucide-react";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
 import { useAccess } from "../lib/access";
-import { useAsync, useDebounced } from "../lib/hooks";
+import { useAsync, useDebounced, useShowMore } from "../lib/hooks";
 import { errorMessage, fmtDate, isOverdue, money, todayISO } from "../lib/format";
-import { Alert, Button, EmptyState, InvoiceStatusBadge, PageHeader, SearchBox, Segmented, SkeletonRows, useToast } from "../components/ui";
+import { Alert, Button, EmptyState, InvoiceStatusBadge, PageHeader, SearchBox, Segmented, ShowMore, SkeletonRows, useToast } from "../components/ui";
 
 type StatusFilter = "" | "open" | "paid" | "void";
 
@@ -16,11 +16,15 @@ export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialS
   const [status, setStatus] = useState<StatusFilter>((initialStatus as StatusFilter) ?? "");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [seller, setSeller] = useState<number | null>(null);
   const q = useDebounced(search);
   const { data, loading, error } = useAsync(
-    () => api.listInvoices({ search: q, status: status || null, dateFrom: from || null, dateTo: to || null }),
-    [q, status, from, to],
+    () => api.listInvoices({ search: q, status: status || null, dateFrom: from || null, dateTo: to || null, createdBy: seller }),
+    [q, status, from, to, seller],
   );
+  // El filtro por vendedor solo lo usa el administrador (ve las facturas de todos).
+  const sellers = useAsync(() => (access.isAdmin ? api.listUsers() : Promise.resolve([])), [access.isAdmin]);
+  const page = useShowMore(data?.length ?? 0, 100, `${q}|${status}|${from}|${to}|${seller}`);
 
   const totals = (data ?? []).reduce(
     (acc, i) => {
@@ -78,6 +82,16 @@ export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialS
               { value: "void", label: "Anuladas" },
             ]}
           />
+          {access.isAdmin && (sellers.data?.length ?? 0) > 1 && (
+            <select className="input" style={{ width: 180 }} value={seller ?? ""} onChange={(e) => setSeller(e.target.value ? Number(e.target.value) : null)} aria-label="Vendedor">
+              <option value="">Todos los vendedores</option>
+              {sellers.data!.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.fullName}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="row" style={{ marginLeft: "auto" }}>
             <input type="date" className="input" style={{ width: 150 }} value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Desde" />
             <span className="subtle">a</span>
@@ -94,7 +108,7 @@ export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialS
         {loading && !data ? (
           <SkeletonRows rows={8} />
         ) : data && data.length === 0 ? (
-          search || status || from || to ? (
+          search || status || from || to || seller ? (
             <EmptyState icon={<FileText size={24} />} title="No hay facturas con esos filtros" text="Prueba con otra búsqueda o limpia los filtros." />
           ) : (
             <EmptyState
@@ -120,18 +134,20 @@ export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialS
                     <th>Cliente</th>
                     <th>Fecha</th>
                     <th>Vence</th>
+                    <th>Vendedor</th>
                     <th>Estado</th>
                     <th className="t-right">Total</th>
                     <th className="t-right">Saldo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.map((i) => (
+                  {data?.slice(0, page.limit).map((i) => (
                     <tr key={i.id} className={`is-clickable ${i.status === "void" ? "is-muted" : ""}`} onClick={() => navigate({ page: "invoice", id: i.id })}>
-                      <td className="cell-main">{i.number}</td>
+                      <td className="cell-main nowrap">{i.number}</td>
                       <td>{i.customerName}</td>
-                      <td>{fmtDate(i.issueDate)}</td>
-                      <td>{i.dueDate ? fmtDate(i.dueDate) : <span className="subtle">—</span>}</td>
+                      <td className="nowrap">{fmtDate(i.issueDate)}</td>
+                      <td className="nowrap">{i.dueDate ? fmtDate(i.dueDate) : <span className="subtle">—</span>}</td>
+                      <td className="subtle nowrap">{i.createdByName ?? "—"}</td>
                       <td>
                         <InvoiceStatusBadge status={i.status} overdue={isOverdue(i.dueDate, i.balance, i.status)} />
                       </td>
@@ -144,6 +160,7 @@ export function InvoicesPage({ navigate, initialStatus }: PageProps & { initialS
                 </tbody>
               </table>
             </div>
+            <ShowMore remaining={page.remaining} onMore={page.more} />
             <div className="row-between" style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", fontSize: 13 }}>
               <span className="muted">{data?.length} facturas</span>
               <span>

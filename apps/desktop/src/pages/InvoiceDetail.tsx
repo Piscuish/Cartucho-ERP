@@ -70,7 +70,7 @@ export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }:
             Factura {inv.number} <InvoiceStatusBadge status={inv.status} overdue={overdue} />
           </span>
         }
-        subtitle={`${inv.customer.name} · ${fmtDate(inv.issueDate)}`}
+        subtitle={`${inv.customer.name} · ${fmtDate(inv.issueDate)}${inv.createdByName ? ` · hecha por ${inv.createdByName}` : ""}`}
         actions={
           <>
             {canEdit && inv.status !== "void" && (
@@ -222,6 +222,7 @@ export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }:
                       <div className="cell-main">{METHOD_LABELS[p.method]}</div>
                       <div className="cell-sub">
                         {fmtDate(p.paidAt)}
+                        {p.createdByName ? ` · ${p.createdByName}` : ""}
                         {p.note ? ` · ${p.note}` : ""}
                       </div>
                     </div>

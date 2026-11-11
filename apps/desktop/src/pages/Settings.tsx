@@ -7,7 +7,7 @@ import type { PageProps } from "../components/views";
 import { SETTINGS_TABS, SettingsTab } from "../config/moduleRegistry";
 import { api, isDesktop, pickBackupFile, pickFolder } from "../services/systemClient";
 import { bytes, errorMessage, fmtDate, fmtDateTime } from "../lib/format";
-import { Alert, Badge, Button, ConfirmDialog, Field, ImagePicker, PageHeader, SkeletonRows, Switch, useToast } from "../components/ui";
+import { Alert, Badge, Button, ConfirmDialog, Field, ImagePicker, PageHeader, Segmented, SkeletonRows, Switch, useToast } from "../components/ui";
 import { PAPER_OPTIONS, PaperIcon } from "../components/print";
 import { LicenseSettings } from "../components/license";
 import { UsersSettings } from "../components/usersAdmin";
@@ -468,6 +468,17 @@ function SecuritySettings({ overview, setOverview }: PageProps) {
     }
   };
 
+  const access = useAccess();
+  const lock = overview.preferences.autoLockMinutes ?? 0;
+  const setLock = async (minutes: number) => {
+    try {
+      setOverview(await api.setAutoLock(minutes));
+      toast(minutes ? `La sesión se cerrará tras ${minutes} minutos sin uso` : "Cierre por inactividad desactivado");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
+
   return (
     <>
       <Section title="Tu cuenta">
@@ -513,6 +524,22 @@ function SecuritySettings({ overview, setOverview }: PageProps) {
       <Alert tone="info">
         El inicio de sesión protege el acceso al programa, pero no cifra el archivo de la base de datos. Guarda tus respaldos en un lugar seguro.
       </Alert>
+      {access.isAdmin && (
+        <Section title="Cerrar sesión por inactividad" desc="Si nadie usa el programa durante este tiempo, se cierra la sesión y hay que ingresar de nuevo. Aplica a todos los usuarios de este equipo.">
+          <Segmented
+            value={String(lock)}
+            onChange={(v) => setLock(Number(v))}
+            options={[
+              { value: "0", label: "Nunca" },
+              { value: "5", label: "5 min" },
+              { value: "10", label: "10 min" },
+              { value: "15", label: "15 min" },
+              { value: "30", label: "30 min" },
+              { value: "60", label: "1 hora" },
+            ]}
+          />
+        </Section>
+      )}
     </>
   );
 }

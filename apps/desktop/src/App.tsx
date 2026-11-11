@@ -9,6 +9,7 @@ import { api, onLicenseChanged } from "./services/systemClient";
 import { AccessProvider, buildAccess } from "./lib/access";
 import { ActivationScreen } from "./components/license";
 import { useWindowTitle, WindowFrame } from "./components/titleBar";
+import { useIdleTimeout } from "./lib/idle";
 import { errorMessage } from "./lib/format";
 import { AppShell } from "./components/layout";
 import { LoginScreen, SetupWizard, StartupErrorScreen } from "./components/onboarding";
@@ -91,6 +92,16 @@ function AppInner() {
   }, [load]);
 
   const authenticated = !!overview?.isAuthenticated;
+
+  // Cierre de sesión por inactividad (lo configura el administrador).
+  useIdleTimeout(authenticated ? overview?.preferences.autoLockMinutes ?? 0 : 0, async () => {
+    try {
+      setOverview(await api.logout());
+      toast("Sesión cerrada por inactividad. Ingresa de nuevo para continuar.", "info");
+    } catch {
+      /* si falla, se intenta en el siguiente ciclo */
+    }
+  });
   const license = overview?.license ?? null;
   const access = buildAccess(license, overview?.currentUser);
 

@@ -339,6 +339,30 @@ mod tauri_commands {
         })
     }
 
+    // ------------------------------------------------------------ Caja, estado de cuenta, bloqueo
+
+    #[tauri::command]
+    pub fn get_cash_close(date: String, user_id: Option<i64>, state: S<'_>) -> Result<crate::erp::cash::CashClose, String> {
+        state.gated(Gate::Read("invoices"), |db| db.cash_close(&date, user_id))
+    }
+
+    #[tauri::command]
+    pub fn get_customer_statement(
+        customer_id: i64,
+        today: String,
+        state: S<'_>,
+    ) -> Result<crate::erp::cash::CustomerStatement, String> {
+        state.gated(Gate::Read("customers"), |db| db.customer_statement(customer_id, &today))
+    }
+
+    #[tauri::command]
+    pub fn set_auto_lock(minutes: i64, state: S<'_>) -> Result<SystemOverview, String> {
+        overview_gated(&state, Gate::Admin, |db| {
+            db.set_auto_lock(minutes)?;
+            db.build_system_overview()
+        })
+    }
+
     // ------------------------------------------------------------ Usuarios y roles (solo administrador)
 
     #[tauri::command]
@@ -700,6 +724,9 @@ mod tauri_commands {
                 set_theme_preference,
                 set_appearance,
                 list_roles,
+                get_cash_close,
+                get_customer_statement,
+                set_auto_lock,
                 save_role,
                 delete_role,
                 list_users,

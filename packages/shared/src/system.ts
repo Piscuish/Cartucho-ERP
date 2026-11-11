@@ -16,6 +16,7 @@ export type NavigationSectionId =
   | "dashboard"
   | "invoices"
   | "invoice-new"
+  | "cash-close"
   | "quotes"
   | "customers"
   | "catalog"
@@ -57,6 +58,8 @@ export interface AppPreferences {
   theme: ThemePreference;
   /** Diseño, fondos y color. Ausente en versiones antiguas → DEFAULT_APPEARANCE. */
   appearance?: Appearance;
+  /** Minutos sin uso antes de cerrar la sesión (0 = nunca). */
+  autoLockMinutes?: number;
   updatedAt: string;
 }
 

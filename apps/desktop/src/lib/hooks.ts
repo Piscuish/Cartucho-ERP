@@ -57,3 +57,18 @@ export function useHotkey(match: (e: KeyboardEvent) => boolean, handler: () => v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
+
+/**
+ * Listas largas: muestra los primeros `step` elementos y agrega más bajo demanda,
+ * para que una tabla con miles de filas no haga lenta la pantalla.
+ * `resetKey` vuelve al inicio cuando cambian los filtros.
+ */
+export function useShowMore(total: number, step = 100, resetKey?: unknown) {
+  const [limit, setLimit] = useState(step);
+  useEffect(() => setLimit(step), [resetKey, step]);
+  return {
+    limit,
+    remaining: Math.max(0, total - limit),
+    more: () => setLimit((l) => l + step),
+  };
+}
