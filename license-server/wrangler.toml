@@ -1,0 +1,26 @@
+# Servidor de licencias de Cartucho ERP.
+# Nada de esto se publica hasta que ejecutes `npm run deploy` con tu cuenta de Cloudflare.
+name = "cartucho-licencias"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+# Panel de administración (HTML estático).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cartucho-licencias"
+# Reemplaza con el id que devuelve `npx wrangler d1 create cartucho-licencias`.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+# Texto de contacto que verá el cliente cuando su licencia esté desactivada.
+SUPPORT_TEXT = "Soporte Cartucho ERP"
+
+# Secretos (no van en este archivo):
+#   LICENSE_PRIVATE_KEY  → clave privada Ed25519 (npm run keys la genera)
+#   ADMIN_TOKEN          → contraseña del panel de administración
+# En local se leen de `.dev.vars`; en Cloudflare con `npx wrangler secret put NOMBRE`.

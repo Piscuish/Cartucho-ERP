@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, BadgeCheck, Save, ShieldCheck } from "lucide-react";
 import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { SETTINGS_TABS, SettingsTab } from "../config/moduleRegistry";
@@ -7,6 +7,8 @@ import { api, isDesktop, pickBackupFile, pickFolder } from "../services/systemCl
 import { bytes, errorMessage, fmtDate, fmtDateTime } from "../lib/format";
 import { Alert, Badge, Button, ConfirmDialog, Field, ImagePicker, PageHeader, SkeletonRows, Switch, useToast } from "../components/ui";
 import { PAPER_OPTIONS, PaperIcon } from "../components/print";
+import { LicenseSettings } from "../components/license";
+import { useAccess } from "../lib/access";
 
 const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   company: <Building2 size={16} />,
@@ -14,17 +16,21 @@ const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   appearance: <Palette size={16} />,
   security: <KeyRound size={16} />,
   data: <Database size={16} />,
+  license: <BadgeCheck size={16} />,
   about: <Info size={16} />,
 };
 
 export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
-  const [tab, setTab] = useState<SettingsTab>(props.tab ?? "company");
+  const access = useAccess();
+  // Con la licencia desactivada solo quedan las opciones que no modifican datos del negocio.
+  const tabs = access.restricted ? SETTINGS_TABS.filter((t) => t.id !== "company" && t.id !== "billing") : SETTINGS_TABS;
+  const [tab, setTab] = useState<SettingsTab>(props.tab ?? (access.restricted ? "license" : "company"));
   return (
     <div className="page">
       <PageHeader title="Configuración" subtitle="Datos de la empresa, facturación, apariencia, seguridad y respaldos." />
       <div className="settings-layout">
         <nav className="settings-nav">
-          {SETTINGS_TABS.map((t) => (
+          {tabs.map((t) => (
             <button key={t.id} className={tab === t.id ? "is-active" : ""} onClick={() => setTab(t.id)}>
               {TAB_ICONS[t.id]} {t.label}
             </button>
@@ -36,6 +42,7 @@ export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
           {tab === "appearance" && <AppearanceSettings {...props} />}
           {tab === "security" && <SecuritySettings {...props} />}
           {tab === "data" && <DataSettings {...props} />}
+          {tab === "license" && <LicenseSettings {...props} />}
           {tab === "about" && <AboutSettings {...props} />}
         </div>
       </div>

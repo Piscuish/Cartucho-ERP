@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { AlertTriangle, ArrowRight, Boxes, Check, FilePlus2, FileSignature, PackagePlus, Receipt, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, Check, FilePlus2, FileSignature, LifeBuoy, PackagePlus, Receipt, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
+import { useAccess } from "../lib/access";
+import type { InvoiceSummary } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
 import { useAsync } from "../lib/hooks";
@@ -11,6 +13,11 @@ export function DashboardPage({ navigate, overview }: PageProps) {
   const today = todayISO();
   const { data, loading, error } = useAsync(() => api.dashboard(today), [today]);
   const firstName = overview.currentUser?.fullName.split(" ")[0] ?? "";
+  const access = useAccess();
+
+  if (access.restricted) {
+    return <RestrictedDashboard navigate={navigate} overview={overview} recent={data?.recentInvoices ?? []} loading={loading} />;
+  }
 
   return (
     <div className="page">
@@ -26,6 +33,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
       </div>
 
       <div className="quick-actions">
+        {access.canWrite("invoices") && (
         <button className="quick-action" onClick={() => navigate({ page: "invoice-new" })}>
           <span className="stat-icon">
             <FilePlus2 size={18} />
@@ -35,6 +43,8 @@ export function DashboardPage({ navigate, overview }: PageProps) {
             <div className="qa-sub">Vende e imprime</div>
           </span>
         </button>
+        )}
+        {access.canWrite("quotes") && (
         <button className="quick-action" onClick={() => navigate({ page: "quote-new" })}>
           <span className="stat-icon is-info">
             <FileSignature size={18} />
@@ -44,6 +54,8 @@ export function DashboardPage({ navigate, overview }: PageProps) {
             <div className="qa-sub">{data ? `${data.openQuoteCount} abiertas` : "Envía un presupuesto"}</div>
           </span>
         </button>
+        )}
+        {access.canWrite("expenses") && (
         <button className="quick-action" onClick={() => navigate({ page: "expenses" })}>
           <span className="stat-icon is-warning">
             <Receipt size={18} />
@@ -53,6 +65,8 @@ export function DashboardPage({ navigate, overview }: PageProps) {
             <div className="qa-sub">Arriendo, luz, compras…</div>
           </span>
         </button>
+        )}
+        {access.can("catalog") && (
         <button className="quick-action" onClick={() => navigate({ page: "catalog" })}>
           <span className="stat-icon is-success">
             <PackagePlus size={18} />
@@ -62,6 +76,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
             <div className="qa-sub">{data ? `${data.productCount} en catálogo` : "Tu catálogo"}</div>
           </span>
         </button>
+        )}
       </div>
 
       {error && <Alert tone="danger">{error}</Alert>}
@@ -84,9 +99,10 @@ export function DashboardPage({ navigate, overview }: PageProps) {
             </div>
           )}
 
-          <div className="grid grid-4 mb-16">
+          <div className={`grid ${access.can("expenses") ? "grid-4" : "grid-3"} mb-16`}>
             <StatCard label="Ventas del mes" value={money(data.month.invoicedTotal)} icon={<TrendingUp size={18} />} foot={`${data.month.invoiceCount} facturas emitidas`} />
             <StatCard label="Dinero recibido" value={money(data.month.collectedTotal)} icon={<Wallet size={18} />} tone="success" foot={`Hoy: ${money(data.todayCollected)}`} />
+            {access.can("expenses") && (
             <StatCard
               label="Gastos del mes"
               value={money(data.month.operatingExpenses + data.month.inventoryPurchases)}
@@ -94,6 +110,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
               tone="warning"
               foot={`Inventario: ${money(data.month.inventoryPurchases)}`}
             />
+            )}
             <StatCard
               label="Balance del mes"
               value={<span className={data.month.netCashFlow >= 0 ? "profit-positive" : "profit-negative"}>{money(data.month.netCashFlow)}</span>}
@@ -111,9 +128,11 @@ export function DashboardPage({ navigate, overview }: PageProps) {
                     <div className="card-title">Ingresos vs. gastos</div>
                     <div className="card-subtitle">Últimos 6 meses</div>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => navigate({ page: "finance" })}>
-                    Ver finanzas <ArrowRight size={14} />
-                  </Button>
+                  {access.can("finance") && (
+                    <Button size="sm" variant="ghost" onClick={() => navigate({ page: "finance" })}>
+                      Ver finanzas <ArrowRight size={14} />
+                    </Button>
+                  )}
                 </div>
                 <div className="card-body">
                   <MonthlyBars data={data.month.monthly} months={6} />
@@ -160,6 +179,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
             </div>
 
             <div className="stack-lg">
+              {access.can("inventory") && (
               <div className="card">
                 <div className="card-header">
                   <div className="card-title">Stock bajo</div>
@@ -188,6 +208,7 @@ export function DashboardPage({ navigate, overview }: PageProps) {
                   </div>
                 )}
               </div>
+              )}
 
               <div className="card">
                 <div className="card-header">
@@ -231,6 +252,7 @@ function GettingStarted({
   customers: number;
   invoices: number;
 }) {
+  const access = useAccess();
   const [hidden, setHidden] = useState(() => {
     try {
       return localStorage.getItem("cartucho_getting_started_hidden") === "1";
@@ -240,8 +262,12 @@ function GettingStarted({
   });
   const steps = [
     { done: hasLogo, title: "Sube el logo de tu empresa", sub: "Aparece en el inicio de sesión y en tus facturas.", go: () => navigate({ page: "settings", tab: "company" }) },
-    { done: products > 0, title: "Agrega tus productos o servicios", sub: "Con foto, precio y existencias.", go: () => navigate({ page: "catalog" }) },
-    { done: customers > 0, title: "Registra a tus clientes frecuentes", sub: "Para facturarles más rápido.", go: () => navigate({ page: "customers" }) },
+    ...(access.can("catalog")
+      ? [{ done: products > 0, title: "Agrega tus productos o servicios", sub: "Con foto, precio y existencias.", go: () => navigate({ page: "catalog" }) }]
+      : []),
+    ...(access.can("customers")
+      ? [{ done: customers > 0, title: "Registra a tus clientes frecuentes", sub: "Para facturarles más rápido.", go: () => navigate({ page: "customers" }) }]
+      : []),
     { done: false, title: "Revisa la impresión", sub: "Tamaño de hoja, textos y numeración.", go: () => navigate({ page: "settings", tab: "billing" }) },
     { done: invoices > 0, title: "Crea tu primera factura", sub: "Imprímela en el tamaño que necesites.", go: () => navigate({ page: "invoice-new" }) },
   ];
@@ -299,6 +325,81 @@ function GettingStarted({
             <ArrowRight size={16} color="var(--text-3)" />
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Inicio cuando la licencia está desactivada: aviso de soporte y últimas facturas (solo lectura). */
+function RestrictedDashboard({
+  navigate,
+  overview,
+  recent,
+  loading,
+}: {
+  navigate: PageProps["navigate"];
+  overview: PageProps["overview"];
+  recent: InvoiceSummary[];
+  loading: boolean;
+}) {
+  const lic = overview.license;
+  return (
+    <div className="page">
+      <div className="support-card">
+        <div className="support-card-icon">
+          <LifeBuoy size={28} />
+        </div>
+        <div className="support-card-body">
+          <div className="support-card-title">Contacta a soporte</div>
+          <p>{lic?.message ?? "Tu licencia no está activa. Solo puedes consultar tus facturas."}</p>
+          {lic?.support && (
+            <p className="support-card-contact">
+              <strong>Soporte:</strong> {lic.support}
+            </p>
+          )}
+          <p className="subtle" style={{ fontSize: 13 }}>
+            Tus datos están intactos. Puedes ver e imprimir tus facturas y exportar una copia de tu base de datos desde Configuración.
+          </p>
+          <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+            <Button variant="primary" onClick={() => navigate({ page: "settings", tab: "license" })}>
+              Ver licencia
+            </Button>
+            <Button variant="secondary" onClick={() => navigate({ page: "invoices" })}>
+              Ver facturas
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Últimas facturas</div>
+          <Button size="sm" variant="ghost" onClick={() => navigate({ page: "invoices" })}>
+            Ver todas <ArrowRight size={14} />
+          </Button>
+        </div>
+        {loading && recent.length === 0 ? (
+          <SkeletonRows rows={4} />
+        ) : recent.length === 0 ? (
+          <div className="card-body subtle">No hay facturas registradas.</div>
+        ) : (
+          <div className="list">
+            {recent.map((i) => (
+              <div key={i.id} className="list-item is-clickable" onClick={() => navigate({ page: "invoice", id: i.id })}>
+                <div className="list-item-main">
+                  <div className="cell-main">{i.customerName}</div>
+                  <div className="cell-sub">
+                    {i.number} · {fmtDate(i.issueDate)}
+                  </div>
+                </div>
+                <InvoiceStatusBadge status={i.status} overdue={isOverdue(i.dueDate, i.balance, i.status)} />
+                <div className="money t-strong" style={{ minWidth: 110, textAlign: "right", fontWeight: 600 }}>
+                  {money(i.total)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -17,6 +17,10 @@ desktop-tauri = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-dialog"]
 tauri-build = { version = "2", features = [], optional = true }
 
 [dependencies]
+ed25519-dalek = "2"
+sha2 = "0.10"
+machine-uid = "0.5"
+ureq = { version = "2", features = ["json"] }
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 base64 = "0.22"
 argon2 = { version = "0.5", features = ["std"] }

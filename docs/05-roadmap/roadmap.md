@@ -23,6 +23,12 @@ Fases incrementales, priorizando la estabilidad local antes de añadir complejid
 - Exportar, restaurar y mover la base de datos; respaldo automático diario.
 - Búsqueda rápida (Ctrl+K) y panel de inicio.
 
+## Fase 2.5: Módulos y licencias — Lista (noviembre 2026)
+- Módulos activables por licencia: Facturas, Cotizaciones, Clientes, Catálogo, Inventario, Gastos, Resumen.
+- Activación con clave o código sin Internet; 1 a 5 equipos; 30 días sin conexión.
+- Desactivación remota de licencia o equipo → solo ver facturas y «Contacta a soporte».
+- Servidor Cloudflare Workers + D1 y panel de administración (`license-server/`). **Pendiente: publicarlo con la cuenta del propietario.**
+
 ## Fase 3: Próximos pasos sugeridos
 - **Modo servidor para red local:** un equipo como servidor y los demás como clientes, sin compartir el archivo SQLite (ver ADR 0003).
 - **Usuarios con roles** (vendedor, administrador) y permisos por módulo.

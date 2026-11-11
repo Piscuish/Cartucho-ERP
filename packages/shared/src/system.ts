@@ -168,7 +168,62 @@ export interface SystemOverview {
   hasAdminUser: boolean;
   isAuthenticated: boolean;
   currentUser: AuthenticatedUserSummary | null;
+  /** Estado de la licencia (null en versiones antiguas del backend). */
+  license?: LicenseStatus | null;
 }
+
+// ------------------------------------------------------------------ Licencias y módulos
+
+/** Módulos que se pueden activar o desactivar por cliente. */
+export type ModuleKey = "invoices" | "quotes" | "customers" | "catalog" | "inventory" | "expenses" | "finance";
+
+export const ALL_MODULES: ModuleKey[] = ["invoices", "quotes", "customers", "catalog", "inventory", "expenses", "finance"];
+
+export const MODULE_LABELS: Record<ModuleKey, string> = {
+  invoices: "Facturas",
+  quotes: "Cotizaciones",
+  customers: "Clientes",
+  catalog: "Catálogo",
+  inventory: "Inventario",
+  expenses: "Gastos",
+  finance: "Resumen financiero",
+};
+
+/**
+ * - dev: compilación de desarrollo sin clave pública (todo habilitado).
+ * - licensed: licencia válida.
+ * - restricted: licencia desactivada o vencida: solo ver facturas.
+ * - unlicensed: aún no se ha activado en este equipo.
+ */
+export type LicenseMode = "dev" | "licensed" | "restricted" | "unlicensed";
+
+export interface LicenseStatus {
+  mode: LicenseMode;
+  reason: string | null;
+  message: string | null;
+  customer: string | null;
+  plan: string | null;
+  modules: ModuleKey[];
+  maxDevices: number | null;
+  validUntil: string | null;
+  daysLeft: number | null;
+  licenseExpiresAt: string | null;
+  lastCheckAt: string | null;
+  lastCheckError: string | null;
+  deviceCode: string;
+  serverConfigured: boolean;
+  licenseKeyMasked: string | null;
+  support: string | null;
+}
+
+export const LICENSE_COMMANDS = {
+  GET_LICENSE_STATUS: "get_license_status",
+  ACTIVATE_LICENSE_ONLINE: "activate_license_online",
+  ACTIVATE_LICENSE_OFFLINE: "activate_license_offline",
+  CHECK_LICENSE_NOW: "check_license_now",
+} as const;
+
+export const LICENSE_CHANGED_EVENT = "license-changed";
 
 export const TAURI_COMMANDS = {
   GET_SYSTEM_OVERVIEW: "get_system_overview",

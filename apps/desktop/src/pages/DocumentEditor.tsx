@@ -6,6 +6,7 @@ import { ChevronDown, Minus, Package, PencilLine, Plus, Printer, Save, UserRound
 import type { BusinessSettings, Customer, PaymentMethod, Product } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useHotkey } from "../lib/hooks";
 import { addDays, errorMessage, METHOD_LABELS, money, parseQty, qty, todayISO } from "../lib/format";
 import { Alert, Button, IconButton, MoneyInput, useToast } from "../components/ui";
@@ -31,6 +32,10 @@ export function DocumentEditorPage({
   source,
 }: PageProps & { kind: "invoice" | "quote"; customerId?: number; source?: { kind: "invoice" | "quote"; id: number } }) {
   const toast = useToast();
+  const access = useAccess();
+  const useCatalog = access.can("catalog");
+  const useCustomers = access.can("customers");
+  const useStock = access.can("inventory");
   const isInvoice = kind === "invoice";
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -55,7 +60,12 @@ export function DocumentEditorPage({
   useEffect(() => {
     void (async () => {
       try {
-        const [s, p, c] = await Promise.all([api.getBusinessSettings(), api.listProducts(), api.listCustomers()]);
+        // Los módulos no incluidos en la licencia no se consultan.
+        const [s, p, c] = await Promise.all([
+          api.getBusinessSettings(),
+          useCatalog ? api.listProducts() : Promise.resolve([] as Product[]),
+          useCustomers ? api.listCustomers() : Promise.resolve([] as Customer[]),
+        ]);
         setSettings(s);
         setProducts(p);
         setCustomers(c);
@@ -225,7 +235,11 @@ export function DocumentEditorPage({
             ) : (
               <div className="row" style={{ gap: 10 }}>
                 <div style={{ flex: 1 }}>
-                  <CustomerPicker customers={customers} onPick={setCustomer} />
+                  {useCustomers ? (
+                    <CustomerPicker customers={customers} onPick={setCustomer} />
+                  ) : (
+                    <div className="cell-main" style={{ padding: "8px 2px" }}>Consumidor final</div>
+                  )}
                 </div>
                 <Button variant="ghost" icon={<UserPlus size={16} />} onClick={() => setWalkIn(true)}>
                   Ocasional
@@ -255,7 +269,7 @@ export function DocumentEditorPage({
                 <div className="items">
                   {computed.map((l) => {
                     const prod = l.productId ? productById.get(l.productId) : undefined;
-                    const short = prod && prod.trackStock && prod.stockQty < l.quantity;
+                    const short = useStock && prod && prod.trackStock && prod.stockQty < l.quantity;
                     return (
                       <div className="item-row" key={l.key}>
                         <div className="item-thumb">
@@ -383,6 +397,8 @@ export function DocumentEditorPage({
       {picking && (
         <ProductPickerModal
           products={products}
+          catalogEnabled={useCatalog}
+          showStock={useStock}
           inCart={inCart}
           onAddProduct={addProduct}
           onAddCustom={(item) => setLines((ls) => [...ls, { key: lineSeq++, productId: null, description: item.description, quantityText: fmtQtyText(item.quantity), unitPrice: item.unitPrice }])}

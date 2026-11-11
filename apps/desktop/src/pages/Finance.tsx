@@ -3,6 +3,7 @@ import { ArrowDownRight, ArrowUpRight, Download, HandCoins, PiggyBank, Receipt, 
 import type { CsvReportKind } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync } from "../lib/hooks";
 import { addDays, errorMessage, fmtDate, money, monthEnd, monthStart, qty, todayISO } from "../lib/format";
 import { Alert, Button, PageHeader, Segmented, SkeletonRows, StatCard, useToast } from "../components/ui";
@@ -46,6 +47,7 @@ export function PeriodPicker({ period, setPeriod, custom, setCustom }: { period:
 }
 
 export function FinancePage({ navigate }: PageProps) {
+  const access = useAccess();
   const toast = useToast();
   const [period, setPeriod] = useState<Period>("month");
   const [custom, setCustom] = useState({ from: monthStart(), to: todayISO() });
@@ -81,9 +83,11 @@ export function FinancePage({ navigate }: PageProps) {
                 </Button>
               </>
             )}
-            <Button variant="primary" icon={<Receipt size={16} />} onClick={() => navigate({ page: "expenses" })}>
-              Registrar gasto
-            </Button>
+            {access.canWrite("expenses") && (
+              <Button variant="primary" icon={<Receipt size={16} />} onClick={() => navigate({ page: "expenses" })}>
+                Registrar gasto
+              </Button>
+            )}
           </>
         }
       />

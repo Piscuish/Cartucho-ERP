@@ -17,6 +17,8 @@ export interface CustomItem {
 
 export function ProductPickerModal({
   products,
+  catalogEnabled = true,
+  showStock = true,
   inCart,
   onAddProduct,
   onAddCustom,
@@ -24,6 +26,10 @@ export function ProductPickerModal({
   onGoToCatalog,
 }: {
   products: Product[];
+  /** Sin módulo de catálogo solo se ofrecen ítems personalizados. */
+  catalogEnabled?: boolean;
+  /** Sin módulo de inventario no se muestran existencias. */
+  showStock?: boolean;
   /** Cantidad ya agregada por producto (para marcar las tarjetas). */
   inCart: Map<number, number>;
   onAddProduct: (p: Product) => void;
@@ -31,7 +37,7 @@ export function ProductPickerModal({
   onClose: () => void;
   onGoToCatalog: () => void;
 }) {
-  const [tab, setTab] = useState<"catalog" | "custom">(products.length ? "catalog" : "custom");
+  const [tab, setTab] = useState<"catalog" | "custom">(catalogEnabled && products.length ? "catalog" : "custom");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("");
   const [added, setAdded] = useState(0);
@@ -64,7 +70,7 @@ export function ProductPickerModal({
       footer={
         <>
           <span className="subtle" style={{ marginRight: "auto", fontSize: 13 }}>
-            {added > 0 ? `${added} ${added === 1 ? "agregado" : "agregados"}` : "Toca un producto para agregarlo"}
+            {added > 0 ? `${added} ${added === 1 ? "agregado" : "agregados"}` : catalogEnabled ? "Toca un producto para agregarlo" : ""}
           </span>
           <Button variant="primary" onClick={onClose}>
             Listo
@@ -74,6 +80,7 @@ export function ProductPickerModal({
     >
       <div className="row-between mb-16">
         <div className="modal-title">Agregar producto o servicio</div>
+        {catalogEnabled && (
         <Segmented
           value={tab}
           onChange={setTab}
@@ -82,6 +89,7 @@ export function ProductPickerModal({
             { value: "custom", label: <><PencilLine size={14} /> Personalizado</> },
           ]}
         />
+        )}
       </div>
 
       {tab === "catalog" ? (
@@ -141,7 +149,7 @@ export function ProductPickerModal({
             <div className="pick-grid">
               {visible.map((p) => {
                 const count = inCart.get(p.id) ?? 0;
-                const out = p.trackStock && p.stockQty <= 0;
+                const out = showStock && p.trackStock && p.stockQty <= 0;
                 return (
                   <button key={p.id} className={`pick-card ${count > 0 ? "is-in" : ""} ${flash === p.id ? "is-flash" : ""}`} onClick={() => add(p)}>
                     <div className="pick-media">
@@ -157,7 +165,7 @@ export function ProductPickerModal({
                       <div className="row-between">
                         <span className="pick-price">{money(p.price)}</span>
                         <span className={`pick-stock ${out ? "is-out" : p.isLowStock ? "is-low" : ""}`}>
-                          {p.trackStock ? (out ? "Agotado" : `${qty(p.stockQty)} ${p.unit}`) : "Servicio"}
+                          {!showStock ? p.unit : p.trackStock ? (out ? "Agotado" : `${qty(p.stockQty)} ${p.unit}`) : "Servicio"}
                         </span>
                       </div>
                     </div>

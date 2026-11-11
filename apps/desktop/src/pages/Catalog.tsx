@@ -3,6 +3,7 @@ import { Archive, ArchiveRestore, Download, LayoutGrid, List, Package, PackagePl
 import type { Category, Product, ProductInput } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
+import { useAccess } from "../lib/access";
 import { useAsync, useDebounced } from "../lib/hooks";
 import { errorMessage, money, parseQty, qty, todayISO } from "../lib/format";
 import { Alert, Badge, Button, Drawer, EmptyState, Field, ImagePicker, MoneyInput, PageHeader, SearchBox, Segmented, SkeletonRows, Switch, useToast } from "../components/ui";
@@ -18,6 +19,7 @@ export function stockBadge(p: Product) {
 }
 
 export function CatalogPage({ openId }: PageProps & { openId?: number }) {
+  const withStock = useAccess().can("inventory");
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
@@ -165,7 +167,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
                   <th className="t-right">Precio</th>
                   <th className="t-right">Costo</th>
                   <th className="t-right">Margen</th>
-                  <th>Existencias</th>
+                  {withStock && <th>Existencias</th>}
                 </tr>
               </thead>
               <tbody>
@@ -184,7 +186,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
                     <td className="t-right money">{money(p.price)}</td>
                     <td className="t-right money subtle">{money(p.cost)}</td>
                     <td className="t-right num">{p.price > 0 ? `${Math.round(((p.price - p.cost) / p.price) * 100)}%` : "—"}</td>
-                    <td>{stockBadge(p)}</td>
+                    {withStock && <td>{stockBadge(p)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -233,6 +235,7 @@ function ProductDrawer({
   onSaved: (p: Product, msg: string) => void;
   onManageCategories: () => void;
 }) {
+  const withStock = useAccess().can("inventory");
   const [form, setForm] = useState<ProductInput>({
     id: product?.id ?? null,
     sku: product?.sku ?? "",
@@ -375,6 +378,7 @@ function ProductDrawer({
           </div>
         </div>
 
+        {withStock && (
         <div className="form-section">
           <Switch
             checked={form.trackStock}
@@ -408,6 +412,7 @@ function ProductDrawer({
             </div>
           )}
         </div>
+        )}
         {error && form.name.trim() && <Alert tone="danger">{error}</Alert>}
       </div>
     </Drawer>

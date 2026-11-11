@@ -19,7 +19,8 @@ import {
   Users,
 } from "lucide-react";
 import type { AuthenticatedUserSummary, CompanyProfile, ResolvedTheme, SearchHit } from "@cartucho/shared";
-import { NAVIGATION, Route } from "../config/moduleRegistry";
+import { NAVIGATION, NavGroup, Route } from "../config/moduleRegistry";
+import { useAccess } from "../lib/access";
 import { api } from "../services/systemClient";
 import { useDebounced, useHotkey } from "../lib/hooks";
 import { initials } from "../lib/format";
@@ -54,6 +55,8 @@ export function AppShell({
     }
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const access = useAccess();
+  const navigation = useVisibleNavigation();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,7 +88,7 @@ export function AppShell({
         </div>
 
         <nav className="sb-nav" aria-label="Menú principal">
-          {NAVIGATION.map((group) => (
+          {navigation.map((group) => (
             <div className="sb-group" key={group.label}>
               <div className="sb-group-label">{group.label}</div>
               {group.items.map((item) => {
@@ -142,12 +145,16 @@ export function AppShell({
           <button className="icon-btn" onClick={onToggleTheme} title="Cambiar tema" aria-label="Cambiar tema">
             {resolvedTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <Button variant="secondary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
-            Cotización
-          </Button>
-          <Button variant="primary" icon={<Plus size={16} />} onClick={() => navigate({ page: "invoice-new" })}>
-            Nueva factura
-          </Button>
+          {access.canWrite("quotes") && (
+            <Button variant="secondary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
+              Cotización
+            </Button>
+          )}
+          {access.canWrite("invoices") && (
+            <Button variant="primary" icon={<Plus size={16} />} onClick={() => navigate({ page: "invoice-new" })}>
+              Nueva factura
+            </Button>
+          )}
         </header>
         <div className="main-scroll" ref={scrollRef}>
           {children}
@@ -156,6 +163,16 @@ export function AppShell({
 
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} navigate={navigate} />}
     </div>
+  );
+}
+
+/** Menú lateral filtrado por los módulos de la licencia. */
+function useVisibleNavigation(): NavGroup[] {
+  const access = useAccess();
+  return useMemo(
+    () =>
+      NAVIGATION.map((g) => ({ ...g, items: g.items.filter((i) => access.canOpen(i.route)) })).filter((g) => g.items.length > 0),
+    [access],
   );
 }
 
@@ -189,6 +206,8 @@ function CommandPalette({ onClose, navigate }: { onClose: () => void; navigate: 
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [selected, setSelected] = useState(0);
   const debounced = useDebounced(query, 160);
+  const access = useAccess();
+  const navigation = useVisibleNavigation();
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -212,11 +231,12 @@ function CommandPalette({ onClose, navigate }: { onClose: () => void; navigate: 
   };
 
   const entries: PaletteEntry[] = useMemo(() => {
-    const actions: PaletteEntry[] = [
-      { key: "a-inv", section: "Acciones", title: "Nueva factura", icon: <FilePlus2 size={16} />, run: () => go({ page: "invoice-new" }) },
-      { key: "a-quote", section: "Acciones", title: "Nueva cotización", icon: <FileSignature size={16} />, run: () => go({ page: "quote-new" }) },
-    ];
-    const pages: PaletteEntry[] = NAVIGATION.flatMap((g) =>
+    const actions: PaletteEntry[] = [];
+    if (access.canWrite("invoices"))
+      actions.push({ key: "a-inv", section: "Acciones", title: "Nueva factura", icon: <FilePlus2 size={16} />, run: () => go({ page: "invoice-new" }) });
+    if (access.canWrite("quotes"))
+      actions.push({ key: "a-quote", section: "Acciones", title: "Nueva cotización", icon: <FileSignature size={16} />, run: () => go({ page: "quote-new" }) });
+    const pages: PaletteEntry[] = navigation.flatMap((g) =>
       g.items
         .filter((i) => i.id !== "invoice-new")
         .map((i) => {
@@ -241,7 +261,7 @@ function CommandPalette({ onClose, navigate }: { onClose: () => void; navigate: 
     }));
     return [...found, ...filteredStatic];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hits, query]);
+  }, [hits, query, access, navigation]);
 
   useEffect(() => setSelected(0), [entries.length]);
 

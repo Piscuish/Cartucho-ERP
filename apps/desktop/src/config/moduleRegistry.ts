@@ -1,4 +1,4 @@
-import type { NavigationSectionId } from "@cartucho/shared";
+import type { ModuleKey, NavigationSectionId } from "@cartucho/shared";
 import {
   BarChart3,
   Boxes,
@@ -13,7 +13,7 @@ import {
   Users,
 } from "lucide-react";
 
-export type SettingsTab = "company" | "billing" | "appearance" | "security" | "data" | "about";
+export type SettingsTab = "company" | "billing" | "appearance" | "security" | "data" | "license" | "about";
 
 /** Ruta interna de la aplicación (navegación sin recargar). */
 export type Route =
@@ -39,6 +39,18 @@ export interface NavItem {
   /** Páginas que deben marcar este elemento como activo. */
   matches: Route["page"][];
 }
+
+/** Módulo de licencia que habilita cada elemento del menú (sin módulo = siempre visible). */
+export const NAV_MODULE: Partial<Record<NavigationSectionId, ModuleKey>> = {
+  invoices: "invoices",
+  "invoice-new": "invoices",
+  quotes: "quotes",
+  customers: "customers",
+  catalog: "catalog",
+  inventory: "inventory",
+  finance: "finance",
+  expenses: "expenses",
+};
 
 export interface NavGroup {
   label: string;
@@ -86,5 +98,6 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "appearance", label: "Apariencia" },
   { id: "security", label: "Usuario y seguridad" },
   { id: "data", label: "Base de datos y respaldos" },
+  { id: "license", label: "Licencia" },
   { id: "about", label: "Acerca de" },
 ];

@@ -160,6 +160,9 @@ pub struct SystemOverview {
     pub has_admin_user: bool,
     pub is_authenticated: bool,
     pub current_user: Option<AuthenticatedUserSummary>,
+    /// Estado de la licencia y módulos habilitados (lo completa la capa de la aplicación).
+    #[serde(default)]
+    pub license: Option<crate::licensing::LicenseStatus>,
 }
 
 /// Resuelve el directorio de datos de aplicación nativo del sistema operativo:
@@ -787,6 +790,8 @@ pub struct LocalDatabase {
     failed_login_attempts: u32,
     /// Bloqueo temporal tras demasiados intentos fallidos (solo en memoria).
     login_locked_until: Option<std::time::Instant>,
+    /// Módulos opcionales activos según la licencia.
+    pub(crate) features: crate::erp::Features,
 }
 
 impl LocalDatabase {
@@ -813,6 +818,7 @@ impl LocalDatabase {
             active_user_id: None,
             failed_login_attempts: 0,
             login_locked_until: None,
+            features: crate::erp::Features::default(),
         };
         instance.initialize_and_migrate()?;
         Ok(instance)
@@ -1684,6 +1690,7 @@ impl LocalDatabase {
             has_admin_user,
             is_authenticated,
             current_user,
+            license: None,
         })
     }
 }

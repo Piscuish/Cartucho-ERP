@@ -14,6 +14,7 @@ import { InventoryPage } from "../pages/Inventory";
 import { FinancePage } from "../pages/Finance";
 import { ExpensesPage } from "../pages/Expenses";
 import { SettingsPage } from "../pages/Settings";
+import { useAccess } from "../lib/access";
 
 export interface PageProps {
   navigate: (r: Route) => void;
@@ -23,7 +24,10 @@ export interface PageProps {
   reloadOverview: () => Promise<void>;
 }
 
-export function PageRouter({ route, ...props }: PageProps & { route: Route }) {
+export function PageRouter({ route: requested, ...props }: PageProps & { route: Route }) {
+  const access = useAccess();
+  // Una ruta de un módulo no incluido en la licencia vuelve al inicio.
+  const route: Route = access.canOpen(requested) ? requested : { page: "dashboard" };
   switch (route.page) {
     case "dashboard":
       return <DashboardPage {...props} />;

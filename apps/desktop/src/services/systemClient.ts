@@ -26,6 +26,9 @@ import {
   InvoiceFilter,
   InvoiceInput,
   InvoiceSummary,
+  LICENSE_CHANGED_EVENT,
+  LICENSE_COMMANDS,
+  LicenseStatus,
   LoginInput,
   Payment,
   PaymentInput,
@@ -62,7 +65,7 @@ async function call<T>(command: string, args: Record<string, unknown> = {}): Pro
   return mod.handlePreviewCommand(command, args) as Promise<T>;
 }
 
-const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS };
+const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS };
 
 export const api = {
   // Sistema y sesión
@@ -75,6 +78,12 @@ export const api = {
   saveCompany: (input: SaveCompanyProfileInput) => call<SystemOverview>(C.SAVE_COMPANY_PROFILE, { input }),
   resetDataLocation: () => call<SystemOverview>(C.RESET_DATA_LOCATION),
   retryOpenDatabase: () => call<SystemOverview>(C.RETRY_OPEN_DATABASE),
+
+  // Licencia
+  licenseStatus: () => call<LicenseStatus>(C.GET_LICENSE_STATUS),
+  activateOnline: (licenseKey: string) => call<LicenseStatus>(C.ACTIVATE_LICENSE_ONLINE, { licenseKey }),
+  activateOffline: (activationCode: string) => call<LicenseStatus>(C.ACTIVATE_LICENSE_OFFLINE, { activationCode }),
+  checkLicense: () => call<LicenseStatus>(C.CHECK_LICENSE_NOW),
 
   // Clientes
   listCustomers: (search = "", includeInactive = false) =>
@@ -175,4 +184,25 @@ export async function pickSavePath(title: string, defaultName: string, ext: stri
   const { save } = await import("@tauri-apps/plugin-dialog");
   const result = await save({ title, defaultPath: defaultName, filters: [{ name: label, extensions: [ext] }] });
   return result ?? null;
+}
+
+/** Avisa cuando la verificación periódica cambia la licencia (modo o módulos). */
+export function onLicenseChanged(handler: () => void): () => void {
+  if (!isDesktop()) {
+    const h = () => handler();
+    window.addEventListener("cartucho-license-changed", h);
+    return () => window.removeEventListener("cartucho-license-changed", h);
+  }
+  let unlisten: (() => void) | null = null;
+  let cancelled = false;
+  void import("@tauri-apps/api/event").then(({ listen }) =>
+    listen(LICENSE_CHANGED_EVENT, () => handler()).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    }),
+  );
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
 }

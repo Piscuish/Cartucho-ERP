@@ -1,8 +1,10 @@
 pub mod data_admin;
 pub mod db;
 pub mod erp;
+pub mod licensing;
 
 use db::LocalDatabase;
+use licensing::{check_gate, Entitlements, Gate, LicenseManager, LicenseStatus};
 use std::sync::Mutex;
 
 /// Estado compartido de la aplicación gestionado por Tauri.
@@ -13,6 +15,15 @@ use std::sync::Mutex;
 pub struct AppState {
     pub db: Mutex<Option<LocalDatabase>>,
     pub startup_error: Mutex<Option<String>>,
+    pub license: Mutex<LicenseManager>,
+}
+
+pub fn unix_now() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+fn license_dir() -> std::path::PathBuf {
+    db::resolve_os_app_data_dir().unwrap_or_else(|_| std::env::temp_dir().join("cartucho-erp"))
 }
 
 impl AppState {
@@ -25,11 +36,13 @@ impl AppState {
                 Self {
                     db: Mutex::new(Some(db)),
                     startup_error: Mutex::new(None),
+                    license: Mutex::new(LicenseManager::from_build_config(&license_dir())),
                 }
             }
             Err(e) => Self {
                 db: Mutex::new(None),
                 startup_error: Mutex::new(Some(e)),
+                license: Mutex::new(LicenseManager::from_build_config(&license_dir())),
             },
         }
     }
@@ -54,6 +67,41 @@ impl AppState {
                 Err(format!("STARTUP_ERROR: {}", msg))
             }
         }
+    }
+
+    /// Permisos actuales según la licencia.
+    pub fn entitlements(&self) -> Entitlements {
+        self.license
+            .lock()
+            .map(|mut l| l.entitlements(unix_now()))
+            .unwrap_or_else(|_| Entitlements { mode: licensing::LicenseMode::Unlicensed, modules: Default::default() })
+    }
+
+    pub fn license_status(&self) -> Result<LicenseStatus, String> {
+        self.license
+            .lock()
+            .map(|mut l| l.status(unix_now()))
+            .map_err(|_| "Error interno al leer la licencia.".to_string())
+    }
+
+    /// Ejecuta una operación solo si la licencia la permite, con los módulos opcionales
+    /// configurados en la base de datos para esta llamada.
+    pub fn gated<T>(
+        &self,
+        gate: Gate,
+        f: impl FnOnce(&mut LocalDatabase) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let ent = self.entitlements();
+        check_gate(&ent, gate)?;
+        self.with_db(|db| {
+            db.features = erp::Features {
+                customers: ent.has("customers"),
+                catalog: ent.has("catalog"),
+                inventory: ent.has("inventory"),
+                expenses: ent.has("expenses"),
+            };
+            f(db)
+        })
     }
 
     /// Vuelve a la carpeta de datos predeterminada y reintenta abrir la base.
@@ -99,23 +147,80 @@ mod tauri_commands {
 
     type S<'a> = State<'a, AppState>;
 
+    fn category_gate(kind: &str, write: bool) -> Gate {
+        let module = if kind == "expense" { "expenses" } else { "catalog" };
+        if write { Gate::Write(module) } else { Gate::Read(module) }
+    }
+
+    fn csv_gate(kind: &str) -> Gate {
+        match kind {
+            "expenses" => Gate::Read("expenses"),
+            "products" => Gate::Read("catalog"),
+            "customers" => Gate::Read("customers"),
+            _ => Gate::Read("invoices"),
+        }
+    }
+
+    /// Resumen del sistema con el estado de la licencia incluido.
+    fn overview(
+        state: &AppState,
+        f: impl FnOnce(&mut LocalDatabase) -> Result<SystemOverview, String>,
+    ) -> Result<SystemOverview, String> {
+        overview_gated(state, Gate::Core, f)
+    }
+
+    fn overview_gated(
+        state: &AppState,
+        gate: Gate,
+        f: impl FnOnce(&mut LocalDatabase) -> Result<SystemOverview, String>,
+    ) -> Result<SystemOverview, String> {
+        let mut o = state.gated(gate, f)?;
+        o.license = Some(state.license_status()?);
+        Ok(o)
+    }
+
+    // ------------------------------------------------------------ Licencia
+
+    #[tauri::command]
+    pub fn get_license_status(state: S<'_>) -> Result<LicenseStatus, String> {
+        state.license_status()
+    }
+
+    #[tauri::command]
+    pub fn activate_license_online(license_key: String, state: S<'_>) -> Result<LicenseStatus, String> {
+        let mut lic = state.license.lock().map_err(|_| "Error interno de licencia.".to_string())?;
+        lic.activate_online(&license_key, &licensing::device_name(), env!("CARGO_PKG_VERSION"), unix_now())
+    }
+
+    #[tauri::command]
+    pub fn activate_license_offline(activation_code: String, state: S<'_>) -> Result<LicenseStatus, String> {
+        let mut lic = state.license.lock().map_err(|_| "Error interno de licencia.".to_string())?;
+        lic.activate_offline(&activation_code, unix_now())
+    }
+
+    #[tauri::command]
+    pub fn check_license_now(state: S<'_>) -> Result<LicenseStatus, String> {
+        let mut lic = state.license.lock().map_err(|_| "Error interno de licencia.".to_string())?;
+        lic.check_in(&licensing::device_name(), env!("CARGO_PKG_VERSION"), unix_now())
+    }
+
     // ------------------------------------------------------------ Sistema y sesión
 
     #[tauri::command]
     pub fn get_system_overview(state: S<'_>) -> Result<SystemOverview, String> {
-        state.with_db(|db| db.build_system_overview())
+        overview(&state, |db| db.build_system_overview())
     }
 
     #[tauri::command]
     pub fn reset_data_location(state: S<'_>) -> Result<SystemOverview, String> {
         state.reset_to_default_location()?;
-        state.with_db(|db| db.build_system_overview())
+        overview_gated(&state, Gate::Core, |db| db.build_system_overview())
     }
 
     #[tauri::command]
     pub fn retry_open_database(state: S<'_>) -> Result<SystemOverview, String> {
         state.retry_open()?;
-        state.with_db(|db| db.build_system_overview())
+        overview_gated(&state, Gate::Core, |db| db.build_system_overview())
     }
 
     #[tauri::command]
@@ -123,7 +228,7 @@ mod tauri_commands {
         input: CompleteInitialSetupInput,
         state: S<'_>,
     ) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::CoreWrite, |db| {
             db.complete_initial_setup(&input)?;
             db.build_system_overview()
         })
@@ -131,7 +236,7 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn login_user(input: LoginInput, state: S<'_>) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::Core, |db| {
             db.login(&input.username, &input.password)?;
             db.build_system_overview()
         })
@@ -139,7 +244,7 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn logout_user(state: S<'_>) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::Core, |db| {
             db.logout();
             db.build_system_overview()
         })
@@ -150,7 +255,7 @@ mod tauri_commands {
         input: ChangePasswordInput,
         state: S<'_>,
     ) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::Core, |db| {
             db.change_authenticated_user_password(&input)?;
             db.build_system_overview()
         })
@@ -158,7 +263,7 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn record_persistence_check(note: String, state: S<'_>) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::CoreWrite, |db| {
             db.record_persistence_check(&note)?;
             db.build_system_overview()
         })
@@ -166,7 +271,7 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn set_theme_preference(theme: String, state: S<'_>) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::Core, |db| {
             db.set_theme_preference(&theme)?;
             db.build_system_overview()
         })
@@ -177,7 +282,7 @@ mod tauri_commands {
         input: SaveCompanyProfileInput,
         state: S<'_>,
     ) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::CoreWrite, |db| {
             db.save_company_profile(&input)?;
             db.build_system_overview()
         })
@@ -191,24 +296,24 @@ mod tauri_commands {
         include_inactive: bool,
         state: S<'_>,
     ) -> Result<Vec<Customer>, String> {
-        state.with_db(|db| db.list_customers(search, include_inactive))
+        state.gated(Gate::Read("customers"), |db| db.list_customers(search, include_inactive))
     }
 
     #[tauri::command]
     pub fn save_customer(input: CustomerInput, state: S<'_>) -> Result<Customer, String> {
-        state.with_db(|db| db.save_customer(&input))
+        state.gated(Gate::Write("customers"), |db| db.save_customer(&input))
     }
 
     #[tauri::command]
     pub fn set_customer_active(id: i64, active: bool, state: S<'_>) -> Result<Customer, String> {
-        state.with_db(|db| db.set_customer_active(id, active))
+        state.gated(Gate::Write("customers"), |db| db.set_customer_active(id, active))
     }
 
     // ------------------------------------------------------------ Catálogo e inventario
 
     #[tauri::command]
     pub fn list_categories(kind: String, state: S<'_>) -> Result<Vec<Category>, String> {
-        state.with_db(|db| db.list_categories(&kind))
+        state.gated(category_gate(&kind, false), |db| db.list_categories(&kind))
     }
 
     #[tauri::command]
@@ -218,12 +323,12 @@ mod tauri_commands {
         name: String,
         state: S<'_>,
     ) -> Result<Category, String> {
-        state.with_db(|db| db.save_category(id, &kind, &name))
+        state.gated(category_gate(&kind, true), |db| db.save_category(id, &kind, &name))
     }
 
     #[tauri::command]
     pub fn delete_category(id: i64, state: S<'_>) -> Result<(), String> {
-        state.with_db(|db| db.delete_category(id))
+        state.gated(Gate::CoreWrite, |db| db.delete_category(id))
     }
 
     #[tauri::command]
@@ -234,22 +339,22 @@ mod tauri_commands {
         only_low_stock: bool,
         state: S<'_>,
     ) -> Result<Vec<Product>, String> {
-        state.with_db(|db| db.list_products(search, category_id, include_inactive, only_low_stock))
+        state.gated(Gate::Read("catalog"), |db| db.list_products(search, category_id, include_inactive, only_low_stock))
     }
 
     #[tauri::command]
     pub fn save_product(input: ProductInput, state: S<'_>) -> Result<Product, String> {
-        state.with_db(|db| db.save_product(&input))
+        state.gated(Gate::Write("catalog"), |db| db.save_product(&input))
     }
 
     #[tauri::command]
     pub fn set_product_active(id: i64, active: bool, state: S<'_>) -> Result<Product, String> {
-        state.with_db(|db| db.set_product_active(id, active))
+        state.gated(Gate::Write("catalog"), |db| db.set_product_active(id, active))
     }
 
     #[tauri::command]
     pub fn adjust_stock(input: StockAdjustmentInput, state: S<'_>) -> Result<Product, String> {
-        state.with_db(|db| db.adjust_stock(&input))
+        state.gated(Gate::Write("inventory"), |db| db.adjust_stock(&input))
     }
 
     #[tauri::command]
@@ -258,14 +363,14 @@ mod tauri_commands {
         limit: Option<i64>,
         state: S<'_>,
     ) -> Result<Vec<InventoryMovement>, String> {
-        state.with_db(|db| db.list_inventory_movements(product_id, limit))
+        state.gated(Gate::Read("inventory"), |db| db.list_inventory_movements(product_id, limit))
     }
 
     // ------------------------------------------------------------ Facturas y cotizaciones
 
     #[tauri::command]
     pub fn create_invoice(input: InvoiceInput, state: S<'_>) -> Result<InvoiceDetail, String> {
-        state.with_db(|db| db.create_invoice(&input))
+        state.gated(Gate::Write("invoices"), |db| db.create_invoice(&input))
     }
 
     #[tauri::command]
@@ -273,12 +378,12 @@ mod tauri_commands {
         filter: InvoiceFilter,
         state: S<'_>,
     ) -> Result<Vec<InvoiceSummary>, String> {
-        state.with_db(|db| db.list_invoices(&filter))
+        state.gated(Gate::Read("invoices"), |db| db.list_invoices(&filter))
     }
 
     #[tauri::command]
     pub fn get_invoice(id: i64, state: S<'_>) -> Result<InvoiceDetail, String> {
-        state.with_db(|db| db.get_invoice(id))
+        state.gated(Gate::Read("invoices"), |db| db.get_invoice(id))
     }
 
     #[tauri::command]
@@ -287,7 +392,7 @@ mod tauri_commands {
         payment: PaymentInput,
         state: S<'_>,
     ) -> Result<InvoiceDetail, String> {
-        state.with_db(|db| db.add_payment(invoice_id, &payment))
+        state.gated(Gate::Write("invoices"), |db| db.add_payment(invoice_id, &payment))
     }
 
     #[tauri::command]
@@ -296,7 +401,7 @@ mod tauri_commands {
         reason: String,
         state: S<'_>,
     ) -> Result<InvoiceDetail, String> {
-        state.with_db(|db| db.void_invoice(invoice_id, &reason))
+        state.gated(Gate::Write("invoices"), |db| db.void_invoice(invoice_id, &reason))
     }
 
     #[tauri::command]
@@ -305,12 +410,12 @@ mod tauri_commands {
         date_to: Option<String>,
         state: S<'_>,
     ) -> Result<Vec<Payment>, String> {
-        state.with_db(|db| db.list_payments(date_from, date_to))
+        state.gated(Gate::Read("invoices"), |db| db.list_payments(date_from, date_to))
     }
 
     #[tauri::command]
     pub fn create_quote(input: QuoteInput, state: S<'_>) -> Result<QuoteDetail, String> {
-        state.with_db(|db| db.create_quote(&input))
+        state.gated(Gate::Write("quotes"), |db| db.create_quote(&input))
     }
 
     #[tauri::command]
@@ -319,17 +424,17 @@ mod tauri_commands {
         status: Option<String>,
         state: S<'_>,
     ) -> Result<Vec<QuoteSummary>, String> {
-        state.with_db(|db| db.list_quotes(search, status))
+        state.gated(Gate::Read("quotes"), |db| db.list_quotes(search, status))
     }
 
     #[tauri::command]
     pub fn get_quote(id: i64, state: S<'_>) -> Result<QuoteDetail, String> {
-        state.with_db(|db| db.get_quote(id))
+        state.gated(Gate::Read("quotes"), |db| db.get_quote(id))
     }
 
     #[tauri::command]
     pub fn cancel_quote(id: i64, state: S<'_>) -> Result<QuoteDetail, String> {
-        state.with_db(|db| db.cancel_quote(id))
+        state.gated(Gate::Write("quotes"), |db| db.cancel_quote(id))
     }
 
     #[tauri::command]
@@ -339,7 +444,7 @@ mod tauri_commands {
         due_date: Option<String>,
         state: S<'_>,
     ) -> Result<InvoiceDetail, String> {
-        state.with_db(|db| db.convert_quote_to_invoice(quote_id, &issue_date, due_date))
+        state.gated(Gate::Write("quotes"), |db| db.convert_quote_to_invoice(quote_id, &issue_date, due_date))
     }
 
     // ------------------------------------------------------------ Finanzas
@@ -352,17 +457,17 @@ mod tauri_commands {
         search: Option<String>,
         state: S<'_>,
     ) -> Result<Vec<Expense>, String> {
-        state.with_db(|db| db.list_expenses(date_from, date_to, category_id, search))
+        state.gated(Gate::Read("expenses"), |db| db.list_expenses(date_from, date_to, category_id, search))
     }
 
     #[tauri::command]
     pub fn save_expense(input: ExpenseInput, state: S<'_>) -> Result<Expense, String> {
-        state.with_db(|db| db.save_expense(&input))
+        state.gated(Gate::Write("expenses"), |db| db.save_expense(&input))
     }
 
     #[tauri::command]
     pub fn delete_expense(id: i64, state: S<'_>) -> Result<(), String> {
-        state.with_db(|db| db.delete_expense(id))
+        state.gated(Gate::Write("expenses"), |db| db.delete_expense(id))
     }
 
     #[tauri::command]
@@ -371,17 +476,30 @@ mod tauri_commands {
         date_to: String,
         state: S<'_>,
     ) -> Result<FinanceSummary, String> {
-        state.with_db(|db| db.finance_summary(&date_from, &date_to))
+        state.gated(Gate::Read("finance"), |db| db.finance_summary(&date_from, &date_to))
     }
 
     #[tauri::command]
     pub fn get_dashboard(today: String, state: S<'_>) -> Result<DashboardData, String> {
-        state.with_db(|db| db.dashboard(&today))
+        state.gated(Gate::Core, |db| db.dashboard(&today))
     }
 
     #[tauri::command]
     pub fn global_search(query: String, state: S<'_>) -> Result<Vec<SearchHit>, String> {
-        state.with_db(|db| db.global_search(&query))
+        let ent = state.entitlements();
+        let hits = state.gated(Gate::Core, |db| db.global_search(&query))?;
+        Ok(hits
+            .into_iter()
+            .filter(|h| {
+                let module = match h.kind.as_str() {
+                    "invoice" => "invoices",
+                    "quote" => "quotes",
+                    "customer" => "customers",
+                    _ => "catalog",
+                };
+                licensing::check_gate(&ent, Gate::Read(module)).is_ok()
+            })
+            .collect())
     }
 
     #[tauri::command]
@@ -392,14 +510,14 @@ mod tauri_commands {
         destination: String,
         state: S<'_>,
     ) -> Result<String, String> {
-        state.with_db(|db| db.export_csv(&kind, date_from, date_to, &destination))
+        state.gated(csv_gate(&kind), |db| db.export_csv(&kind, date_from, date_to, &destination))
     }
 
     // ------------------------------------------------------------ Configuración y datos
 
     #[tauri::command]
     pub fn get_business_settings(state: S<'_>) -> Result<BusinessSettings, String> {
-        state.with_db(|db| db.get_business_settings())
+        state.gated(Gate::Core, |db| db.get_business_settings())
     }
 
     #[tauri::command]
@@ -407,12 +525,12 @@ mod tauri_commands {
         settings: BusinessSettings,
         state: S<'_>,
     ) -> Result<BusinessSettings, String> {
-        state.with_db(|db| db.save_business_settings(&settings))
+        state.gated(Gate::CoreWrite, |db| db.save_business_settings(&settings))
     }
 
     #[tauri::command]
     pub fn get_data_location(state: S<'_>) -> Result<DataLocationInfo, String> {
-        state.with_db(|db| db.get_data_location_info())
+        state.gated(Gate::Core, |db| db.get_data_location_info())
     }
 
     #[tauri::command]
@@ -421,7 +539,7 @@ mod tauri_commands {
         keep: i64,
         state: S<'_>,
     ) -> Result<DataLocationInfo, String> {
-        state.with_db(|db| {
+        state.gated(Gate::DataAdmin, |db| {
             db.save_auto_backup_settings(enabled, keep)?;
             db.get_data_location_info()
         })
@@ -429,27 +547,27 @@ mod tauri_commands {
 
     #[tauri::command]
     pub fn create_manual_backup(state: S<'_>) -> Result<String, String> {
-        state.with_db(|db| db.create_manual_backup())
+        state.gated(Gate::DataExport, |db| db.create_manual_backup())
     }
 
     #[tauri::command]
     pub fn export_backup(destination: String, state: S<'_>) -> Result<String, String> {
-        state.with_db(|db| db.export_backup(&destination))
+        state.gated(Gate::DataExport, |db| db.export_backup(&destination))
     }
 
     #[tauri::command]
     pub fn restore_backup(source: String, state: S<'_>) -> Result<RestoreResult, String> {
-        state.with_db(|db| db.restore_from_backup(&source))
+        state.gated(Gate::DataAdmin, |db| db.restore_from_backup(&source))
     }
 
     #[tauri::command]
     pub fn move_data_location(new_dir: String, state: S<'_>) -> Result<DataLocationInfo, String> {
-        state.with_db(|db| db.move_data_to(&new_dir))
+        state.gated(Gate::DataAdmin, |db| db.move_data_to(&new_dir))
     }
 
     #[tauri::command]
     pub fn use_existing_data_location(dir: String, state: S<'_>) -> Result<SystemOverview, String> {
-        state.with_db(|db| {
+        overview_gated(&state, Gate::DataAdmin, |db| {
             db.use_existing_data_dir(&dir)?;
             db.build_system_overview()
         })
@@ -461,8 +579,38 @@ mod tauri_commands {
         tauri::Builder::default()
             .plugin(tauri_plugin_dialog::init())
             .manage(app_state)
+            .setup(|app| {
+                // Reporte con el servidor de licencias: al iniciar y cada hora mientras la
+                // aplicación esté abierta. Sin conexión no pasa nada: el token sigue siendo
+                // válido hasta 30 días.
+                use tauri::{Emitter, Manager};
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    loop {
+                        let state = handle.state::<AppState>();
+                        let should = state.license.lock().map(|l| l.has_license_key()).unwrap_or(false);
+                        if should {
+                            let before = state.license_status().ok().map(|s| (s.mode, s.modules.clone()));
+                            if let Ok(mut lic) = state.license.lock() {
+                                let _ = lic.check_in(&licensing::device_name(), env!("CARGO_PKG_VERSION"), unix_now());
+                            }
+                            let after = state.license_status().ok().map(|s| (s.mode, s.modules.clone()));
+                            if before != after {
+                                let _ = handle.emit("license-changed", ());
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_secs(60 * 60));
+                    }
+                });
+                Ok(())
+            })
             .invoke_handler(tauri::generate_handler![
                 get_system_overview,
+                get_license_status,
+                activate_license_online,
+                activate_license_offline,
+                check_license_now,
                 reset_data_location,
                 retry_open_database,
                 complete_initial_setup,
