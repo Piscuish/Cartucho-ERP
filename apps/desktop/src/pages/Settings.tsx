@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, BadgeCheck, Save, ShieldCheck } from "lucide-react";
+import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, BadgeCheck, Check, Save, ShieldCheck } from "lucide-react";
 import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
+import { VISUAL_STYLES } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { SETTINGS_TABS, SettingsTab } from "../config/moduleRegistry";
 import { api, isDesktop, pickBackupFile, pickFolder } from "../services/systemClient";
@@ -253,8 +254,60 @@ function AppearanceSettings({ overview, setOverview }: PageProps) {
     { id: "dark", label: "Oscuro", light: false },
     { id: "system", label: "Según el sistema", light: null },
   ];
+  const style = overview.preferences.visualStyle ?? "violeta";
+  const dark = document.documentElement.dataset.theme === "dark";
   return (
-    <Section title="Tema" desc="Cambia toda la aplicación, incluido el menú lateral.">
+    <>
+    <Section title="Estilo visual" desc="Colores, menú lateral y forma de toda la aplicación. Se combina con el tema claro u oscuro.">
+      <div className="style-gallery">
+        {VISUAL_STYLES.map((s) => {
+          const [side, bg, card, accent, line] = dark ? s.preview.dark : s.preview.light;
+          const r = s.radius;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              className={`style-card ${style === s.id ? "is-active" : ""}`}
+              onClick={async () => {
+                if (style === s.id) return;
+                try {
+                  setOverview(await api.setVisualStyle(s.id));
+                } catch (e) {
+                  toast(errorMessage(e), "error");
+                }
+              }}
+            >
+              <div className="style-mini" style={{ borderRadius: r + 3, background: bg }}>
+                <div className="style-mini-side" style={{ background: side, borderRight: `1px solid ${line}` }}>
+                  <div className="bar" style={{ width: "70%", background: accent }} />
+                  <div className="bar" style={{ width: "85%", background: line, opacity: 0.8 }} />
+                  <div className="bar" style={{ width: "60%", background: line, opacity: 0.8 }} />
+                  <div className="bar" style={{ width: "75%", background: line, opacity: 0.8 }} />
+                </div>
+                <div className="style-mini-main">
+                  <div className="style-mini-row">
+                    <div className="bar" style={{ flex: 1, background: line }} />
+                    <div style={{ width: 26, height: 10, borderRadius: Math.min(r, 5), background: accent }} />
+                  </div>
+                  <div className="style-mini-row">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="style-mini-card" style={{ background: card, borderRadius: r, border: `1px solid ${line}` }} />
+                    ))}
+                  </div>
+                  <div className="style-mini-card" style={{ flex: "none", height: 22, background: card, borderRadius: r, border: `1px solid ${line}` }} />
+                </div>
+              </div>
+              <div className="style-card-name">
+                {s.label}
+                {style === s.id && <Check size={16} color="var(--accent)" />}
+              </div>
+              <div className="style-card-desc">{s.description}</div>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+    <Section title="Tema" desc="Claro, oscuro o según la configuración de Windows.">
       <div className="theme-options">
         {options.map((o) => (
           <button
@@ -271,7 +324,7 @@ function AppearanceSettings({ overview, setOverview }: PageProps) {
             <div className="theme-swatch">
               <div className="s1" style={{ background: o.light === null ? "linear-gradient(180deg,#ffffff 50%,#0a0d13 50%)" : o.light ? "#ffffff" : "#0a0d13", borderRight: "1px solid #e4e7ec" }} />
               <div className="s2" style={{ background: o.light === null ? "linear-gradient(90deg,#f4f5f8 50%,#0e1117 50%)" : o.light ? "#f4f5f8" : "#0e1117" }}>
-                <div className="ln" style={{ width: "60%", background: "#8b7ff0" }} />
+                <div className="ln" style={{ width: "60%", background: "var(--accent)" }} />
                 <div className="ln" style={{ width: "80%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
                 <div className="ln" style={{ width: "45%", background: o.light === false ? "#262d3a" : "#d0d5dd" }} />
               </div>
@@ -284,6 +337,7 @@ function AppearanceSettings({ overview, setOverview }: PageProps) {
         Atajos: Ctrl K para buscar · Ctrl B para contraer el menú.
       </p>
     </Section>
+    </>
   );
 }
 

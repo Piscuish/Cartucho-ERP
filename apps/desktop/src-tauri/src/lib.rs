@@ -278,6 +278,14 @@ mod tauri_commands {
     }
 
     #[tauri::command]
+    pub fn set_visual_style(style: String, state: S<'_>) -> Result<SystemOverview, String> {
+        overview_gated(&state, Gate::Core, |db| {
+            db.set_visual_style(&style)?;
+            db.build_system_overview()
+        })
+    }
+
+    #[tauri::command]
     pub fn save_company_profile(
         input: SaveCompanyProfileInput,
         state: S<'_>,
@@ -619,6 +627,7 @@ mod tauri_commands {
                 change_user_password,
                 record_persistence_check,
                 set_theme_preference,
+                set_visual_style,
                 save_company_profile,
                 list_customers,
                 save_customer,
