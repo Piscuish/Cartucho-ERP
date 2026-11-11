@@ -1064,9 +1064,9 @@ impl LocalDatabase {
         )
         .map_err(|e| format!("Error guardando first_initialized_at: {}", e))?;
 
-        // Inicializar preferencia de tema por defecto ('system') si no existe
+        // Instalación nueva: plantilla Clásico en tema claro (las existentes conservan su elección).
         conn.execute(
-            "INSERT OR IGNORE INTO _app_metadata (key, value, updated_at) VALUES ('theme_preference', 'system', ?1)",
+            "INSERT OR IGNORE INTO _app_metadata (key, value, updated_at) VALUES ('theme_preference', 'light', ?1)",
             params![&now],
         )
         .map_err(|e| format!("Error inicializando theme_preference: {}", e))?;
@@ -1695,7 +1695,7 @@ impl LocalDatabase {
             .or_else(|| read("visual_style").map(|(v, _)| Appearance::from_legacy_style(&v)))
             .unwrap_or_default();
         Ok(AppPreferences {
-            theme: theme.as_ref().map(|(v, _)| v.clone()).unwrap_or_else(|| "system".to_string()),
+            theme: theme.as_ref().map(|(v, _)| v.clone()).unwrap_or_else(|| "light".to_string()),
             appearance,
             updated_at: theme.map(|(_, u)| u).unwrap_or_else(|| Utc::now().to_rfc3339()),
         })
