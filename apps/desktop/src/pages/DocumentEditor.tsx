@@ -18,6 +18,9 @@ interface DraftLine {
   description: string;
   quantityText: string;
   unitPrice: number;
+  /** Descripción adicional de la línea (garantía, referencia…). */
+  note: string;
+  noteOpen: boolean;
 }
 
 let lineSeq = 1;
@@ -92,6 +95,8 @@ export function DocumentEditorPage({
               description: l.description,
               quantityText: fmtQtyText(l.quantity),
               unitPrice: l.unitPrice,
+              note: l.note ?? "",
+              noteOpen: !!l.note,
             })),
           );
           setNotes(doc.notes ?? "");
@@ -131,7 +136,7 @@ export function DocumentEditorPage({
     setLines((ls) => {
       const existing = ls.find((l) => l.productId === p.id);
       if (existing) return ls.map((l) => (l === existing ? { ...l, quantityText: fmtQtyText(parseQty(l.quantityText) + 1) } : l));
-      return [...ls, { key: lineSeq++, productId: p.id, description: p.name, quantityText: "1", unitPrice: p.price }];
+      return [...ls, { key: lineSeq++, productId: p.id, description: p.name, quantityText: "1", unitPrice: p.price, note: "", noteOpen: false }];
     });
 
   const saveRef = useRef<(andPrint: boolean) => Promise<void>>(async () => undefined);
@@ -153,7 +158,7 @@ export function DocumentEditorPage({
       customerId: customer?.id ?? null,
       customer: customer ? null : { name: walkIn ? manualCustomer.name : "", documentId: walkIn ? manualCustomer.documentId : "", phone: walkIn ? manualCustomer.phone : "" },
       issueDate,
-      lines: computed.map((l) => ({ productId: l.productId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice })),
+      lines: computed.map((l) => ({ productId: l.productId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, note: l.note.trim() || null })),
       notes,
       terms,
       footer,
@@ -284,6 +289,11 @@ export function DocumentEditorPage({
                           <div className="item-price">
                             <MoneyInput value={l.unitPrice} onChange={(v) => updateLine(l.key, { unitPrice: v })} className="input-ghost" aria-label="Precio unitario" />
                             {short ? <span className="item-warn">Quedan {qty(prod.stockQty)}</span> : !prod ? <span className="item-tag">Personalizado</span> : null}
+                            {!l.noteOpen && (
+                              <button type="button" className="item-note-btn" onClick={() => updateLine(l.key, { noteOpen: true })}>
+                                <Plus size={12} /> Agregar descripción
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div className="qty-stepper">
@@ -299,6 +309,23 @@ export function DocumentEditorPage({
                         <IconButton label="Quitar" danger onClick={() => removeLine(l.key)}>
                           <X size={16} />
                         </IconButton>
+                        {l.noteOpen && (
+                          <div className="item-note">
+                            <textarea
+                              className="input"
+                              rows={2}
+                              maxLength={500}
+                              autoFocus={!l.note}
+                              value={l.note}
+                              placeholder="Ej.: Garantía de 6 meses · Serial 12345 · Color negro"
+                              aria-label="Descripción adicional"
+                              onChange={(e) => updateLine(l.key, { note: e.target.value })}
+                            />
+                            <IconButton label="Quitar descripción" onClick={() => updateLine(l.key, { note: "", noteOpen: false })}>
+                              <X size={14} />
+                            </IconButton>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -401,7 +428,7 @@ export function DocumentEditorPage({
           showStock={useStock}
           inCart={inCart}
           onAddProduct={addProduct}
-          onAddCustom={(item) => setLines((ls) => [...ls, { key: lineSeq++, productId: null, description: item.description, quantityText: fmtQtyText(item.quantity), unitPrice: item.unitPrice }])}
+          onAddCustom={(item) => setLines((ls) => [...ls, { key: lineSeq++, productId: null, description: item.description, quantityText: fmtQtyText(item.quantity), unitPrice: item.unitPrice, note: "", noteOpen: false }])}
           onClose={() => setPicking(false)}
           onGoToCatalog={() => navigate({ page: "catalog" })}
         />

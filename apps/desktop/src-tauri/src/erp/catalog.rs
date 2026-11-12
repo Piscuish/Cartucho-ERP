@@ -31,6 +31,8 @@ pub struct Product {
     pub unit: String,
     pub price: i64,
     pub cost: i64,
+    /// "product" o "service". Un producto puede no controlar existencias (ej.: pan del día).
+    pub kind: String,
     pub track_stock: bool,
     pub stock_qty: f64,
     pub min_stock: f64,
@@ -52,6 +54,9 @@ pub struct ProductInput {
     pub unit: Option<String>,
     pub price: i64,
     pub cost: i64,
+    /// "product" o "service". Sin valor (versiones anteriores): servicio si no controla existencias.
+    #[serde(default)]
+    pub kind: Option<String>,
     #[serde(default = "default_true")]
     pub track_stock: bool,
     #[serde(default)]
@@ -105,7 +110,7 @@ pub struct InventoryMovement {
 const PRODUCT_SELECT: &str = "
     SELECT p.id, p.sku, p.name, p.description, p.category_id, c.name, p.unit, p.price, p.cost,
            p.track_stock, p.stock_qty, p.min_stock, p.image_blob, p.image_mime, p.is_active,
-           p.created_at, p.updated_at
+           p.created_at, p.updated_at, p.item_kind
     FROM products p LEFT JOIN categories c ON c.id = p.category_id";
 
 fn map_product(row: &Row<'_>) -> rusqlite::Result<Product> {
@@ -130,6 +135,7 @@ fn map_product(row: &Row<'_>) -> rusqlite::Result<Product> {
         unit: row.get(6)?,
         price: row.get(7)?,
         cost: row.get(8)?,
+        kind: row.get(17)?,
         track_stock,
         stock_qty,
         min_stock,
@@ -371,6 +377,20 @@ impl LocalDatabase {
             _ => None,
         };
 
+        // Tipo: un servicio nunca controla existencias.
+        let kind = match input.kind.as_deref().map(str::trim) {
+            Some("service") => "service",
+            Some("product") => "product",
+            Some(other) => return Err(format!("Tipo de producto no válido: {}.", other)),
+            None if input.track_stock => "product",
+            None => "service",
+        };
+        let mut input = input.clone();
+        if kind == "service" {
+            input.track_stock = false;
+        }
+        let input = &input;
+
         let mut conn = self.connect()?;
         let tx = conn
             .transaction()
@@ -409,7 +429,11 @@ impl LocalDatabase {
                                 "adjustment",
                                 None,
                                 None,
-                                Some("Convertido en servicio: existencias en cero"),
+                                Some(if kind == "service" {
+                                    "Convertido en servicio: existencias en cero"
+                                } else {
+                                    "Sin control de existencias: existencias en cero"
+                                }),
                                 user.id,
                             )?;
                         }
@@ -418,7 +442,8 @@ impl LocalDatabase {
                 let n = tx
                     .execute(
                         "UPDATE products SET sku = ?1, name = ?2, description = ?3, category_id = ?4,
-                            unit = ?5, price = ?6, cost = ?7, track_stock = ?8, min_stock = ?9, updated_at = ?10
+                            unit = ?5, price = ?6, cost = ?7, track_stock = ?8, min_stock = ?9, updated_at = ?10,
+                            item_kind = ?12
                          WHERE id = ?11",
                         params![
                             sku,
@@ -431,7 +456,8 @@ impl LocalDatabase {
                             input.track_stock as i64,
                             input.min_stock,
                             now,
-                            id
+                            id,
+                            kind
                         ],
                     )
                     .map_err(|e| friendly_sql_error("Guardar producto", e))?;
@@ -443,8 +469,8 @@ impl LocalDatabase {
             None => {
                 tx.execute(
                     "INSERT INTO products (sku, name, description, category_id, unit, price, cost,
-                        track_stock, stock_qty, min_stock, is_active, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, 1, ?10, ?10)",
+                        track_stock, stock_qty, min_stock, is_active, created_at, updated_at, item_kind)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, 1, ?10, ?10, ?11)",
                     params![
                         sku,
                         name,
@@ -455,7 +481,8 @@ impl LocalDatabase {
                         cost,
                         input.track_stock as i64,
                         input.min_stock,
-                        now
+                        now,
+                        kind
                     ],
                 )
                 .map_err(|e| friendly_sql_error("Guardar producto", e))?;

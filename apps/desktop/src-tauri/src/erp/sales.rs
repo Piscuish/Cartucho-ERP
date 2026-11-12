@@ -19,6 +19,9 @@ pub struct DocumentLineInput {
     pub description: String,
     pub quantity: f64,
     pub unit_price: i64,
+    /// Descripción adicional de la línea (garantía, referencia, color…).
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -112,6 +115,8 @@ pub struct DocumentLine {
     pub quantity: f64,
     pub unit_price: i64,
     pub line_total: i64,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -190,6 +195,7 @@ pub struct QuoteDetail {
 struct ValidatedLine {
     product_id: Option<i64>,
     description: String,
+    note: Option<String>,
     quantity: f64,
     unit_price: i64,
     unit_cost: i64,
@@ -325,9 +331,11 @@ fn validate_document(
             .checked_add(lt)
             .filter(|t| *t <= MAX_AMOUNT)
             .ok_or_else(|| "El total del documento es demasiado grande.".to_string())?;
+        let note = clean_opt(&l.note, 500, &format!("Descripción adicional de la {}", label))?;
         validated.push(ValidatedLine {
             product_id: l.product_id,
             description,
+            note,
             quantity,
             unit_price,
             unit_cost,
@@ -419,7 +427,7 @@ fn load_lines(
     id: i64,
 ) -> Result<Vec<DocumentLine>, String> {
     let sql = format!(
-        "SELECT id, position, product_id, description, quantity, unit_price, line_total
+        "SELECT id, position, product_id, description, quantity, unit_price, line_total, note
          FROM {} WHERE {} = ?1 ORDER BY position ASC",
         table, fk
     );
@@ -436,6 +444,7 @@ fn load_lines(
                 quantity: r.get(4)?,
                 unit_price: r.get(5)?,
                 line_total: r.get(6)?,
+                note: r.get(7)?,
             })
         })
         .map_err(|e| friendly_sql_error("Líneas", e))?
@@ -553,8 +562,8 @@ fn create_invoice_in_tx(
     for (pos, l) in doc.lines.iter().enumerate() {
         tx.execute(
             "INSERT INTO invoice_lines (invoice_id, position, product_id, description, quantity,
-                unit_price, unit_cost, line_total)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                unit_price, unit_cost, line_total, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 invoice_id,
                 pos as i64 + 1,
@@ -563,7 +572,8 @@ fn create_invoice_in_tx(
                 l.quantity,
                 l.unit_price,
                 l.unit_cost,
-                l.line_total
+                l.line_total,
+                l.note
             ],
         )
         .map_err(|e| friendly_sql_error("Crear factura", e))?;
@@ -898,9 +908,9 @@ impl LocalDatabase {
         let quote_id = tx.last_insert_rowid();
         for (pos, l) in doc.lines.iter().enumerate() {
             tx.execute(
-                "INSERT INTO quote_lines (quote_id, position, product_id, description, quantity, unit_price, line_total)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![quote_id, pos as i64 + 1, l.product_id, l.description, l.quantity, l.unit_price, l.line_total],
+                "INSERT INTO quote_lines (quote_id, position, product_id, description, quantity, unit_price, line_total, note)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![quote_id, pos as i64 + 1, l.product_id, l.description, l.quantity, l.unit_price, l.line_total, l.note],
             )
             .map_err(|e| friendly_sql_error("Cotización", e))?;
         }
@@ -1015,6 +1025,7 @@ impl LocalDatabase {
                 description: l.description.clone(),
                 quantity: l.quantity,
                 unit_price: l.unit_price,
+                note: l.note.clone(),
             })
             .collect();
         let snapshot = CustomerSnapshotInput {

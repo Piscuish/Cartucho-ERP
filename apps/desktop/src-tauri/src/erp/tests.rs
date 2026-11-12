@@ -50,6 +50,7 @@ fn line(pid: Option<i64>, desc: &str, qty: f64, price: i64) -> DocumentLineInput
         description: desc.to_string(),
         quantity: qty,
         unit_price: price,
+        note: None,
     }
 }
 
@@ -757,4 +758,80 @@ fn product_converted_to_service_clears_stock_with_movement() {
     assert_eq!(db.list_inventory_movements(Some(pid), Some(10)).unwrap().len(), moves.len());
     input.track_stock = true;
     assert_eq!(db.save_product(&input).unwrap().stock_qty, 0.0);
+}
+
+#[test]
+fn product_without_stock_control_and_line_notes() {
+    let (_dir, db) = setup();
+    // Pan del día: producto (no servicio) sin control de existencias.
+    let pan = db
+        .save_product(&ProductInput {
+            name: "Pan francés".to_string(),
+            price: 500,
+            cost: 200,
+            kind: Some("product".to_string()),
+            track_stock: false,
+            initial_stock: Some(50.0),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!((pan.kind.as_str(), pan.track_stock, pan.stock_qty), ("product", false, 0.0));
+    // Un servicio nunca controla existencias, aunque lo pidan.
+    let svc = db
+        .save_product(&ProductInput { name: "Instalación".to_string(), price: 80000, kind: Some("service".to_string()), track_stock: true, ..Default::default() })
+        .unwrap();
+    assert_eq!((svc.kind.as_str(), svc.track_stock), ("service", false));
+    assert!(db.save_product(&ProductInput { name: "X".to_string(), kind: Some("combo".to_string()), ..Default::default() }).is_err());
+
+    // Vender 300 panes no descuenta nada ni falla por existencias.
+    let mut l = line(Some(pan.id), "", 300.0, 500);
+    l.note = Some("  Garantía: 1 día  ".to_string());
+    let inv = db
+        .create_invoice(&InvoiceInput { issue_date: "2026-11-11".to_string(), lines: vec![l, line(Some(svc.id), "", 1.0, 80000)], ..Default::default() })
+        .unwrap();
+    assert_eq!(inv.lines[0].note.as_deref(), Some("Garantía: 1 día"));
+    assert_eq!(inv.lines[1].note, None);
+    assert_eq!(db.get_product(pan.id).unwrap().stock_qty, 0.0);
+
+    // La nota pasa de la cotización a la factura.
+    let mut ql = line(None, "Torta de cumpleaños", 1.0, 60000);
+    ql.note = Some("Entrega el sábado".to_string());
+    let q = db
+        .create_quote(&QuoteInput { issue_date: "2026-11-11".to_string(), lines: vec![ql], ..Default::default() })
+        .unwrap();
+    assert_eq!(q.lines[0].note.as_deref(), Some("Entrega el sábado"));
+    let converted = db.convert_quote_to_invoice(q.summary.id, "2026-11-11", None).unwrap();
+    assert_eq!(converted.lines[0].note.as_deref(), Some("Entrega el sábado"));
+}
+
+#[test]
+fn upgrade_v5_to_v6_classifies_existing_items() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cartucho_erp.sqlite3");
+    {
+        let mut conn = Connection::open(&file).unwrap();
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;").unwrap();
+        crate::db::LocalDatabase::apply_migrations_slice_for_tests(&mut conn, 5).unwrap();
+        conn.execute_batch(
+            "INSERT INTO products (name, price, cost, track_stock, stock_qty, created_at, updated_at)
+               VALUES ('Resma', 18000, 12000, 1, 10, '2026-11-01', '2026-11-01'),
+                      ('Impresión', 300, 0, 0, 0, '2026-11-01', '2026-11-01');",
+        )
+        .unwrap();
+    }
+    let db = crate::db::LocalDatabase::open_in_dir(dir.path()).unwrap();
+    assert_eq!(db.status_report().unwrap().schema_version, crate::db::target_schema_version());
+    let conn = db.connect().unwrap();
+    let kinds: Vec<(String, String, f64)> = conn
+        .prepare("SELECT name, item_kind, stock_qty FROM products ORDER BY id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(kinds, vec![("Resma".to_string(), "product".to_string(), 10.0), ("Impresión".to_string(), "service".to_string(), 0.0)]);
+    let integrity: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap();
+    assert_eq!(integrity, "ok");
+    let backups: Vec<_> = std::fs::read_dir(db.backups_dir()).unwrap().filter_map(|e| e.ok()).collect();
+    assert!(backups.iter().any(|b| b.file_name().to_string_lossy().contains("pre_migration_v5_to_v")));
 }

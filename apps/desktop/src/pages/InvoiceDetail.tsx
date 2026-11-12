@@ -148,7 +148,10 @@ export function InvoiceDetailPage({ id, autoPrint, goBack, navigate, overview }:
               <tbody>
                 {inv.lines.map((l) => (
                   <tr key={l.id}>
-                    <td>{l.description}</td>
+                    <td>
+                      {l.description}
+                      {l.note && <span className="doc-line-note">{l.note}</span>}
+                    </td>
                     <td className="t-right num">{qty(l.quantity)}</td>
                     <td className="t-right money">{money(l.unitPrice)}</td>
                     <td className="t-right money">{money(l.lineTotal)}</td>

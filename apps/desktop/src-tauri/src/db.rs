@@ -586,6 +586,21 @@ const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_app_users_role_key ON app_users (role_key);
     ",
     },
+    Migration {
+        version: 6,
+        name: "0006_item_kind_and_line_notes",
+        // Solo agrega columnas (no reconstruye tablas):
+        // - products.item_kind distingue «servicio» de «producto sin control de existencias»
+        //   (ambos tienen track_stock = 0). Los registros sin control existentes eran servicios.
+        // - invoice_lines.note / quote_lines.note: descripción adicional por línea (garantía, etc.).
+        sql: "
+        ALTER TABLE products ADD COLUMN item_kind TEXT NOT NULL DEFAULT 'product'
+            CHECK (item_kind IN ('product', 'service'));
+        UPDATE products SET item_kind = 'service' WHERE track_stock = 0;
+        ALTER TABLE invoice_lines ADD COLUMN note TEXT;
+        ALTER TABLE quote_lines ADD COLUMN note TEXT;
+    ",
+    },
 ];
 
 /// Versión de esquema más reciente conocida por esta versión de la aplicación.

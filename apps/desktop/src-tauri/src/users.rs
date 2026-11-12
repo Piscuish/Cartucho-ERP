@@ -598,7 +598,7 @@ mod tests {
         let db = LocalDatabase::open_in_dir(dir.path()).unwrap();
         // Respaldo verificado antes de migrar v4 → v5.
         let backups: Vec<_> = std::fs::read_dir(db.backups_dir()).unwrap().filter_map(|e| e.ok()).collect();
-        assert!(backups.iter().any(|b| b.file_name().to_string_lossy().contains("pre_migration_v4_to_v5")));
+        assert!(backups.iter().any(|b| b.file_name().to_string_lossy().contains("pre_migration_v4_to_v")));
         assert!(db.has_admin_user().unwrap());
         let conn = db.connect().unwrap();
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM customers", [], |r| r.get(0)).unwrap();

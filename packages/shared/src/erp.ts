@@ -46,8 +46,13 @@ export interface Category {
   usageCount: number;
 }
 
+/** "product": se vende (con o sin control de existencias). "service": se presta, nunca tiene existencias. */
+export type ItemKind = "product" | "service";
+
 export interface Product {
   id: number;
+  /** Ausente en versiones anteriores: servicio si no controla existencias. */
+  kind?: ItemKind;
   sku: string | null;
   name: string;
   description: string | null;
@@ -68,6 +73,7 @@ export interface Product {
 
 export interface ProductInput {
   id?: number | null;
+  kind?: ItemKind;
   sku?: string | null;
   name: string;
   description?: string | null;
@@ -117,6 +123,8 @@ export interface DocumentLineInput {
   description: string;
   quantity: number;
   unitPrice: number;
+  /** Descripción adicional (garantía, referencia, color…). */
+  note?: string | null;
 }
 
 export interface CustomerSnapshot {
@@ -198,6 +206,7 @@ export interface DocumentLine {
   position: number;
   productId: number | null;
   description: string;
+  note?: string | null;
   quantity: number;
   unitPrice: number;
   lineTotal: number;
@@ -455,3 +464,8 @@ export const ERP_COMMANDS = {
   RESET_DATA_LOCATION: "reset_data_location",
   RETRY_OPEN_DATABASE: "retry_open_database",
 } as const;
+
+/** Tipo efectivo de un ítem del catálogo (compatible con datos sin `kind`). */
+export function itemKind(p: { kind?: ItemKind; trackStock: boolean }): ItemKind {
+  return p.kind ?? (p.trackStock ? "product" : "service");
+}
