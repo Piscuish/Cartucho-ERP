@@ -318,6 +318,9 @@ function overview(): SystemOverview {
 interface PreviewLicense {
   mode: LicenseMode;
   modules: ModuleKey[];
+  /** Menú personalizado y días para vencer (solo para probar en la vista previa). */
+  ui?: LicenseStatus["ui"];
+  expiresInDays?: number | null;
 }
 const LICENSE_KEY = "cartucho_preview_license";
 
@@ -360,6 +363,7 @@ function licenseStatus(): LicenseStatus {
     support: "WhatsApp +57 300 000 0000",
     licensingEnabled: l.mode !== "dev",
     company: null,
+    ui: l.ui ?? null,
   };
   if (l.mode === "licensed" || l.mode === "restricted") {
     const until = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -370,6 +374,7 @@ function licenseStatus(): LicenseStatus {
       validUntil: until,
       daysLeft: 30,
       lastCheckAt: now(),
+      licenseExpiresAt: l.expiresInDays != null ? new Date(Date.now() + l.expiresInDays * 86400000).toISOString() : null,
       licenseKeyMasked: "CE-••••-••••-••••-7K2M",
       // Datos que trae el token (el asistente inicial los usa).
       company: { tradeName: "Panadería La Espiga", legalName: "La Espiga S.A.S.", taxId: "901.234.567-8", phone: "310 555 0101", email: "ventas@laespiga.co", address: "Cra 10 # 20-30, Bogotá" },
@@ -1397,11 +1402,12 @@ function addDaysLocal(iso: string, n: number) {
 }
 
 if (typeof window !== "undefined") {
-  (window as unknown as { __cartuchoLicencia: (mode: LicenseMode, modules?: ModuleKey[]) => void }).__cartuchoLicencia = (
-    mode,
-    modules = [...ALL_MODULES],
-  ) => {
-    saveLicense({ mode, modules });
+  (
+    window as unknown as {
+      __cartuchoLicencia: (mode: LicenseMode, modules?: ModuleKey[], extra?: Pick<PreviewLicense, "ui" | "expiresInDays">) => void;
+    }
+  ).__cartuchoLicencia = (mode, modules = [...ALL_MODULES], extra = {}) => {
+    saveLicense({ mode, modules, ...extra });
     window.location.reload();
   };
   (window as unknown as { __cartuchoDemo: () => Promise<void> }).__cartuchoDemo = async () => {

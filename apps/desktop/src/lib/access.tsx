@@ -20,6 +20,12 @@ export interface Access {
   canOpen: (r: Route) => boolean;
   /** Administrador: usuarios, roles, empresa, apariencia, licencia y respaldos. */
   isAdmin: boolean;
+  /** Menú personalizado de la licencia: ¿se muestra esta opción? (solo visual; los permisos los dan los módulos). */
+  showNav: (id: string) => boolean;
+  /** Nombre propio de la opción del menú para este cliente, o el nombre normal. */
+  navLabel: (id: string, fallback: string) => string;
+  /** Función exclusiva habilitada por la licencia (menús hechos a la medida). */
+  hasFeature: (feature: string) => boolean;
 }
 
 /** Permisos del rol: null = sin restricción (administrador o sin sesión). */
@@ -72,7 +78,13 @@ export function buildAccess(license: LicenseStatus | null | undefined, user?: Au
         return can("expenses");
     }
   };
-  return { license: lic, restricted, can, canWrite, canOpen, isAdmin };
+  const ui = lic?.ui ?? null;
+  const hidden = new Set(ui?.hide ?? []);
+  const features = new Set(ui?.features ?? []);
+  const showNav = (id: string) => !hidden.has(id);
+  const navLabel = (id: string, fallback: string) => ui?.labels?.[id] || fallback;
+  const hasFeature = (f: string) => features.has(f);
+  return { license: lic, restricted, can, canWrite, canOpen, isAdmin, showNav, navLabel, hasFeature };
 }
 
 const AccessContext = createContext<Access>(buildAccess(null));

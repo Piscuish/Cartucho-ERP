@@ -58,29 +58,29 @@ export function DashboardPage({ navigate, overview }: PageProps) {
         <ModuleTiles navigate={navigate} />
       ) : (
       <div className="quick-actions">
-        {access.canWrite("invoices") && (
+        {access.canWrite("invoices") && access.showNav("invoice-new") && (
         <button className="quick-action" onClick={() => navigate({ page: "invoice-new" })}>
           <span className="stat-icon">
             <FilePlus2 size={18} />
           </span>
           <span>
-            <div className="qa-title">Nueva factura</div>
+            <div className="qa-title">{access.navLabel("invoice-new", "Nueva factura")}</div>
             <div className="qa-sub">Vende e imprime</div>
           </span>
         </button>
         )}
-        {access.canWrite("quotes") && (
+        {access.canWrite("quotes") && access.showNav("quotes") && (
         <button className="quick-action" onClick={() => navigate({ page: "quote-new" })}>
           <span className="stat-icon is-info">
             <FileSignature size={18} />
           </span>
           <span>
-            <div className="qa-title">Cotización</div>
+            <div className="qa-title">{access.navLabel("quotes", "Cotización")}</div>
             <div className="qa-sub">{data ? `${data.openQuoteCount} abiertas` : "Envía un presupuesto"}</div>
           </span>
         </button>
         )}
-        {access.canWrite("expenses") && (
+        {access.canWrite("expenses") && access.showNav("expenses") && (
         <button className="quick-action" onClick={() => navigate({ page: "expenses" })}>
           <span className="stat-icon is-warning">
             <Receipt size={18} />
@@ -91,13 +91,13 @@ export function DashboardPage({ navigate, overview }: PageProps) {
           </span>
         </button>
         )}
-        {access.can("catalog") && (
+        {access.can("catalog") && access.showNav("catalog") && (
         <button className="quick-action" onClick={() => navigate({ page: "catalog" })}>
           <span className="stat-icon is-success">
             <PackagePlus size={18} />
           </span>
           <span>
-            <div className="qa-title">Productos</div>
+            <div className="qa-title">{access.navLabel("catalog", "Productos")}</div>
             <div className="qa-sub">{data ? `${data.productCount} en catálogo` : "Tu catálogo"}</div>
           </span>
         </button>
@@ -440,7 +440,9 @@ function RestrictedDashboard({
 /** Inicio del diseño Estudio: accesos grandes a cada módulo habilitado. */
 function ModuleTiles({ navigate }: { navigate: PageProps["navigate"] }) {
   const access = useAccess();
-  const items = NAVIGATION.flatMap((g) => g.items).filter((i) => i.id !== "dashboard" && access.canOpen(i.route));
+  const items = NAVIGATION.flatMap((g) => g.items)
+    .filter((i) => i.id !== "dashboard" && access.canOpen(i.route) && access.showNav(i.id))
+    .map((i) => ({ ...i, label: access.navLabel(i.id, i.label) }));
   return (
     <>
       <h2 style={{ fontSize: 19, margin: "4px 0 2px" }}>Módulos</h2>

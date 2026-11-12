@@ -7,7 +7,7 @@ import { ALL_MODULES, LicenseStatus, MODULE_LABELS } from "@cartucho/shared";
 import type { PageProps } from "./views";
 import { api } from "../services/systemClient";
 import { errorMessage, fmtDateTime } from "../lib/format";
-import { PLAN_LABELS } from "../lib/access";
+import { PLAN_LABELS, useAccess } from "../lib/access";
 import { Alert, Badge, Button, Field, Segmented, useToast } from "./ui";
 
 /** Da formato CE-XXXX-XXXX-XXXX-XXXX mientras se escribe. */
@@ -313,5 +313,50 @@ export function LicenseSettings({ overview, reloadOverview }: PageProps) {
         </div>
       </div>
     </>
+  );
+}
+
+/** Aviso arriba de cada pantalla: la licencia vence pronto o lleva días sin validarse. */
+export function LicenseNotice() {
+  const { license: lic } = useAccess();
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return sessionStorage.getItem("cartucho.licenseNotice") === new Date().toDateString();
+    } catch {
+      return false;
+    }
+  });
+  if (!lic || hidden || !lic.licensingEnabled || lic.mode !== "licensed") return null;
+  const dayMs = 86400000;
+  const expDays = lic.licenseExpiresAt ? Math.ceil((new Date(lic.licenseExpiresAt).getTime() - Date.now()) / dayMs) : null;
+  let text: string | null = null;
+  if (expDays != null && expDays <= 7) {
+    text =
+      expDays <= 0
+        ? "Tu licencia vence hoy."
+        : `Tu licencia vence en ${expDays} ${expDays === 1 ? "día" : "días"} (${new Date(lic.licenseExpiresAt!).toLocaleDateString("es-CO", { day: "numeric", month: "long" })}).`;
+    text += ` Renuévala para seguir usando todos los módulos${lic.support ? `: ${lic.support}` : "."}`;
+  } else if (lic.daysLeft != null && lic.daysLeft <= 5) {
+    text = `Conéctate a Internet: el programa necesita validar la licencia en ${lic.daysLeft} ${lic.daysLeft === 1 ? "día" : "días"}.`;
+  }
+  if (!text) return null;
+  return (
+    <div className="license-notice" role="status">
+      <span>{text}</span>
+      <button
+        className="license-notice-close"
+        aria-label="Ocultar por hoy"
+        onClick={() => {
+          setHidden(true);
+          try {
+            sessionStorage.setItem("cartucho.licenseNotice", new Date().toDateString());
+          } catch {
+            /* ignorar */
+          }
+        }}
+      >
+        ×
+      </button>
+    </div>
   );
 }

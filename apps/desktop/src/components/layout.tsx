@@ -2,6 +2,7 @@
  * Estructura principal: menú lateral colapsable, barra superior y búsqueda rápida (Ctrl+K).
  */
 import { portalTarget } from "./titleBar";
+import { LicenseNotice } from "./license";
 import { UpdateButton, UpdateDialog, useAutoUpdateCheck } from "./updates";
 import { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -180,18 +181,19 @@ export function AppShell({
           </button>
           <div className="topbar-spacer" />
           {update && <UpdateButton update={update} onOpen={() => setUpdateOpen(true)} />}
-          {access.canWrite("quotes") && (
+          {access.canWrite("quotes") && access.showNav("quotes") && (
             <Button variant="secondary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
-              Cotización
+              {access.navLabel("quotes", "Cotización")}
             </Button>
           )}
-          {access.canWrite("invoices") && (
+          {access.canWrite("invoices") && access.showNav("invoice-new") && (
             <Button variant="primary" icon={<Plus size={16} />} onClick={() => navigate({ page: "invoice-new" })}>
-              Nueva factura
+              {access.navLabel("invoice-new", "Nueva factura")}
             </Button>
           )}
         </header>
         <div className="main-scroll" ref={scrollRef}>
+          <LicenseNotice />
           {children}
         </div>
       </div>
@@ -207,7 +209,11 @@ function useVisibleNavigation(): NavGroup[] {
   const access = useAccess();
   return useMemo(
     () =>
-      NAVIGATION.map((g) => ({ ...g, items: g.items.filter((i) => access.canOpen(i.route)) })).filter((g) => g.items.length > 0),
+      NAVIGATION.map((g) => ({
+        ...g,
+        // Módulos de la licencia y rol (permisos) + menú personalizado del cliente (oculta y renombra).
+        items: g.items.filter((i) => access.canOpen(i.route) && access.showNav(i.id)).map((i) => ({ ...i, label: access.navLabel(i.id, i.label) })),
+      })).filter((g) => g.items.length > 0),
     [access],
   );
 }
@@ -268,9 +274,9 @@ function CommandPalette({ onClose, navigate }: { onClose: () => void; navigate: 
 
   const entries: PaletteEntry[] = useMemo(() => {
     const actions: PaletteEntry[] = [];
-    if (access.canWrite("invoices"))
+    if (access.canWrite("invoices") && access.showNav("invoice-new"))
       actions.push({ key: "a-inv", section: "Acciones", title: "Nueva factura", icon: <FilePlus2 size={16} />, run: () => go({ page: "invoice-new" }) });
-    if (access.canWrite("quotes"))
+    if (access.canWrite("quotes") && access.showNav("quotes"))
       actions.push({ key: "a-quote", section: "Acciones", title: "Nueva cotización", icon: <FileSignature size={16} />, run: () => go({ page: "quote-new" }) });
     const pages: PaletteEntry[] = navigation.flatMap((g) =>
       g.items

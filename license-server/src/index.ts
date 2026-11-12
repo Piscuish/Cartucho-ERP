@@ -13,6 +13,8 @@
  *   GET    /api/licenses/:key
  *   PATCH  /api/licenses/:key
  *   POST   /api/licenses/:key/offline-code   { deviceCode, deviceName? }
+ *   POST   /api/licenses/:key/payments       { amount, method?, paidAt?, coversUntil?, note? }
+ *   DELETE /api/payments/:id
  *   POST   /api/devices/:id/revoke
  *   POST   /api/devices/:id/restore
  *   GET    /api/online
@@ -46,6 +48,50 @@ export const PLANS: Record<string, ModuleKey[]> = {
 };
 
 const REQUIRES: Partial<Record<ModuleKey, ModuleKey>> = { quotes: "invoices", inventory: "catalog", finance: "invoices" };
+
+/** Opciones del menú de la aplicación que se pueden ocultar o renombrar por cliente. */
+export const NAV_IDS = ["pos", "invoice-new", "invoices", "quotes", "cash-close", "customers", "catalog", "inventory", "finance", "expenses"] as const;
+
+/** Menú personalizado de un cliente: viaja firmado en el token. */
+export interface LicenseUi {
+  hide: string[];
+  labels: Record<string, string>;
+  features: string[];
+}
+
+const FEATURE_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+
+/** Limpia la configuración del menú: solo opciones conocidas, nombres cortos y funciones válidas. */
+export function normalizeUi(raw: unknown): LicenseUi | null {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const ids = NAV_IDS as readonly string[];
+  const hide = [...new Set((Array.isArray(r.hide) ? r.hide : []).map(String).filter((x) => ids.includes(x)))];
+  const labels: Record<string, string> = {};
+  if (r.labels && typeof r.labels === "object") {
+    for (const [k, v] of Object.entries(r.labels as Record<string, unknown>)) {
+      const label = String(v ?? "").trim().slice(0, 30);
+      if (ids.includes(k) && label) labels[k] = label;
+    }
+  }
+  const features = [
+    ...new Set(
+      (Array.isArray(r.features) ? r.features : typeof r.features === "string" ? r.features.split(",") : [])
+        .map((x) => String(x).trim().toLowerCase())
+        .filter((x) => FEATURE_RE.test(x)),
+    ),
+  ].slice(0, 20);
+  if (!hide.length && !Object.keys(labels).length && !features.length) return null;
+  return { hide, labels, features };
+}
+
+const parseUi = (s: string | null | undefined): LicenseUi | null => {
+  if (!s) return null;
+  try {
+    return normalizeUi(JSON.parse(s));
+  } catch {
+    return null;
+  }
+};
 
 /** Mismo alfabeto que la aplicación: sin 0/O ni 1/I para evitar confusiones al dictar. */
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -160,7 +206,28 @@ interface LicenseRow {
   company_phone?: string | null;
   company_email?: string | null;
   company_address?: string | null;
+  ui?: string | null;
 }
+
+interface PaymentRow {
+  id: number;
+  license_key: string;
+  amount: number;
+  method: string | null;
+  paid_at: number;
+  covers_until: number | null;
+  note: string | null;
+  created_at: number;
+}
+
+const paymentView = (p: PaymentRow) => ({
+  id: p.id,
+  amount: p.amount,
+  method: p.method,
+  paidAt: p.paid_at,
+  coversUntil: p.covers_until,
+  note: p.note,
+});
 
 /** Datos de la empresa que viajan en el token (el programa llena con ellos el asistente inicial). */
 function companyOf(l: LicenseRow) {
@@ -206,6 +273,7 @@ async function issueToken(env: Env, lic: LicenseRow, deviceCode: string, status:
     licExp: lic.expires_at ?? null,
     support: lic.support || env.SUPPORT_TEXT || null,
     company: companyOf(lic),
+    ui: parseUi(lic.ui),
   };
   const payloadB64 = b64url(new TextEncoder().encode(JSON.stringify(payload)));
   const sig = await crypto.subtle.sign({ name: "Ed25519" }, await signingKey(env), new TextEncoder().encode(payloadB64));
@@ -268,6 +336,17 @@ async function touchDevice(env: Env, id: number, info: ClientInfo) {
     .bind(now(), info.deviceName, info.os, info.appVersion, info.ip, info.country, id)
     .run();
 }
+
+/** Inicio del mes actual en hora de Colombia (UTC−5). */
+function monthStart(t: number): number {
+  const d = new Date((t - 5 * 3600) * 1000);
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000) + 5 * 3600;
+}
+
+const uiJson = (raw: unknown): string | null => {
+  const ui = normalizeUi(raw);
+  return ui ? JSON.stringify(ui) : null;
+};
 
 const limitMessage = (max: number) =>
   `Esta licencia ya está activa en ${max} ${max === 1 ? "equipo" : "equipos"}, el máximo permitido. Contacta a soporte para liberar un equipo.`;
@@ -373,6 +452,7 @@ function licenseView(l: LicenseRow, devices: { active: number; online: number; t
     support: l.support,
     notes: l.notes,
     company: companyOf(l),
+    ui: parseUi(l.ui) ?? { hide: [], labels: {}, features: [] },
     createdAt: l.created_at,
     updatedAt: l.updated_at,
     devices,
@@ -411,6 +491,7 @@ interface LicenseInput {
   companyPhone?: unknown;
   companyEmail?: unknown;
   companyAddress?: unknown;
+  ui?: unknown;
 }
 
 function resolvePlan(plan: unknown, modules: unknown): { plan: string; modules: ModuleKey[] } | string {
@@ -462,9 +543,11 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       `SELECT (SELECT COUNT(*) FROM licenses) AS licenses,
               (SELECT COUNT(*) FROM licenses WHERE status = 'active') AS activeLicenses,
               (SELECT COUNT(*) FROM devices WHERE status = 'active') AS devices,
-              (SELECT COUNT(*) FROM devices WHERE status = 'active' AND last_seen >= ?) AS online`,
+              (SELECT COUNT(*) FROM devices WHERE status = 'active' AND last_seen >= ?) AS online,
+              (SELECT COUNT(*) FROM licenses WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at BETWEEN ? AND ?) AS expiringSoon,
+              (SELECT IFNULL(SUM(amount), 0) FROM payments WHERE paid_at >= ?) AS paidThisMonth`,
     )
-      .bind(t - ONLINE_WINDOW_SECS)
+      .bind(t - ONLINE_WINDOW_SECS, t, t + 15 * 86400, monthStart(t))
       .first();
     const events = await env.DB.prepare("SELECT * FROM events ORDER BY id DESC LIMIT 30").all();
     return json({ ok: true, summary: r, events: events.results, plans: PLANS });
@@ -504,11 +587,12 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       for (let i = 0; i < 5 && (await getLicense(env, key)); i++) key = randomKey();
       await env.DB.prepare(
         `INSERT INTO licenses (key, customer, contact, plan, modules, max_devices, status, expires_at, support, notes, created_at, updated_at,
-           legal_name, tax_id, company_phone, company_email, company_address)
-         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           legal_name, tax_id, company_phone, company_email, company_address, ui)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(key, customer, clip(b.contact, 120), plan.plan, JSON.stringify(plan.modules), max, exp, clip(b.support, 160), clip(b.notes, 1000), t, t,
-          clip(b.legalName, 160), clip(b.taxId, 40), clip(b.companyPhone, 40), clip(b.companyEmail, 120), clip(b.companyAddress, 200))
+          clip(b.legalName, 160), clip(b.taxId, 40), clip(b.companyPhone, 40), clip(b.companyEmail, 120), clip(b.companyAddress, 200),
+          uiJson(b.ui))
         .run();
       await logEvent(env, "admin_create", key, null, `${customer} · ${plan.plan} · ${max} equipos`, ip);
       const lic = (await getLicense(env, key))!;
@@ -525,6 +609,7 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
     if (method === "GET" && parts.length === 3) {
       const devs = await env.DB.prepare("SELECT * FROM devices WHERE license_key = ? ORDER BY status, last_seen DESC").bind(key).all<DeviceRow>();
       const events = await env.DB.prepare("SELECT * FROM events WHERE license_key = ? ORDER BY id DESC LIMIT 50").bind(key).all();
+      const payments = await env.DB.prepare("SELECT * FROM payments WHERE license_key = ? ORDER BY paid_at DESC, id DESC LIMIT 100").bind(key).all<PaymentRow>();
       const t = now();
       const views = devs.results.map((d) => deviceView(d, t));
       return json({
@@ -536,6 +621,7 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
         }),
         devices: views,
         events: events.results,
+        payments: payments.results.map(paymentView),
       });
     }
 
@@ -556,6 +642,11 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       if (b.companyPhone !== undefined) next.company_phone = clip(b.companyPhone, 40);
       if (b.companyEmail !== undefined) next.company_email = clip(b.companyEmail, 120);
       if (b.companyAddress !== undefined) next.company_address = clip(b.companyAddress, 200);
+      if (b.ui !== undefined) {
+        const before = next.ui ?? null;
+        next.ui = uiJson(b.ui);
+        if (before !== next.ui) changes.push("menú personalizado");
+      }
       if (b.plan !== undefined || b.modules !== undefined) {
         const plan = resolvePlan(b.plan ?? lic.plan, b.modules ?? JSON.parse(lic.modules));
         if (typeof plan === "string") return json({ ok: false, message: plan }, 400);
@@ -583,15 +674,40 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       next.updated_at = now();
       await env.DB.prepare(
         `UPDATE licenses SET customer = ?, contact = ?, plan = ?, modules = ?, max_devices = ?, status = ?, expires_at = ?,
-           support = ?, notes = ?, updated_at = ?, legal_name = ?, tax_id = ?, company_phone = ?, company_email = ?, company_address = ?
+           support = ?, notes = ?, updated_at = ?, legal_name = ?, tax_id = ?, company_phone = ?, company_email = ?, company_address = ?, ui = ?
          WHERE key = ?`,
       )
         .bind(next.customer, next.contact, next.plan, next.modules, next.max_devices, next.status, next.expires_at, next.support, next.notes, next.updated_at,
-          next.legal_name ?? null, next.tax_id ?? null, next.company_phone ?? null, next.company_email ?? null, next.company_address ?? null, key)
+          next.legal_name ?? null, next.tax_id ?? null, next.company_phone ?? null, next.company_email ?? null, next.company_address ?? null, next.ui ?? null, key)
         .run();
       await logEvent(env, "admin_update", key, null, changes.join(" · ") || "datos del cliente", ip);
       const counts = await deviceCounts(env);
       return json({ ok: true, license: licenseView(next, counts.get(key) ?? { active: 0, online: 0, total: 0 }) });
+    }
+
+    // POST /api/licenses/:key/payments — registra un pago (y, si se indica, extiende el vencimiento).
+    if (method === "POST" && parts[3] === "payments") {
+      const b = await readBody(req);
+      const amount = Math.round(Number(b.amount));
+      if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000_000) return json({ ok: false, message: "Escribe un valor válido." }, 400);
+      const paidAt = parseExpires(b.paidAt ?? now());
+      if (typeof paidAt === "string" || paidAt == null) return json({ ok: false, message: "Fecha de pago no válida." }, 400);
+      const covers = parseExpires(b.coversUntil);
+      if (typeof covers === "string") return json({ ok: false, message: "Fecha «paga hasta» no válida." }, 400);
+      const t = now();
+      await env.DB.prepare(
+        "INSERT INTO payments (license_key, amount, method, paid_at, covers_until, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+        .bind(key, amount, clip(b.method, 40), paidAt, covers, clip(b.note, 300), t)
+        .run();
+      let detail = `$${amount.toLocaleString("es-CO")}${b.method ? ` · ${clip(b.method, 40)}` : ""}`;
+      // «Paga hasta» posterior al vencimiento actual: se extiende la licencia.
+      if (covers && (lic.expires_at == null || covers > lic.expires_at)) {
+        await env.DB.prepare("UPDATE licenses SET expires_at = ?, updated_at = ? WHERE key = ?").bind(covers, t, key).run();
+        detail += ` · vence ${new Date(covers * 1000).toISOString().slice(0, 10)}`;
+      }
+      await logEvent(env, "admin_payment", key, null, detail, ip);
+      return json({ ok: true });
     }
 
     if (method === "POST" && parts[3] === "offline-code") {
@@ -608,6 +724,16 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       await logEvent(env, "admin_offline_code", key, code, null, ip);
       return json({ ok: true, token: await issueToken(env, lic, code, "active") });
     }
+  }
+
+  // DELETE /api/payments/:id — corrige un pago registrado por error (no cambia el vencimiento).
+  if (method === "DELETE" && parts[1] === "payments" && parts[2]) {
+    const id = Number(parts[2]);
+    const p = Number.isInteger(id) ? await env.DB.prepare("SELECT * FROM payments WHERE id = ?").bind(id).first<PaymentRow>() : null;
+    if (!p) return json({ ok: false, message: "Pago no encontrado." }, 404);
+    await env.DB.prepare("DELETE FROM payments WHERE id = ?").bind(id).run();
+    await logEvent(env, "admin_payment_delete", p.license_key, null, `$${p.amount.toLocaleString("es-CO")}`, ip);
+    return json({ ok: true });
   }
 
   // /api/devices/:id/(revoke|restore)

@@ -92,6 +92,39 @@ pub struct LicensePayload {
     /// llenarse solo. Opcional (tokens anteriores no lo traen).
     #[serde(default)]
     pub company: Option<LicenseCompany>,
+    /// Menú personalizado del cliente (ocultar/renombrar opciones y funciones exclusivas).
+    #[serde(default)]
+    pub ui: Option<LicenseUi>,
+}
+
+/// Menú personalizado por cliente. Es solo visual: los permisos los siguen dando los módulos.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseUi {
+    #[serde(default)]
+    pub hide: Vec<String>,
+    #[serde(default)]
+    pub labels: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub features: Vec<String>,
+}
+
+impl LicenseUi {
+    /// Limita tamaños por si un token trae datos inesperados (el token igual va firmado).
+    fn sanitized(&self) -> LicenseUi {
+        let short = |s: &str, n: usize| s.trim().chars().take(n).collect::<String>();
+        LicenseUi {
+            hide: self.hide.iter().take(30).map(|s| short(s, 40)).filter(|s| !s.is_empty()).collect(),
+            labels: self
+                .labels
+                .iter()
+                .take(30)
+                .map(|(k, v)| (short(k, 40), short(v, 30)))
+                .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+                .collect(),
+            features: self.features.iter().take(20).map(|s| short(s, 40)).filter(|s| !s.is_empty()).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -180,6 +213,8 @@ pub struct LicenseStatus {
     pub company: Option<LicenseCompany>,
     /// `false` cuando esta copia no tiene licencias configuradas (todo habilitado).
     pub licensing_enabled: bool,
+    /// Menú personalizado del cliente.
+    pub ui: Option<LicenseUi>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -375,6 +410,7 @@ impl LicenseManager {
             support: None,
             company: None,
             licensing_enabled: self.verifying_key.is_some() && !self.dev_bypass,
+            ui: None,
         }
     }
 
@@ -421,6 +457,7 @@ impl LicenseManager {
         st.max_devices = Some(payload.max_devices);
         st.support = payload.support.clone();
         st.company = payload.company.clone();
+        st.ui = payload.ui.as_ref().map(LicenseUi::sanitized);
         st.valid_until = chrono::DateTime::from_timestamp(payload.exp, 0).map(|d| d.to_rfc3339());
         st.license_expires_at = payload.lic_exp.and_then(|t| chrono::DateTime::from_timestamp(t, 0)).map(|d| d.to_rfc3339());
         st.days_left = Some(((payload.exp - now) as f64 / 86400.0).ceil().max(0.0) as i64);
@@ -668,6 +705,7 @@ mod tests {
                 phone: Some("300 000 0000".to_string()),
                 ..Default::default()
             }),
+            ui: None,
         }
     }
 
@@ -753,6 +791,27 @@ mod tests {
         let st = m.activate_offline(&token, now).unwrap();
         assert_eq!(st.mode, LicenseMode::Licensed);
         assert!(st.company.is_none());
+        assert!(st.ui.is_none());
+    }
+
+    #[test]
+    fn token_brings_custom_menu() {
+        let dir = TempDir::new().unwrap();
+        let now = 1_800_000_000;
+        let mut m = manager(dir.path(), None);
+        let mut p = payload(now, "active", &["invoices", "quotes"]);
+        let mut labels = std::collections::BTreeMap::new();
+        labels.insert("quotes".to_string(), "Pedidos".to_string());
+        labels.insert("invoices".to_string(), "x".repeat(80));
+        p.ui = Some(LicenseUi { hide: vec!["cash-close".to_string()], labels, features: vec!["pedidos-domicilio".to_string()] });
+        let st = m.activate_offline(&sign(&p), now).unwrap();
+        let ui = st.ui.expect("menú en el token");
+        assert_eq!(ui.hide, vec!["cash-close"]);
+        assert_eq!(ui.labels.get("quotes").map(String::as_str), Some("Pedidos"));
+        assert_eq!(ui.labels.get("invoices").unwrap().chars().count(), 30, "nombres largos se recortan");
+        assert_eq!(ui.features, vec!["pedidos-domicilio"]);
+        // El menú no cambia los módulos: siguen siendo los de la licencia.
+        assert_eq!(st.modules, vec!["invoices", "quotes"]);
     }
 
     #[test]
@@ -857,7 +916,7 @@ mod e2e_local_server {
     fn admin(method: &str, path: &str, body: serde_json::Value) -> serde_json::Value {
         let url = format!("{}{}", env("CARTUCHO_E2E_SERVER"), path);
         let req = ureq::request(method, &url).set("authorization", &format!("Bearer {}", env("CARTUCHO_E2E_ADMIN")));
-        let res = if method == "GET" { req.call() } else { req.send_json(body) };
+        let res = if method == "GET" || method == "DELETE" { req.call() } else { req.send_json(body) };
         match res {
             Ok(r) => r.into_json().unwrap(),
             Err(ureq::Error::Status(_, r)) => r.into_json().unwrap(),
@@ -954,5 +1013,42 @@ mod e2e_local_server {
         let online = admin("GET", "/api/online", serde_json::Value::Null);
         assert!(online["devices"].as_array().unwrap().iter().any(|d| d["deviceCode"] == "EEEE-FFFF-GGGG-HHHH"));
         println!("8. clave inexistente y lista de conectados OK");
+
+        // 9. Datos de empresa y menú personalizado llegan en la validación.
+        let r = admin("PATCH", &lic_path, serde_json::json!({
+            "taxId": "900.123.456-7",
+            "ui": { "hide": ["cash-close", "no-existe"], "labels": { "quotes": "Pedidos" }, "features": "Pedidos-Domicilio, mal nombre" }
+        }));
+        assert_eq!(r["ok"], true, "{r}");
+        let st = b.check_in("PC-B", "0.3.1", now).unwrap();
+        assert_eq!(st.company.as_ref().and_then(|c| c.tax_id.as_deref()), Some("900.123.456-7"));
+        let ui = st.ui.expect("menú");
+        assert_eq!(ui.hide, vec!["cash-close"], "solo opciones conocidas");
+        assert_eq!(ui.labels.get("quotes").map(String::as_str), Some("Pedidos"));
+        assert_eq!(ui.features, vec!["pedidos-domicilio"], "funciones normalizadas");
+        // Versión y última conexión del equipo.
+        let detail = admin("GET", &lic_path, serde_json::Value::Null);
+        assert!(detail["devices"].as_array().unwrap().iter().any(|d| d["appVersion"] == "0.3.1"));
+        println!("9. empresa y menú personalizado OK");
+
+        // 10. Pago con «paga hasta» extiende el vencimiento y llega a la app.
+        let until = now + 40 * 86400;
+        let r = admin("POST", &format!("{}/payments", lic_path), serde_json::json!({ "amount": 50000, "method": "Nequi", "coversUntil": until }));
+        assert_eq!(r["ok"], true, "{r}");
+        let detail = admin("GET", &lic_path, serde_json::Value::Null);
+        assert_eq!(detail["license"]["expiresAt"].as_i64(), Some(until));
+        assert_eq!(detail["payments"][0]["amount"], 50000);
+        let st = b.check_in("PC-B", "0.3.1", now).unwrap();
+        assert!(st.license_expires_at.is_some());
+        let summary = admin("GET", "/api/summary", serde_json::Value::Null);
+        assert!(summary["summary"]["paidThisMonth"].as_i64().unwrap() >= 50000);
+        assert!(admin("POST", &format!("{}/payments", lic_path), serde_json::json!({ "amount": -5 }))["ok"] == false);
+        // Eliminar un pago no cambia el vencimiento.
+        let pid = detail["payments"][0]["id"].as_i64().unwrap();
+        assert_eq!(admin("DELETE", &format!("/api/payments/{}", pid), serde_json::Value::Null)["ok"], true);
+        let detail = admin("GET", &lic_path, serde_json::Value::Null);
+        assert_eq!(detail["payments"].as_array().unwrap().len(), 0);
+        assert_eq!(detail["license"]["expiresAt"].as_i64(), Some(until));
+        println!("10. pagos y vencimiento OK");
     }
 }
