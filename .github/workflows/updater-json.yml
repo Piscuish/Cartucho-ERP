@@ -1,0 +1,40 @@
+# Publica latest.json (el archivo que consultan los programas instalados para actualizarse)
+# a partir de una firma hecha fuera de GitHub: updates/<versión>.sig.
+# Se usa cuando la versión se compiló sin el secreto TAURI_SIGNING_PRIVATE_KEY: se descarga el
+# instalador publicado, se firma con `tauri signer sign` y se sube la firma a updates/.
+name: Archivo de actualización
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - updates/*.sig
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  latest-json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Crear y subir latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r .version apps/desktop/src-tauri/tauri.conf.json)
+          SIG_FILE="updates/${VERSION}.sig"
+          test -f "$SIG_FILE" || { echo "::error::Falta $SIG_FILE"; exit 1; }
+          TAG="v${VERSION}"
+          ASSET=$(gh release view "$TAG" --json assets --jq '.assets[].name' | grep -E '_x64-setup\.exe$' | head -n1)
+          test -n "$ASSET" || { echo "::error::La versión $TAG no tiene instalador publicado"; exit 1; }
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ASSET}"
+          SIG=$(tr -d '\r\n' < "$SIG_FILE")
+          NOTES=$(cat "updates/${VERSION}.md" 2>/dev/null || echo "Mejoras y correcciones.")
+          jq -n --arg v "$VERSION" --arg n "$NOTES" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg s "$SIG" --arg u "$URL" \
+            '{version:$v, notes:$n, pub_date:$d, platforms:{"windows-x86_64":{signature:$s,url:$u}, "windows-x86_64-nsis":{signature:$s,url:$u}}}' > latest.json
+          cat latest.json
+          gh release upload "$TAG" latest.json --clobber
