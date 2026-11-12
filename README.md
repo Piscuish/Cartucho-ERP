@@ -161,7 +161,7 @@ base de datos → empresa → logotipo → impresión → administrador.
 3. En unos 15 minutos aparece en **Releases** el archivo `Cartucho ERP_X.Y.Z_x64-setup.exe` y `latest.json`.
 
 **Actualizaciones automáticas:** el programa consulta
-`https://github.com/Piscuish/Cartucho-ERP/releases/latest/download/latest.json` al abrir y cada 6 horas
+`https://github.com/Piscuish/Cartucho-ERP/releases/latest/download/latest.json` al abrir y cada 12 horas
 (solo el administrador ve el aviso). Cada actualización va firmada; antes de instalar se hace una copia
 de seguridad y la base se migra con su respaldo verificado. Para firmar, agrega en GitHub
 (*Settings › Secrets and variables › Actions*) los secretos `TAURI_SIGNING_PRIVATE_KEY` y
