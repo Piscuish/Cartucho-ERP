@@ -1,6 +1,6 @@
 [package]
 name = "cartucho-erp-desktop"
-version = "0.4.0"
+version = "0.4.1"
 description = "Cartucho ERP — Aplicación de escritorio local-first (Tauri 2 + Rust + SQLite)"
 authors = ["Cartucho ERP"]
 edition = "2021"
