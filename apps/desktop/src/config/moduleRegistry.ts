@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 
-export type SettingsTab = "company" | "billing" | "appearance" | "users" | "mobile" | "security" | "data" | "license" | "updates" | "about";
+export type SettingsTab = "company" | "billing" | "appearance" | "users" | "mobile" | "security" | "data" | "license" | "updates" | "app" | "about";
 
 /** Ruta interna de la aplicación (navegación sin recargar). */
 export type Route =
@@ -142,5 +142,6 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: "data", label: "Base de datos y respaldos" },
   { id: "license", label: "Licencia" },
   { id: "updates", label: "Actualizaciones" },
+  { id: "app", label: "Base principal" },
   { id: "about", label: "Acerca de" },
 ];

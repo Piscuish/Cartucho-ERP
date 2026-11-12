@@ -86,6 +86,18 @@ export function MobileAccessSettings() {
               <Alert tone="danger">{status.error}</Alert>
             </div>
           )}
+          {status.enabled && (
+            <div className="mt-16">
+              <Switch
+                checked={!!status.writesAllowed}
+                onChange={(v) =>
+                  void run("writes", () => api.setLanWrites(v), v ? "La app de Android ya puede registrar." : "La app de Android solo consulta.")
+                }
+                label="Permitir registrar desde la app de Android"
+                description="Vender, cobrar, crear clientes, productos y gastos desde la app, con los permisos del rol de cada usuario. Apagado: la app solo consulta."
+              />
+            </div>
+          )}
         </div>
       </div>
 

@@ -659,6 +659,7 @@ function summary(from: string, to: string): FinanceSummary {
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
 let lanPreview = { enabled: false, port: 8787 };
+let lanWritesPreview = false;
 function previewLan() {
   const url = `http://192.168.1.20:${lanPreview.port}/`;
   return {
@@ -669,6 +670,7 @@ function previewLan() {
     qrSvg: null,
     activeSessions: 0,
     error: null,
+    writesAllowed: lanWritesPreview,
   };
 }
 
@@ -684,6 +686,33 @@ const handlers: Record<string, Handler> = {
     if (!Number.isInteger(port) || port < 1024 || port > 65535) fail("El puerto debe estar entre 1024 y 65535.");
     lanPreview = { enabled: Boolean(a.enabled), port };
     return previewLan();
+  },
+  set_lan_writes: (a) => {
+    requireAdmin();
+    lanWritesPreview = Boolean(a.allowed);
+    return previewLan();
+  },
+  // App de Android (simulada en el navegador): el «PC» es esta misma vista previa.
+  remote_ping: ({ base }) => {
+    const b = String(base ?? "").trim();
+    if (!b) fail("Escribe la dirección del PC, por ejemplo 192.168.1.20:8787.");
+    return { base: `http://${b.replace(/^https?:\/\//, "")}`, tradeName: db.company?.tradeName ?? null, logoDataUrl: db.company?.logoDataUrl ?? null, version: "vista previa" };
+  },
+  remote_discover: async () => {
+    await new Promise((r) => setTimeout(r, 900));
+    return [{ base: "http://192.168.1.20:8787", tradeName: db.company?.tradeName ?? "Mi negocio", logoDataUrl: db.company?.logoDataUrl ?? null, version: "vista previa" }];
+  },
+  remote_login: async ({ base, username, password }) => {
+    await handlers.login_user({ input: { username, password } });
+    return { base, token: "preview-token", profile: null };
+  },
+  remote_logout: () => null,
+  remote_rpc: async ({ command, args }) => {
+    if (!lanWritesPreview && /^(save_|create_|add_|void_|cancel_|convert_|delete_|set_customer|set_product|adjust_)/.test(String(command)))
+      fail("El PC no permite registrar desde la app. Actívalo en el PC: Configuración › Celulares › «Permitir registrar desde la app».");
+    const h = handlers[String(command)] ?? licenseHandlers[String(command)];
+    if (!h) fail("Esta opción solo está disponible en el programa del PC.");
+    return h((args ?? {}) as Record<string, unknown>);
   },
   disconnect_lan_devices: () => {
     requireAdmin();

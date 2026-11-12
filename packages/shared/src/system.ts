@@ -338,6 +338,8 @@ export interface LanStatus {
   qrSvg: string | null;
   activeSessions: number;
   error: string | null;
+  /** La app de Android puede registrar ventas, clientes y gastos (no solo consultar). */
+  writesAllowed?: boolean;
 }
 
 export interface SystemOverview {

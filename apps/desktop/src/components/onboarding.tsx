@@ -1,11 +1,12 @@
 /**
  * Pantallas de acceso: asistente de primera ejecución, inicio de sesión y error de arranque.
  */
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Building2, Check, Database, Eye, EyeOff, FolderInput, FolderOpen, HardDrive, ImageIcon, Lock, Printer, RotateCcw, ShieldCheck, User } from "lucide-react";
 import { MODULE_LABELS, type BusinessSettings, type CompanyProfile, type CompleteInitialSetupInput, type LicenseStatus, type PaperSize, type SetupDataMode, type SystemOverview } from "@cartucho/shared";
 import { errorMessage, greeting, initials } from "../lib/format";
 import { api, pickFolder } from "../services/systemClient";
+import { isPhoneApp } from "../services/appMode";
 import { PLAN_LABELS } from "../lib/access";
 import { Alert, Button, Field, ImagePicker } from "./ui";
 import { PAPER_OPTIONS, PaperIcon, PrintDialog, type PrintableDoc } from "./print";
@@ -230,7 +231,7 @@ export function SetupWizard({
               <h2>¿Dónde guardamos tus datos?</h2>
               <p className="muted mb-16">Tus facturas, clientes y productos quedan en un archivo de este equipo. Puedes cambiarlo después en Configuración.</p>
               <div className="setup-options">
-                {DATA_OPTIONS.map((o) => {
+                {DATA_OPTIONS.filter((o) => !isPhoneApp() || o.id === "default").map((o) => {
                   const chosen = o.id === "default" ? null : dataDir[o.id];
                   return (
                     <button
@@ -478,7 +479,16 @@ export function SetupWizard({
 
 // ------------------------------------------------------------------ Inicio de sesión
 
-export function LoginScreen({ company, onLogin }: { company: CompanyProfile | null; onLogin: (username: string, password: string) => Promise<void> }) {
+export function LoginScreen({
+  company,
+  onLogin,
+  footer,
+}: {
+  company: CompanyProfile | null;
+  onLogin: (username: string, password: string) => Promise<void>;
+  /** App de Android: dónde está la base y cómo cambiarla. */
+  footer?: ReactNode;
+}) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -559,6 +569,7 @@ export function LoginScreen({ company, onLogin }: { company: CompanyProfile | nu
           <Button type="submit" variant="primary" size="lg" block loading={busy}>
             Entrar
           </Button>
+          {footer}
         </form>
       </section>
     </div>

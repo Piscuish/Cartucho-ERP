@@ -1,0 +1,121 @@
+# Arma la app de Android (.apk) con Tauri 2.
+# - Desde «Instalador de Windows»: se sube a la versión publicada (vX.Y.Z).
+# - Al subir cambios a una rama claude/app-android*: se publica como versión de prueba «android-prueba».
+# - A mano desde la pestaña Actions.
+#
+# Firma (Settings › Secrets and variables › Actions), para poder actualizar la app sin desinstalar:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD   (alias «cartucho»)
+# Sin ellos se firma con una clave temporal: sirve para probar, pero cada .apk exige desinstalar el anterior.
+name: App de Android
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: true
+  workflow_dispatch:
+  push:
+    branches: ["claude/app-android*"]
+    paths:
+      - apps/desktop/**
+      - packages/**
+      - .github/workflows/android.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+          key: android
+
+      - name: Herramientas de Android
+        run: |
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)
+          echo "BUILD_TOOLS=$BT" >> "$GITHUB_ENV"
+          echo "VERSION=$(jq -r .version apps/desktop/src-tauri/tauri.conf.json)" >> "$GITHUB_ENV"
+
+      - name: Dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Proyecto de Android
+        working-directory: apps/desktop
+        run: |
+          set -o pipefail
+          pnpm tauri android init --ci 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+          pnpm tauri icon src-tauri/icons/128x128@2x.png 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+
+      - name: Compilar
+        working-directory: apps/desktop
+        run: |
+          set -o pipefail
+          pnpm tauri android build --ci --apk --target aarch64 --target armv7 --features desktop-tauri 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+
+      - name: Firmar
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          UNSIGNED=$(find apps/desktop/src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | head -n1)
+          test -n "$UNSIGNED"
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/k.jks"
+            PASS="$KEYSTORE_PASSWORD"
+          else
+            echo "::warning::Sin ANDROID_KEYSTORE_BASE64: se firma con una clave temporal (para actualizar habrá que desinstalar)."
+            PASS=temporal123
+            keytool -genkeypair -keystore "$RUNNER_TEMP/k.jks" -storetype PKCS12 -alias cartucho -keyalg RSA -keysize 2048 -validity 3650 \
+              -storepass "$PASS" -keypass "$PASS" -dname "CN=Cartucho ERP prueba"
+          fi
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
+          OUT="Cartucho.ERP_${VERSION}_android.apk"
+          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/k.jks" --ks-key-alias cartucho --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out "$OUT" "$RUNNER_TEMP/aligned.apk"
+          "$BUILD_TOOLS/apksigner" verify "$OUT"
+          rm -f "$RUNNER_TEMP/k.jks"
+          ls -la "$OUT"
+          echo "APK=$OUT" >> "$GITHUB_ENV"
+
+      - name: Publicar en la versión
+        if: inputs.release
+        run: gh release upload "v${VERSION}" "$APK" --clobber
+
+      - name: Publicar versión de prueba
+        if: ${{ !inputs.release }}
+        run: |
+          gh release view android-prueba >/dev/null 2>&1 || gh release create android-prueba --prerelease --title "App de Android (prueba)" --notes "Compilación de prueba de la app de Android. No es una versión final." --target "$GITHUB_SHA"
+          gh release upload android-prueba "$APK" --clobber
+
+      - name: Guardar el registro si falló
+        if: failure()
+        run: |
+          gh release view ci-registros >/dev/null 2>&1 || gh release create ci-registros --prerelease --title "Registros de compilación" --notes "Registros para diagnosticar compilaciones fallidas." --target "$GITHUB_SHA"
+          tail -c 900000 "$RUNNER_TEMP/build.log" > android-build.log || echo "sin registro" > android-build.log
+          gh release upload ci-registros android-build.log --clobber

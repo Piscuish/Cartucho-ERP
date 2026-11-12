@@ -4188,3 +4188,265 @@ a {
 .license-notice-close:hover {
   background: rgba(0, 0, 0, 0.06);
 }
+
+/* ------------------------------------------------------------------ Teléfono (app de Android) */
+.window-frame.is-phone {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.topbar-menu {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-text, var(--accent));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-base {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+@media (max-width: 760px) {
+  .app-shell,
+  .app-shell.is-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-shell .sidebar {
+    position: fixed;
+    top: env(safe-area-inset-top);
+    bottom: 0;
+    left: 0;
+    width: min(300px, 86vw);
+    margin: 0;
+    border-radius: 0 18px 18px 0;
+    z-index: 70;
+    transform: translateX(-105%);
+    transition: transform 220ms var(--ease);
+  }
+  .app-shell.is-menu-open .sidebar {
+    transform: none;
+    box-shadow: var(--shadow-xl);
+  }
+  .sb-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 18, 30, 0.45);
+    z-index: 65;
+    animation: page-in 160ms var(--ease);
+  }
+  .topbar {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .topbar-search {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+  .page {
+    padding: 16px 14px 40px;
+  }
+  .page-header {
+    margin-bottom: 16px;
+  }
+  .page-header h1 {
+    font-size: 21px;
+  }
+  .page-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .form-grid,
+  .form-grid.cols-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .form-grid .span-2 {
+    grid-column: auto;
+  }
+  .drawer,
+  .drawer.is-wide {
+    width: 100vw;
+  }
+  .modal {
+    width: calc(100vw - 20px);
+  }
+  .settings-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 4px;
+  }
+  .settings-nav button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .table-wrap {
+    overflow-x: auto;
+  }
+  .pos {
+    padding: 12px;
+    gap: 12px;
+  }
+  .grid-4,
+  .quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat-value {
+    font-size: 20px;
+  }
+}
+
+/* Pantalla de inicio de la app: elegir la base principal. */
+.mstart {
+  min-height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 28px 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.mstart-head {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+
+.mstart-head h1 {
+  font-size: 22px;
+}
+
+.mstart-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  font-size: 18px;
+}
+
+.mstart-options,
+.mstart-found {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mstart-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.mstart-option:active,
+.mstart-option:hover {
+  border-color: var(--accent);
+}
+
+.mstart-option-icon {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent-text, var(--accent));
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.mstart-option-icon.is-big {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+}
+
+.mstart-option-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.mstart-option-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mstart-option-title {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.mstart-option-desc {
+  font-size: 13px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
+.mstart-foot {
+  text-align: center;
+  font-size: 12.5px;
+}
+
+.mstart-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.mstart-or {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+.mstart-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
