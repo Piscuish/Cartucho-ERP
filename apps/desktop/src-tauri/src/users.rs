@@ -492,6 +492,7 @@ mod tests {
                 password: "ClaveSegura#1".into(),
                 password_confirm: "ClaveSegura#1".into(),
             },
+            paper_size: None,
         })
         .unwrap();
         (dir, db)

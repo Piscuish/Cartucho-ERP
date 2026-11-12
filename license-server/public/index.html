@@ -310,13 +310,24 @@ function licenseForm(l) {
       <label class="f"><span>Vence (opcional)</span><input class="input" type="date" name="expiresAt" value="${l?.expiresAt ? new Date(l.expiresAt * 1000).toISOString().slice(0, 10) : ""}" /></label>
       <label class="f"><span>Soporte que verá el cliente</span><input class="input" name="support" value="${esc(l?.support)}" placeholder="WhatsApp 300 000 0000" /></label>
     </div>
+    <div class="f" style="margin:6px 0 8px"><span style="display:block;font-weight:600;font-size:13px">Datos de la empresa</span><span class="subtle" style="font-size:12px">Viajan en la licencia: al activarla, el programa llena solo el asistente inicial.</span></div>
+    <div class="grid2">
+      <label class="f"><span>Razón social</span><input class="input" name="legalName" value="${esc(l?.company?.legalName)}" /></label>
+      <label class="f"><span>NIT / Documento</span><input class="input" name="taxId" value="${esc(l?.company?.taxId)}" /></label>
+    </div>
+    <div class="grid2">
+      <label class="f"><span>Teléfono del negocio</span><input class="input" name="companyPhone" value="${esc(l?.company?.phone)}" /></label>
+      <label class="f"><span>Correo del negocio</span><input class="input" name="companyEmail" value="${esc(l?.company?.email)}" /></label>
+    </div>
+    <label class="f"><span>Dirección</span><input class="input" name="companyAddress" value="${esc(l?.company?.address)}" /></label>
     <label class="f"><span>Notas internas</span><textarea name="notes" rows="2">${esc(l?.notes)}</textarea></label>`;
 }
 
 function readForm(root, getPlan) {
   const f = (n) => root.querySelector(`[name=${n}]`).value.trim();
   const exp = f("expiresAt");
-  return { customer: f("customer"), contact: f("contact"), maxDevices: Number(f("maxDevices")), expiresAt: exp ? `${exp}T23:59:59Z` : null, support: f("support"), notes: f("notes"), ...getPlan() };
+  return { customer: f("customer"), contact: f("contact"), maxDevices: Number(f("maxDevices")), expiresAt: exp ? `${exp}T23:59:59Z` : null, support: f("support"), notes: f("notes"),
+    legalName: f("legalName"), taxId: f("taxId"), companyPhone: f("companyPhone"), companyEmail: f("companyEmail"), companyAddress: f("companyAddress"), ...getPlan() };
 }
 
 $("#newLicense").onclick = () => {

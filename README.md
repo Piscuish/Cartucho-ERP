@@ -148,18 +148,33 @@ pnpm test:rust
 
 ---
 
-## 7. Compilación de la Aplicación (Instalador de Escritorio)
+## 7. Instalador de Windows y actualizaciones
 
-Para generar el ejecutable y los instaladores nativos de producción (`.msi` / `.exe` en Windows, `.deb` / `.AppImage` en Linux, `.dmg` / `.app` en macOS):
+**Instalador liviano (NSIS):** se instala solo para el usuario (sin pedir administrador), en español, con
+accesos en el escritorio y el menú Inicio; al terminar abre el programa y arranca el asistente:
+base de datos → empresa → logotipo → impresión → administrador.
 
-```bash
-pnpm tauri:build
-```
+**Cómo se arma:** GitHub lo compila en una máquina Windows (`.github/workflows/release.yml`).
 
-Los artefactos compilados se generan en:
-`apps/desktop/src-tauri/target/release/bundle/`
+1. Sube la versión en `apps/desktop/src-tauri/tauri.conf.json` (y `Cargo.toml` / `package.json`).
+2. Crea y sube una etiqueta: `git tag v0.3.1 && git push origin v0.3.1` (o pulsa *Run workflow* en la pestaña Actions).
+3. En unos 15 minutos aparece en **Releases** el archivo `Cartucho ERP_X.Y.Z_x64-setup.exe` y `latest.json`.
 
-> **Licencias:** antes de compilar un instalador para clientes, configura `apps/desktop/src-tauri/license_public_key.txt` y `license_server_url.txt` (ver `license-server/README.md`). Sin clave pública, el instalador de producción no podrá activarse. `pnpm tauri:dev` sin clave abre en modo desarrollo con todo habilitado.
+**Actualizaciones automáticas:** el programa consulta
+`https://github.com/Piscuish/Cartucho-ERP/releases/latest/download/latest.json` al abrir y cada 6 horas
+(solo el administrador ve el aviso). Cada actualización va firmada; antes de instalar se hace una copia
+de seguridad y la base se migra con su respaldo verificado. Para firmar, agrega en GitHub
+(*Settings › Secrets and variables › Actions*) los secretos `TAURI_SIGNING_PRIVATE_KEY` y
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Sin ellos el instalador se publica igual, sin archivos de actualización.
+
+> ⚠️ Guarda la clave privada de actualizaciones en un lugar seguro. Si se pierde, los programas ya
+> instalados no aceptarán actualizaciones firmadas con otra clave (habría que reinstalar).
+
+**Licencias:** sin `LICENSE_PUBLIC_KEY` (variable de GitHub o `license_public_key.txt`) el instalador funciona
+con todos los módulos. Al configurarla, el instalador exige licencia y el token trae los datos de la
+empresa, que llenan solo el asistente inicial (ver `license-server/README.md`).
+
+Compilar a mano en un PC con Windows: `pnpm tauri:build` (artefactos en `apps/desktop/src-tauri/target/release/bundle/`).
 
 ---
 

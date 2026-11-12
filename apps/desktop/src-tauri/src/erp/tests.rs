@@ -25,6 +25,7 @@ fn setup() -> (TempDir, LocalDatabase) {
             password: "ClaveSegura#1".to_string(),
             password_confirm: "ClaveSegura#1".to_string(),
         },
+        paper_size: None,
     })
     .unwrap();
     (dir, db)
@@ -537,6 +538,7 @@ fn upgrade_from_v3_preserves_data_and_creates_backup() {
                 password: "ClaveSegura#1".to_string(),
                 password_confirm: "ClaveSegura#1".to_string(),
             },
+            paper_size: None,
         })
         .unwrap();
     }

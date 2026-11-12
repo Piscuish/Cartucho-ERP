@@ -172,6 +172,12 @@ function AppInner() {
     return (
       <SetupWizard
         existingCompany={overview.company}
+        license={license}
+        overview={overview}
+        onOverview={(o) => {
+          setOverview(o);
+          toast("Usaremos la base de datos que elegiste. Inicia sesión con tu usuario.");
+        }}
         onComplete={async (input: CompleteInitialSetupInput) => {
           setOverview(await api.completeSetup(input));
           setRoute({ page: "dashboard" });

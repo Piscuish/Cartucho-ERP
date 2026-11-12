@@ -2,19 +2,70 @@
  * Pantallas de acceso: asistente de primera ejecución, inicio de sesión y error de arranque.
  */
 import { FormEvent, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Building2, Check, Eye, EyeOff, HardDrive, ImageIcon, Lock, RotateCcw, ShieldCheck, User } from "lucide-react";
-import type { CompanyProfile, CompleteInitialSetupInput } from "@cartucho/shared";
+import { ArrowLeft, ArrowRight, Building2, Check, Database, Eye, EyeOff, FolderInput, FolderOpen, HardDrive, ImageIcon, Lock, Printer, RotateCcw, ShieldCheck, User } from "lucide-react";
+import { MODULE_LABELS, type BusinessSettings, type CompanyProfile, type CompleteInitialSetupInput, type LicenseStatus, type PaperSize, type SetupDataMode, type SystemOverview } from "@cartucho/shared";
 import { errorMessage, greeting, initials } from "../lib/format";
+import { api, pickFolder } from "../services/systemClient";
+import { PLAN_LABELS } from "../lib/access";
 import { Alert, Button, Field, ImagePicker } from "./ui";
+import { PAPER_OPTIONS, PaperIcon, PrintDialog, type PrintableDoc } from "./print";
 
 // ------------------------------------------------------------------ Asistente inicial
 
 const STEPS = [
+  { title: "Base de datos", icon: Database },
   { title: "Tu empresa", icon: Building2 },
   { title: "Logotipo", icon: ImageIcon },
+  { title: "Impresión", icon: Printer },
   { title: "Administrador", icon: User },
   { title: "Confirmar", icon: ShieldCheck },
 ];
+// Índices de los pasos (más legible que números sueltos).
+const S_DATA = 0, S_COMPANY = 1, S_LOGO = 2, S_PRINT = 3, S_ADMIN = 4, S_CONFIRM = 5;
+
+const DATA_OPTIONS: { id: SetupDataMode; title: string; desc: string; icon: typeof Database }[] = [
+  { id: "default", title: "En este equipo", desc: "Recomendado. Se guarda en la carpeta del programa y se respalda cada día.", icon: HardDrive },
+  { id: "folder", title: "En otra carpeta", desc: "Por ejemplo, otro disco o una carpeta que se sincroniza con OneDrive o Google Drive.", icon: FolderOpen },
+  { id: "existing", title: "Ya tengo una base de datos", desc: "De otro equipo o de una copia: elige la carpeta que contiene cartucho_erp.sqlite3.", icon: FolderInput },
+];
+
+const SAMPLE_SETTINGS: BusinessSettings = {
+  invoicePrefix: "FAC-",
+  invoiceNextNumber: 1,
+  quotePrefix: "COT-",
+  quoteNextNumber: 1,
+  defaultDueDays: 0,
+  defaultQuoteValidDays: 15,
+  defaultNotes: "",
+  defaultTerms: "",
+  defaultFooter: "",
+  paperSize: "letter",
+  showLogoOnPrint: true,
+};
+
+/** Factura de ejemplo para la página de prueba de impresión. */
+function samplePrintable(): PrintableDoc {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    kind: "invoice",
+    number: "PRUEBA",
+    issueDate: today,
+    secondDate: null,
+    status: "paid",
+    customer: { name: "Consumidor final", documentId: null, phone: null, email: null, address: null },
+    lines: [
+      { id: 1, position: 1, productId: null, description: "Página de prueba de impresión", note: "Si se ve completa y centrada, la impresora quedó lista.", quantity: 1, unitPrice: 0, lineTotal: 0 },
+    ],
+    total: 0,
+    paidAmount: 0,
+    balance: 0,
+    payments: [],
+    notes: null,
+    terms: null,
+    footer: "Cartucho ERP · Prueba de impresión",
+    voidReason: null,
+  };
+}
 
 function passwordScore(p: string): number {
   let s = 0;
@@ -34,16 +85,36 @@ const STRENGTH = [
   { label: "Excelente", color: "var(--success)" },
 ];
 
-export function SetupWizard({ onComplete, existingCompany }: { onComplete: (input: CompleteInitialSetupInput) => Promise<void>; existingCompany: CompanyProfile | null }) {
+export function SetupWizard({
+  onComplete,
+  existingCompany,
+  license,
+  overview,
+  onOverview,
+}: {
+  onComplete: (input: CompleteInitialSetupInput) => Promise<void>;
+  existingCompany: CompanyProfile | null;
+  license?: LicenseStatus | null;
+  overview: SystemOverview;
+  /** Se llama cuando cambia la base (por ejemplo, al usar una existente con usuarios). */
+  onOverview: (o: SystemOverview) => void;
+}) {
   const [step, setStep] = useState(0);
+  // La licencia trae los datos de la empresa: el asistente se llena solo.
+  const fromLicense = license?.company ?? null;
   const [company, setCompany] = useState({
-    tradeName: existingCompany?.tradeName ?? "",
-    legalName: existingCompany?.legalName ?? "",
-    taxId: existingCompany?.taxId ?? "",
-    phone: existingCompany?.phone ?? "",
-    email: existingCompany?.email ?? "",
-    address: existingCompany?.address ?? "",
+    tradeName: existingCompany?.tradeName ?? fromLicense?.tradeName ?? "",
+    legalName: existingCompany?.legalName ?? fromLicense?.legalName ?? "",
+    taxId: existingCompany?.taxId ?? fromLicense?.taxId ?? "",
+    phone: existingCompany?.phone ?? fromLicense?.phone ?? "",
+    email: existingCompany?.email ?? fromLicense?.email ?? "",
+    address: existingCompany?.address ?? fromLicense?.address ?? "",
   });
+  const [dataMode, setDataMode] = useState<SetupDataMode>("default");
+  const [dataDir, setDataDir] = useState<{ folder: string | null; existing: string | null }>({ folder: null, existing: null });
+  const [dataPath, setDataPath] = useState(overview.database.appDataDir);
+  const [paper, setPaper] = useState<PaperSize>("letter");
+  const [testPrint, setTestPrint] = useState(false);
   const [logo, setLogo] = useState<{ base64: string; mime: string; dataUrl: string } | null>(null);
   const [admin, setAdmin] = useState({ fullName: "", username: "admin", password: "", passwordConfirm: "" });
   const [showPass, setShowPass] = useState(false);
@@ -54,11 +125,12 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
 
   const validate = (s: number): boolean => {
     const e: Record<string, string> = {};
-    if (s === 0) {
+    if (s === S_DATA && dataMode !== "default" && !dataDir[dataMode]) e.data = "Elige la carpeta.";
+    if (s === S_COMPANY) {
       if (!company.tradeName.trim()) e.tradeName = "Escribe el nombre de tu empresa o negocio.";
       if (company.email && !company.email.includes("@")) e.email = "Revisa el correo electrónico.";
     }
-    if (s === 2) {
+    if (s === S_ADMIN) {
       if (!admin.fullName.trim()) e.fullName = "Escribe tu nombre.";
       if (admin.username.trim().length < 3) e.username = "Mínimo 3 caracteres.";
       else if (!/^[A-Za-z0-9._-]+$/.test(admin.username.trim())) e.username = "Solo letras, números, puntos y guiones, sin espacios.";
@@ -69,12 +141,43 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
     return Object.keys(e).length === 0;
   };
 
-  const next = () => {
-    if (validate(step)) setStep((s) => Math.min(STEPS.length - 1, s + 1));
+  const next = async () => {
+    if (!validate(step)) return;
+    if (step === S_DATA) {
+      // Se aplica la ubicación elegida antes de seguir (la base se crea o se abre ahí).
+      setBusy(true);
+      setSubmitError(null);
+      try {
+        const o = await api.setupDataLocation(dataMode, dataMode === "default" ? null : dataDir[dataMode]);
+        setDataPath(o.database.appDataDir);
+        if (o.hasAdminUser) {
+          // Base existente con usuarios: no hace falta configurar nada más; pasa al inicio de sesión.
+          onOverview(o);
+          return;
+        }
+      } catch (err) {
+        setSubmitError(errorMessage(err));
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
+    setSubmitError(null);
+    setStep((s) => Math.min(STEPS.length - 1, s + 1));
+  };
+
+  const chooseFolder = async (mode: "folder" | "existing") => {
+    const dir = await pickFolder(mode === "folder" ? "Carpeta donde se guardarán los datos" : "Carpeta que contiene la base de datos");
+    if (dir) {
+      setDataDir((d) => ({ ...d, [mode]: dir }));
+      setDataMode(mode);
+      setErrors({});
+    }
   };
 
   const submit = async () => {
-    if (!validate(0) || !validate(2)) return;
+    if (!validate(S_COMPANY)) return setStep(S_COMPANY);
+    if (!validate(S_ADMIN)) return setStep(S_ADMIN);
     setBusy(true);
     setSubmitError(null);
     try {
@@ -85,6 +188,7 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
           logoMimeType: logo?.mime ?? null,
         },
         admin,
+        paperSize: paper,
       });
     } catch (err) {
       setSubmitError(errorMessage(err));
@@ -121,10 +225,68 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
 
       <main className="wizard-main">
         <div className="wizard-panel" key={step}>
-          {step === 0 && (
+          {step === S_DATA && (
+            <>
+              <h2>¿Dónde guardamos tus datos?</h2>
+              <p className="muted mb-16">Tus facturas, clientes y productos quedan en un archivo de este equipo. Puedes cambiarlo después en Configuración.</p>
+              <div className="setup-options">
+                {DATA_OPTIONS.map((o) => {
+                  const chosen = o.id === "default" ? null : dataDir[o.id];
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      className={`setup-option ${dataMode === o.id ? "is-active" : ""}`}
+                      onClick={() => (o.id === "default" || chosen ? setDataMode(o.id) : void chooseFolder(o.id))}
+                    >
+                      <span className="setup-option-icon">
+                        <o.icon size={20} />
+                      </span>
+                      <span className="setup-option-body">
+                        <span className="setup-option-title">{o.title}</span>
+                        <span className="setup-option-desc">{o.desc}</span>
+                        {o.id === "default" && dataMode === "default" && <span className="setup-option-path">{overview.database.appDataDir}</span>}
+                        {chosen && <span className="setup-option-path">{chosen}</span>}
+                      </span>
+                      {o.id !== "default" && (
+                        <span
+                          className="btn btn-sm"
+                          role="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void chooseFolder(o.id as "folder" | "existing");
+                          }}
+                        >
+                          {chosen ? "Cambiar" : "Elegir carpeta"}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              {errors.data && <div className="field-error mt-8">{errors.data}</div>}
+              <p className="subtle mt-16" style={{ fontSize: 12.5 }}>
+                No uses una carpeta compartida en red para trabajar desde varios equipos a la vez: puede dañar los datos.
+              </p>
+              {submitError && (
+                <div className="mt-16">
+                  <Alert tone="danger">{submitError}</Alert>
+                </div>
+              )}
+            </>
+          )}
+
+          {step === S_COMPANY && (
             <>
               <h2>Datos de tu empresa</h2>
               <p className="muted mb-16">Aparecerán en el inicio de sesión y en tus facturas. Puedes cambiarlos después.</p>
+              {fromLicense && (
+                <div className="mb-16">
+                  <Alert tone="success">
+                    Tomamos estos datos de tu licencia. Revísalos y corrige lo que haga falta.
+                  </Alert>
+                </div>
+              )}
               <div className="form-grid">
                 <Field label="Nombre comercial" error={errors.tradeName} className="span-all">
                   <input className={`input ${errors.tradeName ? "has-error" : ""}`} value={company.tradeName} onChange={setC("tradeName")} placeholder="Papelería El Cartucho" autoFocus />
@@ -148,7 +310,7 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
             </>
           )}
 
-          {step === 1 && (
+          {step === S_LOGO && (
             <>
               <h2>Logotipo</h2>
               <p className="muted mb-16">Se muestra al iniciar sesión, en el menú y en las facturas impresas. Es opcional.</p>
@@ -156,7 +318,36 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
             </>
           )}
 
-          {step === 2 && (
+          {step === S_PRINT && (
+            <>
+              <h2>Impresión</h2>
+              <p className="muted mb-16">Elige el tamaño de hoja que más usas. Al imprimir siempre puedes cambiarlo.</p>
+              <div className="paper-options">
+                {PAPER_OPTIONS.map((p) => (
+                  <button key={p.id} type="button" className={`paper-option ${paper === p.id ? "is-active" : ""}`} onClick={() => setPaper(p.id)}>
+                    <PaperIcon id={p.id} />
+                    <span>{p.label}</span>
+                    <span className="subtle" style={{ fontSize: 11 }}>
+                      {p.desc}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="setup-print-test mt-16">
+                <div>
+                  <div style={{ fontWeight: 600 }}>¿Ya conectaste la impresora?</div>
+                  <div className="subtle" style={{ fontSize: 12.5 }}>
+                    Imprime una página de prueba. La impresora se elige en la ventana de Windows y queda recordada.
+                  </div>
+                </div>
+                <Button icon={<Printer size={16} />} onClick={() => setTestPrint(true)}>
+                  Página de prueba
+                </Button>
+              </div>
+            </>
+          )}
+
+          {step === S_ADMIN && (
             <>
               <h2>Cuenta de administrador</h2>
               <p className="muted mb-16">Con esta cuenta entrarás al programa cada vez que lo abras.</p>
@@ -199,7 +390,7 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
             </>
           )}
 
-          {step === 3 && (
+          {step === S_CONFIRM && (
             <>
               <h2>Todo listo</h2>
               <p className="muted mb-16">Revisa los datos antes de crear tu espacio de trabajo.</p>
@@ -220,7 +411,17 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
                   <dt>Usuario</dt>
                   <dd>{admin.username}</dd>
                   <dt>Datos</dt>
-                  <dd>Guardados en este equipo (SQLite)</dd>
+                  <dd style={{ wordBreak: "break-all" }}>{dataPath || "Carpeta predeterminada de este equipo"}</dd>
+                  <dt>Hoja</dt>
+                  <dd>{PAPER_OPTIONS.find((p) => p.id === paper)?.label}</dd>
+                  {license && license.licensingEnabled && license.mode === "licensed" && (
+                    <>
+                      <dt>Licencia</dt>
+                      <dd>
+                        {PLAN_LABELS[license.plan ?? ""] ?? license.plan} · {license.modules.map((m) => MODULE_LABELS[m]).join(", ")}
+                      </dd>
+                    </>
+                  )}
                 </dl>
               </div>
               {submitError && (
@@ -236,8 +437,8 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
               Atrás
             </Button>
             {step < STEPS.length - 1 ? (
-              <Button variant="primary" onClick={next}>
-                {step === 1 && !logo ? "Omitir por ahora" : "Continuar"} <ArrowRight size={16} />
+              <Button variant="primary" loading={busy} onClick={() => void next()}>
+                {step === S_LOGO && !logo ? "Omitir por ahora" : step === S_DATA && dataMode === "existing" ? "Usar esta base" : "Continuar"} <ArrowRight size={16} />
               </Button>
             ) : (
               <Button variant="primary" size="lg" loading={busy} onClick={submit} icon={<Check size={16} />}>
@@ -247,6 +448,30 @@ export function SetupWizard({ onComplete, existingCompany }: { onComplete: (inpu
           </div>
         </div>
       </main>
+      {testPrint && (
+        <PrintDialog
+          doc={samplePrintable()}
+          company={{
+            ...company,
+            legalName: company.legalName || null,
+            taxId: company.taxId || null,
+            phone: company.phone || null,
+            email: company.email || null,
+            address: company.address || null,
+            tradeName: company.tradeName || "Mi negocio",
+            logoDataUrl: logo?.dataUrl ?? null,
+            logoMimeType: logo?.mime ?? null,
+            businessProfileKey: "",
+            commercialPlanKey: "",
+            enabledModuleKeys: [],
+            enabledAddonKeys: [],
+            createdAt: "",
+            updatedAt: "",
+          }}
+          settings={{ ...SAMPLE_SETTINGS, paperSize: paper }}
+          onClose={() => setTestPrint(false)}
+        />
+      )}
     </div>
   );
 }

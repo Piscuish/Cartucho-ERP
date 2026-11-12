@@ -155,6 +155,23 @@ interface LicenseRow {
   notes: string | null;
   created_at: number;
   updated_at: number;
+  legal_name?: string | null;
+  tax_id?: string | null;
+  company_phone?: string | null;
+  company_email?: string | null;
+  company_address?: string | null;
+}
+
+/** Datos de la empresa que viajan en el token (el programa llena con ellos el asistente inicial). */
+function companyOf(l: LicenseRow) {
+  return {
+    tradeName: l.customer,
+    legalName: l.legal_name ?? null,
+    taxId: l.tax_id ?? null,
+    phone: l.company_phone ?? null,
+    email: l.company_email ?? null,
+    address: l.company_address ?? null,
+  };
 }
 
 interface DeviceRow {
@@ -188,6 +205,7 @@ async function issueToken(env: Env, lic: LicenseRow, deviceCode: string, status:
     exp: t + OFFLINE_GRACE_SECS,
     licExp: lic.expires_at ?? null,
     support: lic.support || env.SUPPORT_TEXT || null,
+    company: companyOf(lic),
   };
   const payloadB64 = b64url(new TextEncoder().encode(JSON.stringify(payload)));
   const sig = await crypto.subtle.sign({ name: "Ed25519" }, await signingKey(env), new TextEncoder().encode(payloadB64));
@@ -354,6 +372,7 @@ function licenseView(l: LicenseRow, devices: { active: number; online: number; t
     expiresAt: l.expires_at,
     support: l.support,
     notes: l.notes,
+    company: companyOf(l),
     createdAt: l.created_at,
     updatedAt: l.updated_at,
     devices,
@@ -387,6 +406,11 @@ interface LicenseInput {
   support?: unknown;
   notes?: unknown;
   status?: unknown;
+  legalName?: unknown;
+  taxId?: unknown;
+  companyPhone?: unknown;
+  companyEmail?: unknown;
+  companyAddress?: unknown;
 }
 
 function resolvePlan(plan: unknown, modules: unknown): { plan: string; modules: ModuleKey[] } | string {
@@ -479,10 +503,12 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       let key = randomKey();
       for (let i = 0; i < 5 && (await getLicense(env, key)); i++) key = randomKey();
       await env.DB.prepare(
-        `INSERT INTO licenses (key, customer, contact, plan, modules, max_devices, status, expires_at, support, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)`,
+        `INSERT INTO licenses (key, customer, contact, plan, modules, max_devices, status, expires_at, support, notes, created_at, updated_at,
+           legal_name, tax_id, company_phone, company_email, company_address)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-        .bind(key, customer, clip(b.contact, 120), plan.plan, JSON.stringify(plan.modules), max, exp, clip(b.support, 160), clip(b.notes, 1000), t, t)
+        .bind(key, customer, clip(b.contact, 120), plan.plan, JSON.stringify(plan.modules), max, exp, clip(b.support, 160), clip(b.notes, 1000), t, t,
+          clip(b.legalName, 160), clip(b.taxId, 40), clip(b.companyPhone, 40), clip(b.companyEmail, 120), clip(b.companyAddress, 200))
         .run();
       await logEvent(env, "admin_create", key, null, `${customer} · ${plan.plan} · ${max} equipos`, ip);
       const lic = (await getLicense(env, key))!;
@@ -525,6 +551,11 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       if (b.contact !== undefined) next.contact = clip(b.contact, 120);
       if (b.notes !== undefined) next.notes = clip(b.notes, 1000);
       if (b.support !== undefined) next.support = clip(b.support, 160);
+      if (b.legalName !== undefined) next.legal_name = clip(b.legalName, 160);
+      if (b.taxId !== undefined) next.tax_id = clip(b.taxId, 40);
+      if (b.companyPhone !== undefined) next.company_phone = clip(b.companyPhone, 40);
+      if (b.companyEmail !== undefined) next.company_email = clip(b.companyEmail, 120);
+      if (b.companyAddress !== undefined) next.company_address = clip(b.companyAddress, 200);
       if (b.plan !== undefined || b.modules !== undefined) {
         const plan = resolvePlan(b.plan ?? lic.plan, b.modules ?? JSON.parse(lic.modules));
         if (typeof plan === "string") return json({ ok: false, message: plan }, 400);
@@ -552,9 +583,11 @@ async function handleAdmin(req: Request, env: Env, path: string): Promise<Respon
       next.updated_at = now();
       await env.DB.prepare(
         `UPDATE licenses SET customer = ?, contact = ?, plan = ?, modules = ?, max_devices = ?, status = ?, expires_at = ?,
-           support = ?, notes = ?, updated_at = ? WHERE key = ?`,
+           support = ?, notes = ?, updated_at = ?, legal_name = ?, tax_id = ?, company_phone = ?, company_email = ?, company_address = ?
+         WHERE key = ?`,
       )
-        .bind(next.customer, next.contact, next.plan, next.modules, next.max_devices, next.status, next.expires_at, next.support, next.notes, next.updated_at, key)
+        .bind(next.customer, next.contact, next.plan, next.modules, next.max_devices, next.status, next.expires_at, next.support, next.notes, next.updated_at,
+          next.legal_name ?? null, next.tax_id ?? null, next.company_phone ?? null, next.company_email ?? null, next.company_address ?? null, key)
         .run();
       await logEvent(env, "admin_update", key, null, changes.join(" · ") || "datos del cliente", ip);
       const counts = await deviceCounts(env);

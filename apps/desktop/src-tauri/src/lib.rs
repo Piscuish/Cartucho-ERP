@@ -676,11 +676,22 @@ mod tauri_commands {
         })
     }
 
+    /// Primera ejecución: elegir dónde guardar los datos (solo si aún no hay administrador).
+    #[tauri::command]
+    pub fn setup_data_location(mode: String, dir: Option<String>, state: S<'_>) -> Result<SystemOverview, String> {
+        overview_gated(&state, Gate::CoreWrite, |db| {
+            db.setup_data_location(&mode, dir.as_deref())?;
+            db.build_system_overview()
+        })
+    }
+
     pub fn run_tauri_app() {
         let app_state = AppState::initialize();
 
         tauri::Builder::default()
             .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
             .manage(app_state)
             .setup(|app| {
                 // Reporte con el servidor de licencias: al iniciar y cada hora mientras la
@@ -717,6 +728,7 @@ mod tauri_commands {
                 reset_data_location,
                 retry_open_database,
                 complete_initial_setup,
+                setup_data_location,
                 login_user,
                 logout_user,
                 change_user_password,

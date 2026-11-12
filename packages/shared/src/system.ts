@@ -223,7 +223,12 @@ export interface CreateInitialAdminInput {
 export interface CompleteInitialSetupInput {
   company: SaveCompanyProfileInput;
   admin: CreateInitialAdminInput;
+  /** Tamaño de hoja predeterminado elegido en el asistente. */
+  paperSize?: string | null;
 }
+
+/** Dónde guardar los datos en la primera ejecución. */
+export type SetupDataMode = "default" | "folder" | "existing";
 
 /**
  * Credenciales de inicio de sesión local.
@@ -374,6 +379,19 @@ export interface LicenseStatus {
   serverConfigured: boolean;
   licenseKeyMasked: string | null;
   support: string | null;
+  /** Empresa registrada con la licencia: llena sola el asistente inicial. */
+  company?: LicenseCompany | null;
+  /** `false` cuando esta copia no usa licencias (todo habilitado). */
+  licensingEnabled?: boolean;
+}
+
+export interface LicenseCompany {
+  tradeName: string | null;
+  legalName: string | null;
+  taxId: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
 }
 
 export const LICENSE_COMMANDS = {

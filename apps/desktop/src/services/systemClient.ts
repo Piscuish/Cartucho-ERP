@@ -14,6 +14,7 @@ import {
   CategoryKind,
   ChangePasswordInput,
   CompleteInitialSetupInput,
+  SetupDataMode,
   CsvReportKind,
   Customer,
   CustomerInput,
@@ -169,6 +170,8 @@ export const api = {
   restoreBackup: (source: string) => call<RestoreResult>(C.RESTORE_BACKUP, { source }),
   moveDataLocation: (newDir: string) => call<DataLocationInfo>(C.MOVE_DATA_LOCATION, { newDir }),
   useExistingDataLocation: (dir: string) => call<SystemOverview>(C.USE_EXISTING_DATA_LOCATION, { dir }),
+  /** Primera ejecución: dónde guardar los datos. */
+  setupDataLocation: (mode: SetupDataMode, dir: string | null) => call<SystemOverview>(C.SETUP_DATA_LOCATION, { mode, dir }),
 };
 
 // ------------------------------------------------------------------ Diálogos nativos

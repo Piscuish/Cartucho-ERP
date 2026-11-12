@@ -1,0 +1,85 @@
+# Arma el instalador de Windows (.exe) y lo publica en «Releases» de GitHub.
+# Se ejecuta al subir una etiqueta vX.Y.Z (por ejemplo v0.3.0) o a mano desde la pestaña Actions.
+#
+# Configuración opcional (Settings › Secrets and variables › Actions):
+#   Secrets:   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  → firma de actualizaciones
+#   Variables: LICENSE_PUBLIC_KEY, LICENSE_SERVER_URL                        → exigir licencia
+# Sin los secretos de firma el instalador se publica igual, pero sin archivos de actualización.
+# Sin las variables de licencia el programa funciona con todos los módulos habilitados.
+name: Instalador de Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Licencias (opcional)
+        shell: pwsh
+        env:
+          LICENSE_PUBLIC_KEY: ${{ vars.LICENSE_PUBLIC_KEY }}
+          LICENSE_SERVER_URL: ${{ vars.LICENSE_SERVER_URL }}
+        run: |
+          if ($env:LICENSE_PUBLIC_KEY) { Set-Content -NoNewline -Path apps/desktop/src-tauri/license_public_key.txt -Value $env:LICENSE_PUBLIC_KEY; Write-Host "Licencias activadas en este instalador." }
+          else { Write-Host "Sin LICENSE_PUBLIC_KEY: el instalador no exige licencia." }
+          if ($env:LICENSE_SERVER_URL) { Set-Content -NoNewline -Path apps/desktop/src-tauri/license_server_url.txt -Value $env:LICENSE_SERVER_URL }
+
+      - name: Firma de actualizaciones
+        id: sign
+        shell: pwsh
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ($env:KEY) { "args=--features desktop-tauri" >> $env:GITHUB_OUTPUT }
+          else {
+            "args=--features desktop-tauri --config src-tauri/tauri.nosign.conf.json" >> $env:GITHUB_OUTPUT
+            Write-Host "::warning::Falta TAURI_SIGNING_PRIVATE_KEY: se publica el instalador sin archivos de actualización."
+          }
+
+      - name: Compilar y publicar
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: ${{ steps.sign.outputs.args }}
+          tagName: v__VERSION__
+          releaseName: Cartucho ERP v__VERSION__
+          releaseBody: |
+            Descarga **Cartucho ERP_x64-setup.exe**, ábrelo y sigue los pasos. Al terminar, el programa se abre solo con el asistente de configuración.
+            Si ya tienes Cartucho ERP instalado, el programa te avisará y se actualizará solo, conservando tus datos.
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true

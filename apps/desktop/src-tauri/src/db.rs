@@ -204,6 +204,9 @@ pub struct CreateInitialAdminInput {
 pub struct CompleteInitialSetupInput {
     pub company: SaveCompanyProfileInput,
     pub admin: CreateInitialAdminInput,
+    /// Tamaño de hoja predeterminado elegido en el asistente (opcional).
+    #[serde(default)]
+    pub paper_size: Option<String>,
 }
 
 /// Datos de entrada para iniciar sesión local.
@@ -1320,6 +1323,11 @@ impl LocalDatabase {
         // Validar datos de empresa y de administrador antes de abrir la transacción de escritura
         let validated_company = validate_company_input(&input.company)?;
         let validated_admin = validate_and_hash_admin_input(&input.admin)?;
+        let paper_size = match input.paper_size.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(p) if crate::erp::settings::PAPER_SIZES.contains(&p) => Some(p.to_string()),
+            Some(_) => return Err("El tamaño de hoja elegido no es válido.".to_string()),
+        };
 
         let mut conn = self.connect()?;
         let tx = conn.transaction().map_err(|e| {
@@ -1372,6 +1380,16 @@ impl LocalDatabase {
         })?;
 
         let admin_id = tx.last_insert_rowid();
+
+        // 3. Tamaño de hoja predeterminado (configuración de impresión del asistente).
+        if let Some(p) = &paper_size {
+            tx.execute(
+                "INSERT INTO _app_metadata (key, value, updated_at) VALUES ('print_paper_size', ?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![p, &now],
+            )
+            .map_err(|e| format!("Error guardando la configuración de impresión: {}", e))?;
+        }
 
         tx.commit().map_err(|e| {
             format!(
@@ -1929,6 +1947,7 @@ mod tests {
                 password: "ClaveSegura#2026".to_string(),
                 password_confirm: "ClaveSegura#2026".to_string(),
             },
+            paper_size: None,
         }
     }
 

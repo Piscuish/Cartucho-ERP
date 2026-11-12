@@ -88,6 +88,27 @@ pub struct LicensePayload {
     /// Texto de contacto de soporte que muestra la aplicación.
     #[serde(default)]
     pub support: Option<String>,
+    /// Datos de la empresa registrados con la licencia: el asistente inicial los usa para
+    /// llenarse solo. Opcional (tokens anteriores no lo traen).
+    #[serde(default)]
+    pub company: Option<LicenseCompany>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseCompany {
+    #[serde(default)]
+    pub trade_name: Option<String>,
+    #[serde(default)]
+    pub legal_name: Option<String>,
+    #[serde(default)]
+    pub tax_id: Option<String>,
+    #[serde(default)]
+    pub phone: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub address: Option<String>,
 }
 
 /// Verifica la firma de un token `payload.firma` y devuelve su contenido.
@@ -155,6 +176,10 @@ pub struct LicenseStatus {
     pub server_configured: bool,
     pub license_key_masked: Option<String>,
     pub support: Option<String>,
+    /// Empresa registrada con la licencia (para llenar el asistente inicial).
+    pub company: Option<LicenseCompany>,
+    /// `false` cuando esta copia no tiene licencias configuradas (todo habilitado).
+    pub licensing_enabled: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -280,10 +305,11 @@ impl LicenseManager {
         } else {
             None
         };
-        // En compilaciones de desarrollo sin clave configurada se habilita todo.
+        // Sin clave pública incluida al compilar, esta copia no usa licencias: todo habilitado
+        // (así funciona el instalador mientras el servidor de licencias no esté publicado).
         // Con la clave configurada, CARTUCHO_SIN_LICENCIA=1 lo permite solo en desarrollo.
-        let dev_bypass = cfg!(debug_assertions)
-            && (verifying_key.is_none() || std::env::var("CARTUCHO_SIN_LICENCIA").map(|v| v == "1").unwrap_or(false));
+        let dev_bypass = verifying_key.is_none()
+            || (cfg!(debug_assertions) && std::env::var("CARTUCHO_SIN_LICENCIA").map(|v| v == "1").unwrap_or(false));
         let mut file = load_file(dir);
         let device_code = machine_device_code(&mut file);
         let mgr = Self { dir: dir.to_path_buf(), verifying_key, transport, dev_bypass, device_code, file };
@@ -347,6 +373,8 @@ impl LicenseManager {
             server_configured: self.transport.is_some(),
             license_key_masked: self.file.license_key.as_deref().map(mask_key),
             support: None,
+            company: None,
+            licensing_enabled: self.verifying_key.is_some() && !self.dev_bypass,
         }
     }
 
@@ -356,7 +384,11 @@ impl LicenseManager {
         if self.dev_bypass {
             st.mode = LicenseMode::Dev;
             st.modules = ALL_MODULES.iter().map(|s| s.to_string()).collect();
-            st.message = Some("Modo desarrollo: todos los módulos habilitados.".to_string());
+            st.message = Some(if self.verifying_key.is_none() {
+                "Esta copia no tiene licencias configuradas: todos los módulos están habilitados.".to_string()
+            } else {
+                "Modo desarrollo: todos los módulos habilitados.".to_string()
+            });
             return st;
         }
         let Some(key) = self.verifying_key else {
@@ -388,6 +420,7 @@ impl LicenseManager {
         st.plan = Some(payload.plan.clone());
         st.max_devices = Some(payload.max_devices);
         st.support = payload.support.clone();
+        st.company = payload.company.clone();
         st.valid_until = chrono::DateTime::from_timestamp(payload.exp, 0).map(|d| d.to_rfc3339());
         st.license_expires_at = payload.lic_exp.and_then(|t| chrono::DateTime::from_timestamp(t, 0)).map(|d| d.to_rfc3339());
         st.days_left = Some(((payload.exp - now) as f64 / 86400.0).ceil().max(0.0) as i64);
@@ -629,6 +662,12 @@ mod tests {
             exp: now + 30 * DAY,
             lic_exp: None,
             support: Some("WhatsApp 300 000 0000".to_string()),
+            company: Some(LicenseCompany {
+                trade_name: Some("Ferretería Prueba".to_string()),
+                tax_id: Some("900.123.456-7".to_string()),
+                phone: Some("300 000 0000".to_string()),
+                ..Default::default()
+            }),
         }
     }
 
@@ -690,6 +729,30 @@ mod tests {
         let mut dev = LicenseManager::with_parts(dir.path(), None, None, true, DEVICE);
         assert_eq!(dev.status(1_000).mode, LicenseMode::Dev);
         assert!(dev.entitlements(1_000).has("finance"));
+    }
+
+    #[test]
+    fn token_brings_company_data_and_old_tokens_still_work() {
+        let dir = TempDir::new().unwrap();
+        let now = 1_800_000_000;
+        let mut m = manager(dir.path(), None);
+        let st = m.activate_offline(&sign(&payload(now, "active", &["invoices"])), now).unwrap();
+        let c = st.company.expect("empresa en el token");
+        assert_eq!(c.trade_name.as_deref(), Some("Ferretería Prueba"));
+        assert_eq!(c.tax_id.as_deref(), Some("900.123.456-7"));
+        assert!(st.licensing_enabled);
+        // Un token emitido antes (sin «company») sigue siendo válido.
+        let mut old = payload(now, "active", &["invoices"]);
+        old.company = None;
+        let json = serde_json::to_value(&old).unwrap();
+        let mut obj = json.as_object().unwrap().clone();
+        obj.remove("company");
+        let b64 = B64URL.encode(serde_json::to_vec(&obj).unwrap());
+        let sig = signing().sign(b64.as_bytes());
+        let token = format!("{}.{}", b64, B64URL.encode(sig.to_bytes()));
+        let st = m.activate_offline(&token, now).unwrap();
+        assert_eq!(st.mode, LicenseMode::Licensed);
+        assert!(st.company.is_none());
     }
 
     #[test]
