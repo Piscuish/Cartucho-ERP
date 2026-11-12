@@ -904,7 +904,13 @@ const handlers: Record<string, Handler> = {
       minStock: Math.max(0, Number(i.minStock) || 0),
     };
     let p = i.id ? db.products.find((x) => x.id === i.id) : undefined;
-    if (p) Object.assign(p, data, { updatedAt: now() });
+    if (p) {
+      // Producto que pasa a servicio: existencias a cero con movimiento (igual que en Rust).
+      if (p.trackStock && !data.trackStock && p.stockQty !== 0) {
+        stockChange(p.id, -p.stockQty, "adjustment", null, null, "Convertido en servicio: existencias en cero");
+      }
+      Object.assign(p, data, { updatedAt: now() });
+    }
     else {
       p = { id: nextId("product"), ...data, stockQty: 0, imageDataUrl: null, isActive: true, createdAt: now(), updatedAt: now() };
       db.products.push(p);

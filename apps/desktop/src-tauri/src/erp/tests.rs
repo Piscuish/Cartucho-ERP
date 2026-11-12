@@ -727,3 +727,34 @@ fn cash_close_statement_and_seller_filter() {
     assert!(db.set_auto_lock(7).is_err());
     let _ = &mut db;
 }
+
+#[test]
+fn product_converted_to_service_clears_stock_with_movement() {
+    let (_dir, db) = setup();
+    let pid = product(&db, "Instalación", 80000, 0, 99999.0);
+    let p = db.get_product(pid).unwrap();
+    assert_eq!(p.stock_qty, 99999.0);
+
+    let mut input = ProductInput {
+        id: Some(pid),
+        name: p.name.clone(),
+        price: p.price,
+        cost: p.cost,
+        track_stock: false,
+        unit: Some(p.unit.clone()),
+        ..Default::default()
+    };
+    let s = db.save_product(&input).unwrap();
+    assert!(!s.track_stock);
+    assert_eq!(s.stock_qty, 0.0);
+    let moves = db.list_inventory_movements(Some(pid), Some(10)).unwrap();
+    assert_eq!(moves[0].kind, "adjustment");
+    assert_eq!(moves[0].quantity, -99999.0);
+    assert!(moves[0].note.as_deref().unwrap_or("").contains("servicio"));
+
+    // Guardarlo otra vez como servicio no crea más movimientos; volver a producto arranca en cero.
+    db.save_product(&input).unwrap();
+    assert_eq!(db.list_inventory_movements(Some(pid), Some(10)).unwrap().len(), moves.len());
+    input.track_stock = true;
+    assert_eq!(db.save_product(&input).unwrap().stock_qty, 0.0);
+}

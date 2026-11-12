@@ -390,6 +390,31 @@ impl LocalDatabase {
         let now = now_rfc3339();
         let id = match input.id {
             Some(id) => {
+                // Producto que pasa a ser servicio: sus existencias se llevan a cero con un
+                // movimiento de ajuste (queda el rastro) para que no sigan sumando al inventario
+                // ni reaparezcan si algún día vuelve a ser producto.
+                if !input.track_stock {
+                    let prev: Option<(i64, f64)> = tx
+                        .query_row("SELECT track_stock, stock_qty FROM products WHERE id = ?1", params![id], |r| {
+                            Ok((r.get(0)?, r.get(1)?))
+                        })
+                        .optional()
+                        .map_err(|e| friendly_sql_error("Guardar producto", e))?;
+                    if let Some((1, qty)) = prev {
+                        if qty != 0.0 {
+                            apply_stock_change(
+                                &tx,
+                                id,
+                                -qty,
+                                "adjustment",
+                                None,
+                                None,
+                                Some("Convertido en servicio: existencias en cero"),
+                                user.id,
+                            )?;
+                        }
+                    }
+                }
                 let n = tx
                     .execute(
                         "UPDATE products SET sku = ?1, name = ?2, description = ?3, category_id = ?4,
