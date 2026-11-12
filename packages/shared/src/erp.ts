@@ -54,6 +54,8 @@ export interface Product {
   /** Ausente en versiones anteriores: servicio si no controla existencias. */
   kind?: ItemKind;
   sku: string | null;
+  /** Código de barras (lo lee el lector en el punto de venta y en facturas). */
+  barcode?: string | null;
   name: string;
   description: string | null;
   categoryId: number | null;
@@ -74,6 +76,7 @@ export interface Product {
 export interface ProductInput {
   id?: number | null;
   kind?: ItemKind;
+  barcode?: string | null;
   sku?: string | null;
   name: string;
   description?: string | null;

@@ -835,3 +835,36 @@ fn upgrade_v5_to_v6_classifies_existing_items() {
     let backups: Vec<_> = std::fs::read_dir(db.backups_dir()).unwrap().filter_map(|e| e.ok()).collect();
     assert!(backups.iter().any(|b| b.file_name().to_string_lossy().contains("pre_migration_v5_to_v")));
 }
+
+#[test]
+fn product_barcode_is_unique_searchable_and_validated() {
+    let (_dir, db) = setup();
+    let p = db
+        .save_product(&ProductInput {
+            name: "Cuaderno".to_string(),
+            barcode: Some("  7702001045678 ".to_string()),
+            price: 5000,
+            track_stock: true,
+            kind: Some("product".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(p.barcode.as_deref(), Some("7702001045678"));
+    // Se encuentra buscando por el código.
+    let found = db.list_products(Some("7702001045678".to_string()), None, false, false).unwrap();
+    assert_eq!(found.len(), 1);
+    // Único.
+    let dup = db.save_product(&ProductInput { name: "Otro".to_string(), barcode: Some("7702001045678".to_string()), ..Default::default() });
+    assert!(dup.unwrap_err().contains("código de barras"));
+    // Sin espacios internos.
+    let bad = db.save_product(&ProductInput { name: "Malo".to_string(), barcode: Some("770 200".to_string()), ..Default::default() });
+    assert!(bad.is_err());
+    // Varios productos sin código no chocan.
+    db.save_product(&ProductInput { name: "A".to_string(), ..Default::default() }).unwrap();
+    db.save_product(&ProductInput { name: "B".to_string(), barcode: Some("   ".to_string()), ..Default::default() }).unwrap();
+    // Al editar se puede quitar.
+    let edited = db
+        .save_product(&ProductInput { id: Some(p.id), name: "Cuaderno".to_string(), price: 5000, track_stock: true, kind: Some("product".to_string()), ..Default::default() })
+        .unwrap();
+    assert_eq!(edited.barcode, None);
+}

@@ -516,8 +516,9 @@ impl LocalDatabase {
             "customer",
         )?;
         run(
-            "SELECT id, name, IFNULL(sku, '') FROM products
-             WHERE is_active = 1 AND (name LIKE ?1 ESCAPE '\\' OR IFNULL(sku, '') LIKE ?1 ESCAPE '\\') ORDER BY name LIMIT 6",
+            "SELECT id, name, IFNULL(sku, IFNULL(barcode, '')) FROM products
+             WHERE is_active = 1 AND (name LIKE ?1 ESCAPE '\\' OR IFNULL(sku, '') LIKE ?1 ESCAPE '\\'
+                  OR IFNULL(barcode, '') LIKE ?1 ESCAPE '\\') ORDER BY name LIMIT 6",
             "product",
         )?;
         run(

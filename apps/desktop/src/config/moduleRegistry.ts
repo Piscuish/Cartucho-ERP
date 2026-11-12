@@ -11,6 +11,7 @@ import {
   Package,
   Receipt,
   Settings,
+  ShoppingCart,
   Users,
 } from "lucide-react";
 
@@ -20,6 +21,7 @@ export type SettingsTab = "company" | "billing" | "appearance" | "users" | "secu
 export type Route =
   | { page: "dashboard" }
   | { page: "cash-close" }
+  | { page: "pos" }
   | { page: "invoices"; status?: string }
   | { page: "invoice"; id: number; print?: boolean }
   | { page: "invoice-new"; customerId?: number; fromInvoiceId?: number }
@@ -46,6 +48,7 @@ export interface NavItem {
 export const NAV_MODULE: Partial<Record<NavigationSectionId, ModuleKey>> = {
   invoices: "invoices",
   "invoice-new": "invoices",
+  pos: "invoices",
   "cash-close": "invoices",
   quotes: "quotes",
   customers: "customers",
@@ -59,6 +62,7 @@ export const NAV_MODULE: Partial<Record<NavigationSectionId, ModuleKey>> = {
 export const NAV_TONE: Partial<Record<NavigationSectionId, string>> = {
   dashboard: "#3b82f6",
   "invoice-new": "#8b5cf6",
+  pos: "#10b981",
   invoices: "#6366f1",
   "cash-close": "#0ea5e9",
   quotes: "#06b6d4",
@@ -73,6 +77,7 @@ export const NAV_TONE: Partial<Record<NavigationSectionId, string>> = {
 /** Descripción corta de cada sección (inicio del diseño Estudio). */
 export const NAV_DESCRIPTION: Partial<Record<NavigationSectionId, string>> = {
   "invoice-new": "Vende e imprime una factura.",
+  pos: "Cobra rápido en el mostrador.",
   invoices: "Historial, abonos y anulaciones.",
   "cash-close": "Lo cobrado hoy por forma de pago.",
   quotes: "Presupuestos que se vuelven factura.",
@@ -99,6 +104,7 @@ export const NAVIGATION: NavGroup[] = [
   {
     label: "Ventas",
     items: [
+      { id: "pos", label: "Punto de venta", icon: ShoppingCart, route: { page: "pos" }, matches: ["pos"] },
       { id: "invoice-new", label: "Nueva factura", icon: FilePlus2, route: { page: "invoice-new" }, matches: ["invoice-new"] },
       { id: "invoices", label: "Facturas", icon: FileText, route: { page: "invoices" }, matches: ["invoices", "invoice"] },
       { id: "quotes", label: "Cotizaciones", icon: FileSignature, route: { page: "quotes" }, matches: ["quotes", "quote", "quote-new"] },

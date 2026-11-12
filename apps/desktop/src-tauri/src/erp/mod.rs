@@ -180,6 +180,9 @@ pub(crate) fn now_rfc3339() -> String {
 /// Traduce errores de restricciones SQLite a mensajes comprensibles sin exponer datos.
 pub(crate) fn friendly_sql_error(context: &str, err: rusqlite::Error) -> String {
     let text = err.to_string();
+    if text.contains("UNIQUE constraint failed: products.barcode") {
+        return "Ya existe un producto con ese código de barras.".to_string();
+    }
     if text.contains("UNIQUE constraint failed: products.sku") {
         return "Ya existe un producto con ese código (SKU).".to_string();
     }

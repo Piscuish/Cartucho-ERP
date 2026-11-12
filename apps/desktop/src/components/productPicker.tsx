@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Check, Package, PencilLine, Plus, Search } from "lucide-react";
 import { itemKind, type Product } from "@cartucho/shared";
 import { money, parseQty, qty } from "../lib/format";
+import { findByCode } from "../lib/barcode";
 import { Button, Field, Modal, MoneyInput, Segmented } from "./ui";
 
 export interface CustomItem {
@@ -53,7 +54,7 @@ export function ProductPickerModal({
   const visible = products.filter(
     (p) =>
       (!category || p.categoryName === category) &&
-      (!q || p.name.toLowerCase().includes(q) || (p.sku ?? "").toLowerCase().includes(q) || (p.description ?? "").toLowerCase().includes(q)),
+      (!q || p.name.toLowerCase().includes(q) || (p.sku ?? "").toLowerCase().includes(q) || (p.barcode ?? "").toLowerCase().includes(q) || (p.description ?? "").toLowerCase().includes(q)),
   );
 
   const add = (p: Product) => {
@@ -99,14 +100,18 @@ export function ProductPickerModal({
             <input
               className="input"
               autoFocus
-              placeholder="Buscar por nombre o código…"
+              placeholder="Buscar o escanear código de barras…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && visible[0]) {
-                  e.preventDefault();
-                  add(visible[0]);
-                }
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                // Código exacto (lector de código de barras): se agrega y se limpia para el siguiente.
+                const exact = findByCode(products, search);
+                if (exact) {
+                  add(exact);
+                  setSearch("");
+                } else if (visible[0]) add(visible[0]);
               }}
             />
           </div>

@@ -11,6 +11,7 @@ import { useHotkey } from "../lib/hooks";
 import { addDays, errorMessage, METHOD_LABELS, money, parseQty, qty, todayISO } from "../lib/format";
 import { Alert, Button, IconButton, MoneyInput, useToast } from "../components/ui";
 import { ProductPickerModal } from "../components/productPicker";
+import { findByCode, useBarcodeScanner } from "../lib/barcode";
 
 interface DraftLine {
   key: number;
@@ -138,6 +139,15 @@ export function DocumentEditorPage({
       if (existing) return ls.map((l) => (l === existing ? { ...l, quantityText: fmtQtyText(parseQty(l.quantityText) + 1) } : l));
       return [...ls, { key: lineSeq++, productId: p.id, description: p.name, quantityText: "1", unitPrice: p.price, note: "", noteOpen: false }];
     });
+
+  // Lector de código de barras: escanear agrega el producto (sin abrir el menú).
+  useBarcodeScanner((code) => {
+    const p = findByCode(products, code);
+    if (p) {
+      addProduct(p);
+      toast(`${p.name} agregado`);
+    } else toast(`No hay ningún producto con el código ${code}`, "error");
+  }, useCatalog && !picking);
 
   const saveRef = useRef<(andPrint: boolean) => Promise<void>>(async () => undefined);
   const save = async (andPrint: boolean) => {

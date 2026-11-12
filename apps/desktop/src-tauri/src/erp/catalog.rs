@@ -24,6 +24,8 @@ pub struct Category {
 pub struct Product {
     pub id: i64,
     pub sku: Option<String>,
+    /// Código de barras (EAN/UPC o el que use el negocio).
+    pub barcode: Option<String>,
     pub name: String,
     pub description: Option<String>,
     pub category_id: Option<i64>,
@@ -48,6 +50,8 @@ pub struct Product {
 pub struct ProductInput {
     pub id: Option<i64>,
     pub sku: Option<String>,
+    #[serde(default)]
+    pub barcode: Option<String>,
     pub name: String,
     pub description: Option<String>,
     pub category_id: Option<i64>,
@@ -110,7 +114,7 @@ pub struct InventoryMovement {
 const PRODUCT_SELECT: &str = "
     SELECT p.id, p.sku, p.name, p.description, p.category_id, c.name, p.unit, p.price, p.cost,
            p.track_stock, p.stock_qty, p.min_stock, p.image_blob, p.image_mime, p.is_active,
-           p.created_at, p.updated_at, p.item_kind
+           p.created_at, p.updated_at, p.item_kind, p.barcode
     FROM products p LEFT JOIN categories c ON c.id = p.category_id";
 
 fn map_product(row: &Row<'_>) -> rusqlite::Result<Product> {
@@ -128,6 +132,7 @@ fn map_product(row: &Row<'_>) -> rusqlite::Result<Product> {
     Ok(Product {
         id: row.get(0)?,
         sku: row.get(1)?,
+        barcode: row.get(18)?,
         name: row.get(2)?,
         description: row.get(3)?,
         category_id: row.get(4)?,
@@ -318,6 +323,7 @@ impl LocalDatabase {
             "{} WHERE (?1 = 1 OR p.is_active = 1)
                AND (?2 IS NULL OR p.category_id = ?2)
                AND (p.name LIKE ?3 ESCAPE '\\' OR IFNULL(p.sku, '') LIKE ?3 ESCAPE '\\'
+                    OR IFNULL(p.barcode, '') LIKE ?3 ESCAPE '\\'
                     OR IFNULL(p.description, '') LIKE ?3 ESCAPE '\\')
                AND (?4 = 0 OR (p.track_stock = 1 AND p.stock_qty <= p.min_stock AND p.is_active = 1))
              ORDER BY p.is_active DESC, p.name COLLATE NOCASE ASC
@@ -360,6 +366,10 @@ impl LocalDatabase {
         let user = self.require_authenticated_user()?;
         let name = clean_req(&input.name, 160, "Nombre")?;
         let sku = clean_opt(&input.sku, 60, "Código / SKU")?;
+        let barcode = clean_opt(&input.barcode, 64, "Código de barras")?;
+        if barcode.as_deref().is_some_and(|b| b.chars().any(char::is_whitespace)) {
+            return Err("El código de barras no puede tener espacios.".to_string());
+        }
         let description = clean_opt(&input.description, 2000, "Descripción")?;
         let unit = clean_opt(&input.unit, 20, "Unidad")?.unwrap_or_else(|| "und".to_string());
         let price = validate_amount(input.price, "Precio", true)?;
@@ -443,7 +453,7 @@ impl LocalDatabase {
                     .execute(
                         "UPDATE products SET sku = ?1, name = ?2, description = ?3, category_id = ?4,
                             unit = ?5, price = ?6, cost = ?7, track_stock = ?8, min_stock = ?9, updated_at = ?10,
-                            item_kind = ?12
+                            item_kind = ?12, barcode = ?13
                          WHERE id = ?11",
                         params![
                             sku,
@@ -457,7 +467,8 @@ impl LocalDatabase {
                             input.min_stock,
                             now,
                             id,
-                            kind
+                            kind,
+                            barcode
                         ],
                     )
                     .map_err(|e| friendly_sql_error("Guardar producto", e))?;
@@ -469,8 +480,8 @@ impl LocalDatabase {
             None => {
                 tx.execute(
                     "INSERT INTO products (sku, name, description, category_id, unit, price, cost,
-                        track_stock, stock_qty, min_stock, is_active, created_at, updated_at, item_kind)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, 1, ?10, ?10, ?11)",
+                        track_stock, stock_qty, min_stock, is_active, created_at, updated_at, item_kind, barcode)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, 1, ?10, ?10, ?11, ?12)",
                     params![
                         sku,
                         name,
@@ -482,7 +493,8 @@ impl LocalDatabase {
                         input.track_stock as i64,
                         input.min_stock,
                         now,
-                        kind
+                        kind,
+                        barcode
                     ],
                 )
                 .map_err(|e| friendly_sql_error("Guardar producto", e))?;

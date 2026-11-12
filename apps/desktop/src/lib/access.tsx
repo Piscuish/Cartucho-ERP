@@ -53,6 +53,7 @@ export function buildAccess(license: LicenseStatus | null | undefined, user?: Au
       case "cash-close":
         return can("invoices");
       case "invoice-new":
+      case "pos":
         return canWrite("invoices");
       case "quotes":
       case "quote":

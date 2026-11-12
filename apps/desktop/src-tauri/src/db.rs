@@ -601,6 +601,16 @@ const MIGRATIONS: &[Migration] = &[
         ALTER TABLE quote_lines ADD COLUMN note TEXT;
     ",
     },
+    Migration {
+        version: 7,
+        name: "0007_product_barcode",
+        // Código de barras del producto (lo lee el lector en el punto de venta y en facturas).
+        // Columna nueva y opcional; único entre productos cuando está presente.
+        sql: "
+        ALTER TABLE products ADD COLUMN barcode TEXT COLLATE NOCASE;
+        CREATE UNIQUE INDEX idx_products_barcode ON products(barcode) WHERE barcode IS NOT NULL;
+    ",
+    },
 ];
 
 /// Versión de esquema más reciente conocida por esta versión de la aplicación.

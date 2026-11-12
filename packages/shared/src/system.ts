@@ -16,6 +16,7 @@ export type NavigationSectionId =
   | "dashboard"
   | "invoices"
   | "invoice-new"
+  | "pos"
   | "cash-close"
   | "quotes"
   | "customers"
