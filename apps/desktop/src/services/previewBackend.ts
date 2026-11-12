@@ -885,7 +885,7 @@ const handlers: Record<string, Handler> = {
     const q = String(search ?? "");
     return db.products
       .map(productView)
-      .filter((p) => (includeInactive || p.isActive) && (!categoryId || p.categoryId === categoryId) && (like(p.name, q) || like(p.sku, q) || like(p.description, q)) && (!onlyLowStock || (p.isLowStock && p.isActive)))
+      .filter((p) => (includeInactive || p.isActive) && (!categoryId || p.categoryId === categoryId) && (like(p.name, q) || like(p.sku, q) || like(p.barcode ?? null, q) || like(p.description, q)) && (!onlyLowStock || (p.isLowStock && p.isActive)))
       .sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name));
   },
   save_product: ({ input }) => {
@@ -894,8 +894,12 @@ const handlers: Record<string, Handler> = {
     const name = opt(i.name) ?? fail("El campo 'Nombre' es obligatorio.");
     const sku = opt(i.sku);
     if (sku && db.products.some((p) => p.sku?.toLowerCase() === sku.toLowerCase() && p.id !== i.id)) fail("Ya existe un producto con ese código (SKU).");
+    const barcode = opt(i.barcode);
+    if (barcode && /\s/.test(barcode)) fail("El código de barras no puede tener espacios.");
+    if (barcode && db.products.some((p) => p.barcode?.toLowerCase() === barcode.toLowerCase() && p.id !== i.id)) fail("Ya existe un producto con ese código de barras.");
     const data = {
       sku,
+      barcode,
       name,
       description: opt(i.description),
       categoryId: (i.categoryId as number | null) ?? null,
@@ -1327,8 +1331,11 @@ export async function seedDemo(): Promise<void> {
   const mk = (name: string, sku: string, price: number, cost: number, stock: number, min: number, categoryId: number, track = true) =>
     (handlers.save_product({ input: { name, sku, price, cost, initialStock: stock, minStock: min, categoryId, trackStock: track, unit: track ? "und" : "serv" } }) as Product).id;
   const p1 = mk("Resma papel carta 75 g", "PAP-001", 22000, 16500, 380, 40, papeleria);
+  // Códigos de barras de ejemplo para probar el lector.
+  db.products.find((p) => p.id === p1)!.barcode = "7702001045678";
   const p2 = mk("Cartucho HP 664 negro", "TIN-664N", 68000, 49000, 9, 6, tinta);
   const p3 = mk("Cuaderno argollado 100 h", "PAP-014", 9500, 5800, 320, 30, papeleria);
+  db.products.find((p) => p.id === p3)!.barcode = "7707006123456";
   const p4 = mk("Tóner Brother TN-1060", "TIN-1060", 95000, 61000, 4, 3, tinta);
   const p5 = mk("Impresión láser B/N", "SRV-IMP", 300, 90, 0, 0, servicios, false);
   const p6 = mk("Recarga de cartucho", "SRV-REC", 25000, 9000, 0, 0, servicios, false);

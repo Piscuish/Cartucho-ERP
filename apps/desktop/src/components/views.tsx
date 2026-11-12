@@ -15,6 +15,7 @@ import { FinancePage } from "../pages/Finance";
 import { ExpensesPage } from "../pages/Expenses";
 import { SettingsPage } from "../pages/Settings";
 import { CashClosePage } from "../pages/CashClose";
+import { PosPage } from "../pages/Pos";
 import { useAccess } from "../lib/access";
 
 export interface PageProps {
@@ -52,6 +53,8 @@ export function PageRouter({ route: requested, ...props }: PageProps & { route: 
       return <InventoryPage {...props} />;
     case "finance":
       return <FinancePage {...props} />;
+    case "pos":
+      return <PosPage {...props} />;
     case "cash-close":
       return <CashClosePage {...props} />;
     case "expenses":

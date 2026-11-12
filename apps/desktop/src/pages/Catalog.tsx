@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, ArchiveRestore, Download, LayoutGrid, List, Package, PackagePlus, Tags, Wrench } from "lucide-react";
+import { Archive, ArchiveRestore, Download, LayoutGrid, List, Package, PackagePlus, ScanBarcode, Tags, Wrench } from "lucide-react";
 import { itemKind, type Category, type ItemKind, type Product, type ProductInput } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
@@ -200,7 +200,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
                         <div className="thumb">{p.imageDataUrl ? <img src={p.imageDataUrl} alt="" /> : <Package size={16} />}</div>
                         <div>
                           <div className="cell-main">{p.name}</div>
-                          <div className="cell-sub">{p.sku ?? "Sin código"}</div>
+                          <div className="cell-sub">{[p.sku, p.barcode].filter(Boolean).join(" · ") || "Sin código"}</div>
                         </div>
                       </div>
                     </td>
@@ -263,6 +263,7 @@ function ProductDrawer({
   const [form, setForm] = useState<ProductInput>({
     id: product?.id ?? null,
     sku: product?.sku ?? "",
+    barcode: product?.barcode ?? "",
     name: product?.name ?? "",
     description: product?.description ?? "",
     categoryId: product?.categoryId ?? null,
@@ -397,9 +398,23 @@ function ProductDrawer({
           <Field label="Código / SKU" optional>
             <input className="input" value={form.sku ?? ""} onChange={(e) => setForm({ ...form, sku: e.target.value })} placeholder="PAP-001" />
           </Field>
+          <Field label="Código de barras" optional hint="Haz clic aquí y pasa el producto por el lector.">
+            <div className="input-group">
+              <ScanBarcode size={16} />
+              <input
+                className="input"
+                value={form.barcode ?? ""}
+                onChange={(e) => setForm({ ...form, barcode: e.target.value.replace(/\s/g, "") })}
+                onKeyDown={(e) => e.key === "Enter" && e.preventDefault()}
+                placeholder="7702001045678"
+                inputMode="numeric"
+              />
+            </div>
+          </Field>
           <Field
             label="Categoría"
             optional
+            className="span-2"
             hint={
               <button type="button" className="back-link" style={{ margin: 0, fontSize: 12.5 }} onClick={onManageCategories}>
                 Administrar categorías
