@@ -7,7 +7,8 @@ edition = "2021"
 
 [lib]
 name = "cartucho_erp_desktop_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Solo escritorio: "staticlib"/"cdylib" son para móvil y ocupaban ~1 GB extra por compilación.
+crate-type = ["rlib"]
 
 [features]
 default = []
@@ -34,3 +35,19 @@ tauri-plugin-dialog = { version = "2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Compilación de desarrollo más liviana en disco: sin información de depuración completa
+# (la carpeta target pasa de varios GB a una fracción) y las dependencias sin símbolos.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# Instalador final más pequeño.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
