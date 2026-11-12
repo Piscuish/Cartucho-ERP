@@ -626,7 +626,7 @@ const ALLOWED_LOGO_MIMES: &[&str] = &["image/png", "image/jpeg", "image/webp"];
 const MAX_LOGO_SIZE_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 const MAX_FAILED_LOGINS: u32 = 5;
 const LOGIN_LOCKOUT_SECONDS: u64 = 30;
-const UNAUTHORIZED_MSG: &str =
+pub(crate) const UNAUTHORIZED_MSG: &str =
     "Acceso no autorizado: debes iniciar sesión con una cuenta válida para realizar esta operación.";
 
 fn normalize_optional_field(
@@ -1452,7 +1452,19 @@ impl LocalDatabase {
         clean_username: &str,
         password: &str,
     ) -> Result<AuthenticatedUserSummary, String> {
+        let user_id = self.verify_credentials(clean_username, password)?;
+        self.active_user_id = Some(user_id);
+        self.require_authenticated_user()
+    }
 
+    /// Verifica usuario y contraseña (Argon2id) y devuelve el id del usuario, sin cambiar la
+    /// sesión del equipo. La usan el inicio de sesión del programa y el acceso desde celulares.
+    /// Los errores nunca dicen si falló el usuario o la contraseña.
+    pub fn verify_credentials(&self, username: &str, password: &str) -> Result<i64, String> {
+        let clean_username = username.trim();
+        if clean_username.is_empty() || password.is_empty() {
+            return Err("Introduce tu nombre de usuario y contraseña.".to_string());
+        }
         let conn = self.connect()?;
         let row_opt: Option<(i64, String, i64)> = conn
             .query_row(
@@ -1485,9 +1497,19 @@ impl LocalDatabase {
         )
         .map_err(|_| "Error actualizando marca de inicio de sesión.".to_string())?;
 
-        self.active_user_id = Some(user_id);
+        Ok(user_id)
+    }
 
-        self.require_authenticated_user()
+    /// Ejecuta `f` con la sesión de otro usuario (por ejemplo, el de un celular conectado) y
+    /// luego restaura la sesión del equipo, pase lo que pase. Quien llama tiene la base
+    /// bloqueada (Mutex), así que el programa del PC no ve nunca la sesión prestada.
+    pub fn run_as_user<T>(&mut self, user_id: i64, f: impl FnOnce(&mut Self) -> T) -> T {
+        let previous = self.active_user_id.replace(user_id);
+        // El programa se compila con `panic = "abort"`, así que no hay forma de salir de `f`
+        // sin pasar por la restauración.
+        let result = f(self);
+        self.active_user_id = previous;
+        result
     }
 
     /// Cierra la sesión activa en memoria del proceso.

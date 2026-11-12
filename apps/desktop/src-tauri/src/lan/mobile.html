@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#6d5dd3">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cartucho">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<title>Cartucho ERP</title>
+<style>
+:root {
+  --bg: #f6f6fb; --card: #ffffff; --text: #1d1b2c; --muted: #6b6880; --line: #e7e5f0;
+  --accent: #6d5dd3; --accent-soft: #eeedfe; --accent-text: #4b3fae;
+  --ok: #157f4b; --ok-soft: #e3f5ec; --warn: #9a5b00; --warn-soft: #fff1d9;
+  --info: #1f5fbf; --info-soft: #e5efff; --neutral: #5f5d6b; --neutral-soft: #eeedf2;
+  --danger: #b42318; --radius: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121118; --card: #1c1b25; --text: #ecebf5; --muted: #a09db3; --line: #2c2a39;
+    --accent: #8b7ff0; --accent-soft: #2a2645; --accent-text: #c4bdff;
+    --ok: #5fd39a; --ok-soft: #173326; --warn: #f2b24c; --warn-soft: #362812;
+    --info: #7fb0ff; --info-soft: #172840; --neutral: #b8b6c4; --neutral-soft: #2a2933;
+    --danger: #ff8a7a; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Inicio de sesión */
+.login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.login-card { width: 100%; max-width: 380px; background: var(--card); border-radius: 20px; padding: 28px 22px; box-shadow: 0 10px 40px rgba(30, 20, 80, .08); }
+.brand { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 22px; text-align: center; }
+.brand img, .logo-fallback { width: 64px; height: 64px; border-radius: 16px; object-fit: contain; }
+.logo-fallback { display: grid; place-items: center; background: var(--accent); color: #fff; font-weight: 700; font-size: 24px; }
+.brand h1 { margin: 0; font-size: 20px; }
+label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 6px; }
+.field { width: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); outline: none; }
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; padding: 13px 16px; font-weight: 600; background: var(--accent-soft); color: var(--accent-text); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.offline svg { width: 44px; height: 44px; color: var(--muted); }
+.btn.primary { background: var(--accent); color: #fff; width: 100%; margin-top: 22px; }
+.btn:disabled { opacity: .6; }
+.alert { margin-top: 14px; padding: 11px 13px; border-radius: 10px; background: rgba(180, 35, 24, .1); color: var(--danger); font-size: 14px; }
+
+/* Estructura */
+header.top { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: calc(10px + env(safe-area-inset-top)) 16px 8px; display: flex; align-items: center; gap: 12px; }
+header.top .title { flex: 1; min-width: 0; }
+header.top h2 { margin: 0; font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header.top .sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { width: 40px; height: 40px; border-radius: 12px; border: 0; background: var(--card); display: grid; place-items: center; flex: none; }
+.icon-btn svg { width: 20px; height: 20px; }
+main { padding: 4px 16px calc(96px + env(safe-area-inset-bottom)); max-width: 720px; margin: 0 auto; }
+nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; background: var(--card); border-top: 1px solid var(--line); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); }
+nav.tabs button { flex: 1; border: 0; background: none; padding: 8px 4px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); }
+nav.tabs button svg { width: 22px; height: 22px; }
+nav.tabs button.active { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
+
+/* Listas */
+.search { position: relative; margin: 6px 0 10px; }
+.search svg { position: absolute; left: 13px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--muted); }
+.search .field { padding-left: 40px; background: var(--card); }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 7px 14px; font-size: 13px; }
+.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.list { display: flex; flex-direction: column; gap: 10px; }
+.item { width: 100%; text-align: left; border: 0; background: var(--card); border-radius: var(--radius); padding: 14px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
+.item .who { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .amount { font-weight: 700; text-align: right; }
+.item .meta { font-size: 13px; color: var(--muted); }
+.item .right { text-align: right; }
+.badge { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.t-success { background: var(--ok-soft); color: var(--ok); }
+.t-warning { background: var(--warn-soft); color: var(--warn); }
+.t-info { background: var(--info-soft); color: var(--info); }
+.t-accent { background: var(--accent-soft); color: var(--accent-text); }
+.t-neutral { background: var(--neutral-soft); color: var(--neutral); }
+.empty { text-align: center; padding: 48px 16px; color: var(--muted); }
+.empty svg { width: 40px; height: 40px; opacity: .5; }
+.more { width: 100%; margin-top: 12px; }
+.skeleton { height: 76px; border-radius: var(--radius); background: linear-gradient(90deg, var(--card) 25%, var(--line) 50%, var(--card) 75%); background-size: 200% 100%; animation: sh 1.2s infinite; }
+@keyframes sh { to { background-position: -200% 0; } }
+
+/* Detalle */
+.card { background: var(--card); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+.card h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.hero { text-align: center; padding: 20px 16px; }
+.hero .total { font-size: 30px; font-weight: 800; margin: 6px 0; }
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.kv span:first-child { color: var(--muted); }
+.line { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.line:last-child { border-bottom: 0; }
+.line .row { display: flex; justify-content: space-between; gap: 12px; }
+.line .desc { font-weight: 500; }
+.line .note { font-size: 13px; color: var(--muted); margin-top: 2px; white-space: pre-wrap; }
+.totals .kv.strong { font-weight: 700; font-size: 17px; border-top: 1px solid var(--line); margin-top: 6px; padding-top: 10px; }
+.pre { white-space: pre-wrap; }
+.actions { display: flex; gap: 10px; margin: 4px 0 14px; }
+.actions .btn { flex: 1; }
+.void-note { background: var(--neutral-soft); color: var(--neutral); }
+
+/* Mensajes */
+.offline { text-align: center; padding: 48px 20px; }
+.offline h3 { margin: 12px 0 6px; }
+.toast { position: fixed; left: 50%; bottom: calc(88px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: #1d1b2c; color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 20; max-width: 90vw; }
+
+/* Hoja para PDF / impresión */
+#print { display: none; }
+@media print {
+  @page { size: letter; margin: 14mm; }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  #app, .toast { display: none !important; }
+  #print { display: block; }
+  #print .p-head { display: flex; justify-content: space-between; gap: 20px; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 14px; }
+  #print .p-head img { max-height: 60px; max-width: 160px; object-fit: contain; }
+  #print h1 { margin: 0; font-size: 16pt; }
+  #print .doc { text-align: right; }
+  #print .doc .n { font-size: 15pt; font-weight: 700; }
+  #print table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  #print th, #print td { padding: 6px 4px; border-bottom: 1px solid #ccc; text-align: left; vertical-align: top; }
+  #print th { font-size: 9pt; text-transform: uppercase; }
+  #print .r { text-align: right; }
+  #print .tot { width: 50%; margin-left: auto; }
+  #print .tot td { border: 0; padding: 3px 4px; }
+  #print .tot .strong td { font-weight: 700; font-size: 12pt; border-top: 2px solid #000; }
+  #print .blk { margin-top: 10px; white-space: pre-wrap; }
+  #print .lbl { font-size: 9pt; text-transform: uppercase; color: #444; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="print"></div>
+
+<script>
+"use strict";
+(function () {
+  var TOKEN_KEY = "cartucho.lan.token";
+  var state = { token: null, profile: null, brand: null };
+  try { state.token = localStorage.getItem(TOKEN_KEY); } catch (e) {}
+
+  // ----------------------------------------------------------------- utilidades
+  var app = document.getElementById("app");
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  var moneyFmt = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0, minimumFractionDigits: 0 });
+  function money(v) { return moneyFmt.format(Math.round(v || 0)).replace(/ /g, " "); }
+  var qtyFmt = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 3 });
+  var dateFmt = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", year: "numeric" });
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    var p = String(iso).slice(0, 10).split("-").map(Number);
+    if (!p[0] || !p[1] || !p[2]) return iso;
+    return dateFmt.format(new Date(p[0], p[1] - 1, p[2])).replace(".", "");
+  }
+  var INVOICE_STATUS = {
+    pending: ["Pendiente", "warning"], partial: ["Pago parcial", "info"],
+    paid: ["Pagada", "success"], void: ["Anulada", "neutral"]
+  };
+  var QUOTE_STATUS = { open: ["Abierta", "accent"], converted: ["Facturada", "success"], cancelled: ["Cancelada", "neutral"] };
+  var METHODS = { cash: "Efectivo", transfer: "Transferencia", card: "Tarjeta", other: "Otro" };
+  function badge(map, s) { var b = map[s] || [s, "neutral"]; return '<span class="badge t-' + b[1] + '">' + esc(b[0]) + "</span>"; }
+  function initials(name) {
+    var parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "C";
+    return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  var ICONS = {
+    invoice: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h7M9 17h5"/></svg>',
+    quote: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v13H8l-4 4z"/><path d="M8 9h8M8 13h5"/></svg>',
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+    back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+    out: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>',
+    pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>',
+    wifi: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/><path d="m3 3 18 18"/></svg>'
+  };
+  function toast(msg) {
+    var t = document.createElement("div");
+    t.className = "toast"; t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2800);
+  }
+
+  // ----------------------------------------------------------------- API
+  function OfflineError() { this.offline = true; }
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { "Accept": "application/json" };
+    if (opts.body) headers["Content-Type"] = "application/json";
+    if (state.token) headers["Authorization"] = "Bearer " + state.token;
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 15000) : null;
+    return fetch(path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined, signal: ctrl ? ctrl.signal : undefined, cache: "no-store" })
+      .catch(function () { throw new OfflineError(); })
+      .then(function (r) {
+        if (timer) clearTimeout(timer);
+        return r.json().catch(function () { return {}; }).then(function (data) {
+          if (r.status === 401 && path !== "/api/login") { signOut(true); throw { handled: true }; }
+          if (!r.ok) throw { message: data.error || "No se pudo completar la consulta." };
+          return data;
+        });
+      });
+  }
+  function setToken(t) {
+    state.token = t;
+    try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  }
+  function signOut(expired) {
+    var had = state.token;
+    setToken(null); state.profile = null;
+    if (had && !expired) api("/api/logout", { method: "POST" }).catch(function () {});
+    if (expired) toast("Tu sesión terminó. Vuelve a entrar.");
+    location.hash = "";
+    renderLogin();
+  }
+  function showError(err, retry) {
+    if (err && err.handled) return;
+    if (err && err.offline) {
+      app.innerHTML = '<div class="offline">' + ICONS.wifi + '<h3>No se encuentra el PC</h3>' +
+        '<p class="muted">Revisa que Cartucho ERP esté abierto en el PC, que el acceso desde celulares esté activo y que este celular esté en la misma red WiFi.</p>' +
+        '<button class="btn" id="retry">' + ICONS.refresh + ' Reintentar</button></div>';
+      document.getElementById("retry").onclick = retry || route;
+      return;
+    }
+    toast((err && err.message) || "Ocurrió un error.");
+  }
+
+  // ----------------------------------------------------------------- inicio de sesión
+  function logoHtml(c) {
+    if (c && c.logoDataUrl && /^data:image\/(png|jpeg|webp);base64,/.test(c.logoDataUrl)) {
+      return '<img src="' + esc(c.logoDataUrl) + '" alt="">';
+    }
+    return '<div class="logo-fallback">' + esc(initials(c && c.tradeName)) + "</div>";
+  }
+  function renderLogin() {
+    var c = state.brand || {};
+    app.innerHTML =
+      '<div class="login"><form class="login-card" id="lf" autocomplete="on">' +
+      '<div class="brand">' + logoHtml(c) + "<h1>" + esc(c.tradeName || "Cartucho ERP") + '</h1><div class="muted small">Consulta de facturas y cotizaciones</div></div>' +
+      '<label for="u">Usuario</label><input class="field" id="u" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" required>' +
+      '<label for="p">Contraseña</label><input class="field" id="p" name="password" type="password" autocomplete="current-password" required>' +
+      '<button class="btn primary" id="lb" type="submit">Entrar</button><div id="le"></div></form></div>';
+    document.getElementById("lf").onsubmit = function (ev) {
+      ev.preventDefault();
+      var b = document.getElementById("lb"), e = document.getElementById("le");
+      b.disabled = true; b.textContent = "Entrando…"; e.innerHTML = "";
+      api("/api/login", { method: "POST", body: { username: document.getElementById("u").value, password: document.getElementById("p").value } })
+        .then(function (d) { setToken(d.token); state.profile = d.profile; location.hash = "#/" + (d.profile.modules[0] === "quotes" ? "cotizaciones" : "facturas"); route(); })
+        .catch(function (err) {
+          b.disabled = false; b.textContent = "Entrar";
+          e.innerHTML = '<div class="alert">' + esc(err.offline ? "No se encuentra el PC. Revisa que Cartucho esté abierto y que estés en la misma red WiFi." : err.message) + "</div>";
+        });
+    };
+  }
+
+  // ----------------------------------------------------------------- estructura
+  function can(m) { return state.profile && state.profile.modules.indexOf(m) >= 0; }
+  function shell(opts) {
+    var p = state.profile, c = (p && p.company) || {};
+    var tabs = "";
+    if (p && p.modules.length > 1 || !opts.back) {
+      tabs = '<nav class="tabs">' +
+        (can("invoices") ? '<button data-go="#/facturas" class="' + (opts.tab === "invoices" ? "active" : "") + '">' + ICONS.invoice + "Facturas</button>" : "") +
+        (can("quotes") ? '<button data-go="#/cotizaciones" class="' + (opts.tab === "quotes" ? "active" : "") + '">' + ICONS.quote + "Cotizaciones</button>" : "") +
+        "</nav>";
+    }
+    app.innerHTML =
+      '<header class="top">' +
+      (opts.back ? '<button class="icon-btn" data-go="' + opts.back + '" aria-label="Volver">' + ICONS.back + "</button>" : "") +
+      '<div class="title"><h2>' + esc(opts.title) + '</h2><div class="sub">' + esc(opts.sub || (c.tradeName || "") + " · " + (p ? p.fullName : "")) + "</div></div>" +
+      (opts.back ? "" : '<button class="icon-btn" id="logout" aria-label="Cerrar sesión" title="Cerrar sesión">' + ICONS.out + "</button>") +
+      '</header><main id="main"></main>' + tabs;
+    Array.prototype.forEach.call(app.querySelectorAll("[data-go]"), function (b) {
+      b.onclick = function () { location.hash = b.getAttribute("data-go"); };
+    });
+    var lo = document.getElementById("logout");
+    if (lo) lo.onclick = function () { if (confirm("¿Cerrar sesión en este celular?")) signOut(false); };
+    return document.getElementById("main");
+  }
+
+  // ----------------------------------------------------------------- listas
+  var listState = {
+    invoices: { q: "", status: "", limit: 50 },
+    quotes: { q: "", status: "" }
+  };
+  function renderList(kind) {
+    var isInv = kind === "invoices";
+    var ls = listState[kind];
+    var main = shell({ title: isInv ? "Facturas" : "Cotizaciones", tab: kind });
+    var chips = isInv
+      ? [["", "Todas"], ["open", "Por cobrar"], ["paid", "Pagadas"], ["void", "Anuladas"]]
+      : [["", "Todas"], ["open", "Abiertas"], ["converted", "Facturadas"], ["cancelled", "Canceladas"]];
+    main.innerHTML =
+      '<div class="search">' + ICONS.search + '<input class="field" id="q" type="search" placeholder="' + (isInv ? "Número, cliente o documento" : "Número o cliente") + '" value="' + esc(ls.q) + '"></div>' +
+      '<div class="chips">' + chips.map(function (c) { return '<button class="chip' + (ls.status === c[0] ? " active" : "") + '" data-s="' + c[0] + '">' + c[1] + "</button>"; }).join("") + "</div>" +
+      '<div id="sum" class="muted small" style="margin:0 2px 8px"></div><div class="list" id="list"></div>';
+    var timer;
+    document.getElementById("q").oninput = function (e) {
+      clearTimeout(timer); var v = e.target.value;
+      timer = setTimeout(function () { ls.q = v; ls.limit = 50; load(); }, 300);
+    };
+    Array.prototype.forEach.call(main.querySelectorAll(".chip"), function (b) {
+      b.onclick = function () {
+        ls.status = b.getAttribute("data-s"); ls.limit = 50;
+        Array.prototype.forEach.call(main.querySelectorAll(".chip"), function (x) { x.classList.toggle("active", x === b); });
+        load();
+      };
+    });
+    var seq = 0;
+    function load() {
+      var my = ++seq;
+      var list = document.getElementById("list");
+      list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+      var qs = "?q=" + encodeURIComponent(ls.q) + (ls.status ? "&status=" + ls.status : "") + (isInv ? "&limit=" + ls.limit : "");
+      api("/api/" + kind + qs).then(function (rows) {
+        if (my !== seq) return;
+        var sum = document.getElementById("sum");
+        if (!rows.length) {
+          sum.textContent = "";
+          list.innerHTML = '<div class="empty">' + (isInv ? ICONS.invoice : ICONS.quote) + "<p>" + (ls.q || ls.status ? "No hay resultados con ese filtro." : (isInv ? "Todavía no hay facturas." : "Todavía no hay cotizaciones.")) + "</p></div>";
+          return;
+        }
+        if (isInv) {
+          var pending = rows.filter(function (r) { return r.status !== "void"; }).reduce(function (a, r) { return a + r.balance; }, 0);
+          sum.textContent = rows.length + (rows.length === 1 ? " factura" : " facturas") + (pending > 0 ? " · por cobrar " + money(pending) : "");
+        } else {
+          sum.textContent = rows.length + (rows.length === 1 ? " cotización" : " cotizaciones");
+        }
+        list.innerHTML = rows.map(function (r) {
+          var right = isInv
+            ? badge(INVOICE_STATUS, r.status) + (r.status !== "void" && r.balance > 0 && r.balance < r.total ? '<div class="meta num">Debe ' + money(r.balance) + "</div>" : "")
+            : badge(QUOTE_STATUS, r.status);
+          return '<button class="item" data-id="' + r.id + '">' +
+            '<div class="who">' + esc(r.customerName) + '</div><div class="amount num">' + money(r.total) + "</div>" +
+            '<div class="meta">' + esc(r.number) + " · " + fmtDate(r.issueDate) + '</div><div class="right">' + right + "</div></button>";
+        }).join("") + (isInv && rows.length >= ls.limit && ls.limit < 300 ? '<button class="btn more" id="more">Ver más</button>' : "");
+        Array.prototype.forEach.call(list.querySelectorAll(".item"), function (b) {
+          b.onclick = function () { location.hash = (isInv ? "#/factura/" : "#/cotizacion/") + b.getAttribute("data-id"); };
+        });
+        var more = document.getElementById("more");
+        if (more) more.onclick = function () { ls.limit = Math.min(300, ls.limit + 100); load(); };
+      }).catch(function (err) { if (my === seq) showError(err, load); });
+    }
+    load();
+  }
+
+  // ----------------------------------------------------------------- detalle
+  function linesHtml(lines) {
+    return lines.map(function (l) {
+      return '<div class="line"><div class="row"><span class="desc">' + esc(l.description) + '</span><span class="num">' + money(l.lineTotal) + "</span></div>" +
+        '<div class="muted small num">' + qtyFmt.format(l.quantity) + " × " + money(l.unitPrice) + "</div>" +
+        (l.note ? '<div class="note">' + esc(l.note) + "</div>" : "") + "</div>";
+    }).join("");
+  }
+  function customerHtml(c) {
+    var rows = [["Documento", c.documentId], ["Teléfono", c.phone], ["Correo", c.email], ["Dirección", c.address]]
+      .filter(function (r) { return r[1]; })
+      .map(function (r) { return '<div class="kv"><span>' + r[0] + "</span><span>" + esc(r[1]) + "</span></div>"; }).join("");
+    return '<div class="card"><h3>Cliente</h3><div style="font-weight:600;margin-bottom:4px">' + esc(c.name) + "</div>" + rows + "</div>";
+  }
+  function textsHtml(d) {
+    return [["Notas", d.notes], ["Condiciones", d.terms]].filter(function (t) { return t[1]; })
+      .map(function (t) { return '<div class="card"><h3>' + t[0] + '</h3><div class="pre">' + esc(t[1]) + "</div></div>"; }).join("");
+  }
+  function renderInvoice(id) {
+    var main = shell({ title: "Factura", back: "#/facturas", sub: " " });
+    main.innerHTML = '<div class="skeleton" style="height:140px"></div>';
+    api("/api/invoices/" + encodeURIComponent(id)).then(function (d) {
+      document.querySelector("header.top h2").textContent = d.number;
+      document.querySelector("header.top .sub").textContent = fmtDate(d.issueDate) + (d.createdByName ? " · hecha por " + d.createdByName : "");
+      var pays = d.payments.length
+        ? d.payments.map(function (p) {
+            return '<div class="kv"><span>' + fmtDate(p.paidAt) + " · " + esc(METHODS[p.method] || p.method) + (p.note ? " · " + esc(p.note) : "") + '</span><span class="num">' + money(p.amount) + "</span></div>";
+          }).join("")
+        : '<div class="muted small">Sin abonos registrados.</div>';
+      main.innerHTML =
+        '<div class="card hero">' + badge(INVOICE_STATUS, d.status) + '<div class="total num">' + money(d.total) + "</div>" +
+        (d.status === "void" ? '<div class="muted small">Factura anulada</div>' : d.balance > 0 ? '<div class="muted">Saldo pendiente <b class="num">' + money(d.balance) + "</b></div>" : '<div class="muted">Pagada por completo</div>') +
+        (d.dueDate && d.status !== "paid" && d.status !== "void" ? '<div class="muted small">Vence el ' + fmtDate(d.dueDate) + "</div>" : "") + "</div>" +
+        (d.status === "void" ? '<div class="card void-note"><b>Motivo de anulación:</b> ' + esc(d.voidReason || "—") + "</div>" : "") +
+        '<div class="actions"><button class="btn" id="pdf">' + ICONS.pdf + " PDF / Imprimir</button></div>" +
+        customerHtml(d.customer) +
+        '<div class="card"><h3>Detalle</h3>' + linesHtml(d.lines) +
+        '<div class="totals"><div class="kv strong"><span>Total</span><span class="num">' + money(d.total) + "</span></div>" +
+        '<div class="kv"><span>Pagado</span><span class="num">' + money(d.paidAmount) + "</span></div>" +
+        '<div class="kv"><span>Saldo</span><span class="num">' + money(d.balance) + "</span></div></div></div>" +
+        '<div class="card"><h3>Abonos</h3>' + pays + "</div>" +
+        textsHtml(d) +
+        (d.quoteNumber ? '<div class="muted small" style="text-align:center">Viene de la cotización ' + esc(d.quoteNumber) + "</div>" : "");
+      document.getElementById("pdf").onclick = function () { printDoc("FACTURA", d, true); };
+    }).catch(function (err) { showError(err, function () { renderInvoice(id); }); });
+  }
+  function renderQuote(id) {
+    var main = shell({ title: "Cotización", back: "#/cotizaciones", sub: " " });
+    main.innerHTML = '<div class="skeleton" style="height:140px"></div>';
+    api("/api/quotes/" + encodeURIComponent(id)).then(function (d) {
+      document.querySelector("header.top h2").textContent = d.number;
+      document.querySelector("header.top .sub").textContent = fmtDate(d.issueDate);
+      main.innerHTML =
+        '<div class="card hero">' + badge(QUOTE_STATUS, d.status) + '<div class="total num">' + money(d.total) + "</div>" +
+        (d.validUntil ? '<div class="muted small">Válida hasta el ' + fmtDate(d.validUntil) + "</div>" : "") +
+        (d.convertedInvoiceNumber ? '<div class="muted small">Facturada en ' + esc(d.convertedInvoiceNumber) + "</div>" : "") + "</div>" +
+        '<div class="actions"><button class="btn" id="pdf">' + ICONS.pdf + " PDF / Imprimir</button>" +
+        (d.convertedInvoiceId && can("invoices") ? '<button class="btn" id="inv">' + ICONS.invoice + " Ver factura</button>" : "") + "</div>" +
+        customerHtml(d.customer) +
+        '<div class="card"><h3>Detalle</h3>' + linesHtml(d.lines) +
+        '<div class="totals"><div class="kv strong"><span>Total</span><span class="num">' + money(d.total) + "</span></div></div></div>" +
+        textsHtml(d);
+      document.getElementById("pdf").onclick = function () { printDoc("COTIZACIÓN", d, false); };
+      var inv = document.getElementById("inv");
+      if (inv) inv.onclick = function () { location.hash = "#/factura/" + d.convertedInvoiceId; };
+    }).catch(function (err) { showError(err, function () { renderQuote(id); }); });
+  }
+
+  // ----------------------------------------------------------------- PDF / impresión
+  function printDoc(kind, d, isInvoice) {
+    var c = (state.profile && state.profile.company) || {};
+    var cust = d.customer;
+    var html =
+      '<div class="p-head"><div>' + (c.logoDataUrl && /^data:image\//.test(c.logoDataUrl) ? '<img src="' + esc(c.logoDataUrl) + '" alt=""><br>' : "") +
+      "<h1>" + esc(c.tradeName || "") + "</h1>" +
+      [c.legalName, c.taxId ? "NIT/CC " + c.taxId : "", c.address, c.phone, c.email].filter(Boolean).map(function (x) { return "<div>" + esc(x) + "</div>"; }).join("") +
+      '</div><div class="doc"><div class="lbl">' + kind + '</div><div class="n">' + esc(d.number) + "</div>" +
+      "<div>Fecha: " + fmtDate(d.issueDate) + "</div>" +
+      (isInvoice && d.dueDate ? "<div>Vence: " + fmtDate(d.dueDate) + "</div>" : "") +
+      (!isInvoice && d.validUntil ? "<div>Válida hasta: " + fmtDate(d.validUntil) + "</div>" : "") +
+      (isInvoice && d.status === "void" ? "<div><b>ANULADA</b></div>" : "") + "</div></div>" +
+      '<div class="lbl">Cliente</div><div><b>' + esc(cust.name) + "</b></div>" +
+      [cust.documentId, cust.phone, cust.email, cust.address].filter(Boolean).map(function (x) { return "<div>" + esc(x) + "</div>"; }).join("") +
+      '<table><thead><tr><th>Descripción</th><th class="r">Cant.</th><th class="r">Valor unit.</th><th class="r">Total</th></tr></thead><tbody>' +
+      d.lines.map(function (l) {
+        return "<tr><td>" + esc(l.description) + (l.note ? '<div style="font-size:9pt;color:#444;white-space:pre-wrap">' + esc(l.note) + "</div>" : "") + '</td><td class="r">' + qtyFmt.format(l.quantity) + '</td><td class="r">' + money(l.unitPrice) + '</td><td class="r">' + money(l.lineTotal) + "</td></tr>";
+      }).join("") + "</tbody></table>" +
+      '<table class="tot"><tr class="strong"><td>Total</td><td class="r">' + money(d.total) + "</td></tr>" +
+      (isInvoice ? "<tr><td>Pagado</td><td class=\"r\">" + money(d.paidAmount) + "</td></tr><tr><td>Saldo</td><td class=\"r\">" + money(d.balance) + "</td></tr>" : "") + "</table>" +
+      (d.notes ? '<div class="blk"><div class="lbl">Notas</div>' + esc(d.notes) + "</div>" : "") +
+      (d.terms ? '<div class="blk"><div class="lbl">Condiciones</div>' + esc(d.terms) + "</div>" : "") +
+      (d.footer ? '<div class="blk" style="text-align:center;margin-top:18px">' + esc(d.footer) + "</div>" : "");
+    document.getElementById("print").innerHTML = html;
+    var prev = document.title;
+    document.title = d.number + " - " + (c.tradeName || "Cartucho");
+    setTimeout(function () { window.print(); document.title = prev; }, 50);
+  }
+
+  // ----------------------------------------------------------------- rutas
+  function route() {
+    window.scrollTo(0, 0);
+    if (!state.token) { renderLogin(); return; }
+    if (!state.profile) {
+      app.innerHTML = '<main style="padding-top:40px"><div class="skeleton"></div></main>';
+      api("/api/me").then(function (p) { state.profile = p; route(); }).catch(function (err) { showError(err, route); });
+      return;
+    }
+    var h = location.hash.replace(/^#\/?/, "").split("/");
+    if (h[0] === "factura" && h[1] && can("invoices")) return renderInvoice(h[1]);
+    if (h[0] === "cotizacion" && h[1] && can("quotes")) return renderQuote(h[1]);
+    if (h[0] === "cotizaciones" && can("quotes")) return renderList("quotes");
+    if (can("invoices")) return renderList("invoices");
+    return renderList("quotes");
+  }
+  window.addEventListener("hashchange", route);
+
+  fetch("/api/brand", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (b) { state.brand = b; if (!state.token) renderLogin(); })
+    .catch(function () {});
+  route();
+})();
+</script>
+</body>
+</html>
