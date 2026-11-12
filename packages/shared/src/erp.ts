@@ -464,6 +464,7 @@ export const ERP_COMMANDS = {
   RESTORE_BACKUP: "restore_backup",
   MOVE_DATA_LOCATION: "move_data_location",
   USE_EXISTING_DATA_LOCATION: "use_existing_data_location",
+  SETUP_DATA_LOCATION: "setup_data_location",
   RESET_DATA_LOCATION: "reset_data_location",
   RETRY_OPEN_DATABASE: "retry_open_database",
 } as const;

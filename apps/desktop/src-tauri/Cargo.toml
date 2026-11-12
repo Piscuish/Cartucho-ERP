@@ -1,6 +1,6 @@
 [package]
 name = "cartucho-erp-desktop"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cartucho ERP — Aplicación de escritorio local-first (Tauri 2 + Rust + SQLite)"
 authors = ["Cartucho ERP"]
 edition = "2021"
@@ -12,7 +12,7 @@ crate-type = ["rlib"]
 
 [features]
 default = []
-desktop-tauri = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-dialog"]
+desktop-tauri = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-dialog", "dep:tauri-plugin-updater", "dep:tauri-plugin-process"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [], optional = true }
@@ -32,6 +32,8 @@ chrono = { version = "0.4", features = ["serde"] }
 directories = "5.0"
 tauri = { version = "2", features = [], optional = true }
 tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

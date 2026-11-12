@@ -4009,3 +4009,149 @@ a {
     max-height: 50vh;
   }
 }
+
+/* ------------------------------------------------------------------ Asistente: base de datos e impresión */
+.setup-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.setup-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.setup-option:hover {
+  border-color: var(--accent);
+}
+
+.setup-option.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.setup-option-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--accent-text, var(--accent));
+}
+
+.setup-option.is-active .setup-option-icon {
+  background: var(--surface);
+}
+
+.setup-option-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-option-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.setup-option-desc {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.setup-option-path {
+  margin-top: 4px;
+  font-size: 12px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.setup-print-test {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+/* ------------------------------------------------------------------ Actualizaciones */
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-text, var(--accent));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.update-pill:hover {
+  filter: brightness(0.97);
+}
+
+.update-notes {
+  margin-top: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.update-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.update-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 200ms var(--ease);
+}
+
+.update-progress span.is-indeterminate {
+  width: 30% !important;
+  animation: update-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes update-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}

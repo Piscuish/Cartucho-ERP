@@ -358,6 +358,8 @@ function licenseStatus(): LicenseStatus {
     serverConfigured: false,
     licenseKeyMasked: null,
     support: "WhatsApp +57 300 000 0000",
+    licensingEnabled: l.mode !== "dev",
+    company: null,
   };
   if (l.mode === "licensed" || l.mode === "restricted") {
     const until = new Date(Date.now() + 30 * 86400000).toISOString();
@@ -369,6 +371,8 @@ function licenseStatus(): LicenseStatus {
       daysLeft: 30,
       lastCheckAt: now(),
       licenseKeyMasked: "CE-••••-••••-••••-7K2M",
+      // Datos que trae el token (el asistente inicial los usa).
+      company: { tradeName: "Panadería La Espiga", legalName: "La Espiga S.A.S.", taxId: "901.234.567-8", phone: "310 555 0101", email: "ventas@laespiga.co", address: "Cra 10 # 20-30, Bogotá" },
     });
   }
   if (l.mode === "restricted") {
@@ -657,9 +661,17 @@ const handlers: Record<string, Handler> = {
   },
   retry_open_database: () => overview(),
   reset_data_location: () => overview(),
+  setup_data_location: ({ mode }) => {
+    if (db.admin) fail("La ubicación de los datos solo se elige en la primera configuración.");
+    if (mode === "existing") fail("En la vista previa no se pueden abrir bases existentes; pruébalo en la aplicación de escritorio.");
+    db.meta.data_mode = String(mode);
+    save();
+    return overview();
+  },
   complete_initial_setup: async ({ input }) => {
     if (db.admin) fail("Operación denegada: la configuración inicial ya fue completada.");
-    const i = input as { company: Record<string, unknown>; admin: Record<string, string> };
+    const i = input as { company: Record<string, unknown>; admin: Record<string, string>; paperSize?: string | null };
+    if (i.paperSize) db.settings.paperSize = i.paperSize as typeof db.settings.paperSize;
     if ((i.admin.password ?? "").length < 8) fail("La contraseña debe tener al menos 8 caracteres.");
     if (i.admin.password !== i.admin.passwordConfirm) fail("La confirmación de la contraseña no coincide.");
     if ((i.admin.username ?? "").trim().length < 3) fail("El nombre de usuario debe tener al menos 3 caracteres.");

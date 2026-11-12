@@ -1,4 +1,5 @@
 import { CSSProperties, useEffect, useState } from "react";
+import { UpdatesSection } from "../components/updates";
 import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RotateCcw, BadgeCheck, Check, Save, ShieldCheck, Users } from "lucide-react";
 import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
 import { ACCENTS, APPEARANCE_PRESETS, DARK_BACKGROUNDS, DEFAULT_APPEARANCE, LAYOUTS, LIGHT_BACKGROUNDS } from "@cartucho/shared";
@@ -816,6 +817,7 @@ function AboutSettings({ overview }: PageProps) {
   const db = overview.database;
   return (
     <>
+      <UpdatesSection version={overview.appVersion} />
       <Section title="Cartucho ERP" desc="Facturación y gestión para pequeñas empresas. Funciona sin Internet; tus datos se quedan en tu equipo.">
         <dl className="kv">
           <dt>Versión</dt>

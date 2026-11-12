@@ -2,6 +2,7 @@
  * Estructura principal: menú lateral colapsable, barra superior y búsqueda rápida (Ctrl+K).
  */
 import { portalTarget } from "./titleBar";
+import { UpdateButton, UpdateDialog, useAutoUpdateCheck } from "./updates";
 import { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -54,6 +55,9 @@ export function AppShell({
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const access = useAccess();
+  // Solo el administrador ve e instala actualizaciones.
+  const [update] = useAutoUpdateCheck(access.isAdmin);
+  const [updateOpen, setUpdateOpen] = useState(false);
   const navigation = useVisibleNavigation();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -175,6 +179,7 @@ export function AppShell({
             <span className="kbd">Ctrl K</span>
           </button>
           <div className="topbar-spacer" />
+          {update && <UpdateButton update={update} onOpen={() => setUpdateOpen(true)} />}
           {access.canWrite("quotes") && (
             <Button variant="secondary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
               Cotización
@@ -191,6 +196,7 @@ export function AppShell({
         </div>
       </div>
 
+      {updateOpen && update && <UpdateDialog update={update} onClose={() => setUpdateOpen(false)} />}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} navigate={navigate} />}
     </div>
   );

@@ -280,6 +280,10 @@ impl LocalDatabase {
 
     pub fn get_data_location_info(&self) -> Result<DataLocationInfo, String> {
         self.require_authenticated_user()?;
+        self.data_location_info_unchecked()
+    }
+
+    fn data_location_info_unchecked(&self) -> Result<DataLocationInfo, String> {
         let conn = self.connect()?;
         let default_dir = self.default_data_dir_for_pointer()?;
         let backups = self.list_backups()?;
@@ -421,6 +425,10 @@ impl LocalDatabase {
     /// La base anterior se conserva intacta con una nota explicativa.
     pub fn move_data_to(&mut self, new_dir: &str) -> Result<DataLocationInfo, String> {
         self.require_authenticated_user()?;
+        self.move_data_to_unchecked(new_dir)
+    }
+
+    fn move_data_to_unchecked(&mut self, new_dir: &str) -> Result<DataLocationInfo, String> {
         let new_dir = PathBuf::from(new_dir.trim());
         if new_dir.as_os_str().is_empty() {
             return Err("Selecciona la carpeta de destino.".to_string());
@@ -465,13 +473,17 @@ impl LocalDatabase {
         self.db_path = new_db;
         self.app_data_dir = new_dir;
         self.initialize_and_migrate()?;
-        self.get_data_location_info()
+        self.data_location_info_unchecked()
     }
 
     /// Cambia a una carpeta que ya contiene una base de datos de Cartucho ERP
     /// (por ejemplo, copiada desde otro equipo). Se valida antes de usarla.
     pub fn use_existing_data_dir(&mut self, dir: &str) -> Result<(), String> {
         self.require_authenticated_user()?;
+        self.use_existing_data_dir_unchecked(dir)
+    }
+
+    fn use_existing_data_dir_unchecked(&mut self, dir: &str) -> Result<(), String> {
         let dir = PathBuf::from(dir.trim());
         let candidate = dir.join(DATABASE_FILE_NAME);
         let version = verify_database_file(&candidate)?;
@@ -497,6 +509,42 @@ impl LocalDatabase {
         self.initialize_and_migrate()?;
         self.logout();
         Ok(())
+    }
+
+    /// Primera ejecución (todavía no hay administrador): elegir dónde se guardan los datos.
+    /// - `default`: carpeta predeterminada del programa.
+    /// - `folder`: una carpeta nueva elegida por el usuario (se crea ahí la base).
+    /// - `existing`: una carpeta que ya tiene una base de Cartucho ERP (de otro equipo o copia).
+    /// Después de la configuración inicial se cambia en Configuración › Base de datos.
+    pub fn setup_data_location(&mut self, mode: &str, dir: Option<&str>) -> Result<DataLocationInfo, String> {
+        if self.has_admin_user()? {
+            return Err("La ubicación de los datos solo se elige en la primera configuración. Para cambiarla usa Configuración › Base de datos.".to_string());
+        }
+        let dir = dir.map(str::trim).filter(|d| !d.is_empty());
+        match mode {
+            "default" => {
+                let default_dir = self.default_data_dir_for_pointer()?;
+                if !paths_equivalent(&self.app_data_dir, &default_dir) {
+                    reset_location_pointer(&default_dir)?;
+                    self.db_path = default_dir.join(DATABASE_FILE_NAME);
+                    self.app_data_dir = default_dir;
+                    self.initialize_and_migrate()?;
+                }
+            }
+            "folder" => {
+                let d = dir.ok_or_else(|| "Selecciona la carpeta donde se guardarán los datos.".to_string())?;
+                if paths_equivalent(Path::new(d), &self.app_data_dir) {
+                    return self.data_location_info_unchecked();
+                }
+                self.move_data_to_unchecked(d)?;
+            }
+            "existing" => {
+                let d = dir.ok_or_else(|| "Selecciona la carpeta que contiene la base de datos.".to_string())?;
+                self.use_existing_data_dir_unchecked(d)?;
+            }
+            _ => return Err("Opción de ubicación no válida.".to_string()),
+        }
+        self.data_location_info_unchecked()
     }
 
     /// Ejecuta el respaldo automático diario si está habilitado y aún no se hizo hoy.
@@ -569,6 +617,7 @@ mod tests {
                 password: "ClaveSegura#1".to_string(),
                 password_confirm: "ClaveSegura#1".to_string(),
             },
+            paper_size: None,
         })
         .unwrap();
         db
@@ -695,6 +744,62 @@ mod tests {
             db.list_customers(None, true).unwrap()[0].name,
             "De otro equipo"
         );
+    }
+
+    #[test]
+    fn setup_data_location_only_before_admin_exists() {
+        let data = TempDir::new().unwrap();
+        let target = TempDir::new().unwrap();
+        let other = TempDir::new().unwrap();
+        let chosen = target.path().join("Datos");
+        let mut db = LocalDatabase::open_in_dir(data.path()).unwrap();
+        // Carpeta nueva elegida en el asistente.
+        let info = db.setup_data_location("folder", Some(chosen.to_str().unwrap())).unwrap();
+        assert!(info.is_custom_location);
+        assert!(chosen.join(DATABASE_FILE_NAME).exists());
+        assert_eq!(
+            fs::canonicalize(resolve_effective_data_dir(data.path()).unwrap()).unwrap(),
+            fs::canonicalize(&chosen).unwrap()
+        );
+        // Volver a la predeterminada.
+        let info = db.setup_data_location("default", None).unwrap();
+        assert!(!info.is_custom_location);
+        assert_eq!(resolve_effective_data_dir(data.path()).unwrap(), data.path().to_path_buf());
+        // Opción inválida y carpeta faltante.
+        assert!(db.setup_data_location("nube", None).is_err());
+        assert!(db.setup_data_location("folder", Some("  ")).is_err());
+        // Base existente de otro equipo: se usa y queda lista para iniciar sesión.
+        {
+            let o = setup(other.path());
+            add_customer(&o, "Cliente previo");
+        }
+        db.setup_data_location("existing", Some(other.path().to_str().unwrap())).unwrap();
+        assert!(db.has_admin_user().unwrap());
+        db.login("admin", "ClaveSegura#1").unwrap();
+        assert_eq!(db.list_customers(None, true).unwrap()[0].name, "Cliente previo");
+        // Con administrador ya no se permite (se usa Configuración).
+        assert!(db.setup_data_location("default", None).is_err());
+    }
+
+    #[test]
+    fn setup_saves_default_paper_size() {
+        let data = TempDir::new().unwrap();
+        let mut db = LocalDatabase::open_in_dir(data.path()).unwrap();
+        let mut input = CompleteInitialSetupInput {
+            company: SaveCompanyProfileInput { trade_name: "Panadería".to_string(), ..Default::default() },
+            admin: CreateInitialAdminInput {
+                full_name: "Admin".to_string(),
+                username: "admin".to_string(),
+                password: "ClaveSegura#1".to_string(),
+                password_confirm: "ClaveSegura#1".to_string(),
+            },
+            paper_size: Some("tabloide".to_string()),
+        };
+        assert!(db.complete_initial_setup(&input).is_err(), "tamaño inválido");
+        assert!(!db.has_admin_user().unwrap(), "no deja nada a medias");
+        input.paper_size = Some("roll80".to_string());
+        db.complete_initial_setup(&input).unwrap();
+        assert_eq!(db.get_business_settings().unwrap().paper_size, "roll80");
     }
 
     #[test]
