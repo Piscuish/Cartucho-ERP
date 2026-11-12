@@ -3,6 +3,7 @@ pub mod db;
 pub mod users;
 pub mod erp;
 pub mod licensing;
+pub mod lan;
 
 use db::LocalDatabase;
 use licensing::{check_gate, Entitlements, Gate, LicenseManager, LicenseStatus};
@@ -17,6 +18,17 @@ pub struct AppState {
     pub db: Mutex<Option<LocalDatabase>>,
     pub startup_error: Mutex<Option<String>>,
     pub license: Mutex<LicenseManager>,
+    /// Servidor para consultar desde celulares en la red local (apagado por defecto).
+    pub lan: Mutex<lan::LanController>,
+}
+
+fn features_from(ent: &Entitlements) -> erp::Features {
+    erp::Features {
+        customers: ent.has("customers"),
+        catalog: ent.has("catalog"),
+        inventory: ent.has("inventory"),
+        expenses: ent.has("expenses"),
+    }
 }
 
 pub fn unix_now() -> i64 {
@@ -38,12 +50,14 @@ impl AppState {
                     db: Mutex::new(Some(db)),
                     startup_error: Mutex::new(None),
                     license: Mutex::new(LicenseManager::from_build_config(&license_dir())),
+                    lan: Mutex::new(lan::LanController::default()),
                 }
             }
             Err(e) => Self {
                 db: Mutex::new(None),
                 startup_error: Mutex::new(Some(e)),
                 license: Mutex::new(LicenseManager::from_build_config(&license_dir())),
+                lan: Mutex::new(lan::LanController::default()),
             },
         }
     }
@@ -99,13 +113,30 @@ impl AppState {
             if let Some(access) = db.current_access()? {
                 role_gate(&access, gate)?;
             }
-            db.features = erp::Features {
-                customers: ent.has("customers"),
-                catalog: ent.has("catalog"),
-                inventory: ent.has("inventory"),
-                expenses: ent.has("expenses"),
-            };
+            db.features = features_from(&ent);
             f(db)
+        })
+    }
+
+    /// Como `gated`, pero con la sesión de otro usuario (un celular conectado por la red
+    /// local). La sesión del PC se restaura al terminar y nunca se ve la prestada.
+    pub fn gated_as<T>(
+        &self,
+        user_id: i64,
+        gate: Gate,
+        f: impl FnOnce(&mut LocalDatabase) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let ent = self.entitlements();
+        check_gate(&ent, gate)?;
+        self.with_db(|db| {
+            db.run_as_user(user_id, |db| {
+                let access = db
+                    .current_access()?
+                    .ok_or_else(|| "Tu sesión terminó. Vuelve a entrar.".to_string())?;
+                role_gate(&access, gate)?;
+                db.features = features_from(&ent);
+                f(db)
+            })
         })
     }
 
@@ -389,6 +420,60 @@ mod tauri_commands {
     #[tauri::command]
     pub fn save_user(input: users::UserInput, state: S<'_>) -> Result<users::UserAccount, String> {
         state.gated(Gate::Admin, |db| db.save_user(&input))
+    }
+
+    // ------------------------------------------------------------ Acceso desde celulares
+
+    fn lan_provider(app: &tauri::AppHandle) -> lan::StateProvider {
+        use tauri::Manager;
+        let handle = app.clone();
+        std::sync::Arc::new(move |cb: &mut dyn FnMut(&AppState)| {
+            let st = handle.state::<AppState>();
+            cb(&st)
+        })
+    }
+
+    /// Arranca o detiene el servidor según la configuración guardada (sin tener la base
+    /// bloqueada mientras se detienen los hilos del servidor).
+    pub(crate) fn apply_lan_config(app: &tauri::AppHandle, state: &AppState, cfg: lan::LanConfig) -> Result<(), String> {
+        let mut ctl = state.lan.lock().map_err(|_| "Error interno del acceso desde celulares.".to_string())?;
+        if !cfg.enabled {
+            ctl.stop();
+            return Ok(());
+        }
+        if ctl.port() == Some(cfg.port) {
+            return Ok(());
+        }
+        ctl.start(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), cfg.port, lan_provider(app)).map(|_| ())
+    }
+
+    fn lan_status(state: &AppState) -> Result<lan::LanStatus, String> {
+        let cfg = state.gated(Gate::Admin, |db| lan::read_config(db))?;
+        let ctl = state.lan.lock().map_err(|_| "Error interno del acceso desde celulares.".to_string())?;
+        Ok(ctl.status(cfg))
+    }
+
+    #[tauri::command]
+    pub fn get_lan_status(state: S<'_>) -> Result<lan::LanStatus, String> {
+        lan_status(&state)
+    }
+
+    #[tauri::command]
+    pub fn set_lan_access(enabled: bool, port: u16, app: tauri::AppHandle, state: S<'_>) -> Result<lan::LanStatus, String> {
+        let cfg = lan::LanConfig { enabled, port };
+        state.gated(Gate::Admin, |db| lan::save_config(db, cfg))?;
+        // El error de arranque (puerto ocupado) queda en el estado para mostrarlo.
+        let _ = apply_lan_config(&app, &state, cfg);
+        lan_status(&state)
+    }
+
+    #[tauri::command]
+    pub fn disconnect_lan_devices(state: S<'_>) -> Result<lan::LanStatus, String> {
+        state.gated(Gate::Admin, |_| Ok(()))?;
+        if let Ok(ctl) = state.lan.lock() {
+            ctl.sessions.clear();
+        }
+        lan_status(&state)
     }
 
     // ------------------------------------------------------------ Clientes
@@ -698,6 +783,15 @@ mod tauri_commands {
                 // aplicación esté abierta. Sin conexión no pasa nada: el token sigue siendo
                 // válido hasta 30 días.
                 use tauri::{Emitter, Manager};
+                // Acceso desde celulares: si el administrador lo dejó activo, se vuelve a abrir.
+                {
+                    let state = app.state::<AppState>();
+                    if let Ok(cfg) = state.with_db(|db| lan::read_config(db)) {
+                        if cfg.enabled {
+                            let _ = apply_lan_config(app.handle(), &state, cfg);
+                        }
+                    }
+                }
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(5));
@@ -721,6 +815,9 @@ mod tauri_commands {
             })
             .invoke_handler(tauri::generate_handler![
                 get_system_overview,
+                get_lan_status,
+                set_lan_access,
+                disconnect_lan_devices,
                 get_license_status,
                 activate_license_online,
                 activate_license_offline,

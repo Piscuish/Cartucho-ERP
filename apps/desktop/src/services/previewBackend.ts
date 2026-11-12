@@ -658,7 +658,37 @@ function summary(from: string, to: string): FinanceSummary {
 
 type Handler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
+let lanPreview = { enabled: false, port: 8787 };
+function previewLan() {
+  const url = `http://192.168.1.20:${lanPreview.port}/`;
+  return {
+    enabled: lanPreview.enabled,
+    running: lanPreview.enabled,
+    port: lanPreview.port,
+    urls: lanPreview.enabled ? [url] : [],
+    qrSvg: null,
+    activeSessions: 0,
+    error: null,
+  };
+}
+
 const handlers: Record<string, Handler> = {
+  // Acceso desde celulares: en la vista previa solo se simula (no hay servidor real).
+  get_lan_status: () => {
+    requireAdmin();
+    return previewLan();
+  },
+  set_lan_access: (a) => {
+    requireAdmin();
+    const port = Number(a.port);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) fail("El puerto debe estar entre 1024 y 65535.");
+    lanPreview = { enabled: Boolean(a.enabled), port };
+    return previewLan();
+  },
+  disconnect_lan_devices: () => {
+    requireAdmin();
+    return previewLan();
+  },
   get_system_overview: () => {
     db.startupCount += 1;
     save();

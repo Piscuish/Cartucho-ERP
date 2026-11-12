@@ -1,6 +1,6 @@
 import { CSSProperties, useEffect, useState } from "react";
 import { UpdatesSection } from "../components/updates";
-import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RefreshCw, RotateCcw, BadgeCheck, Check, Save, ShieldCheck, Users } from "lucide-react";
+import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RefreshCw, RotateCcw, BadgeCheck, Check, Save, ShieldCheck, Smartphone, Users } from "lucide-react";
 import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
 import { ACCENTS, APPEARANCE_PRESETS, DARK_BACKGROUNDS, DEFAULT_APPEARANCE, LAYOUTS, LIGHT_BACKGROUNDS } from "@cartucho/shared";
 import type { AccentId, Appearance, AppearancePreset, LayoutId } from "@cartucho/shared";
@@ -12,6 +12,7 @@ import { Alert, Badge, Button, ConfirmDialog, Field, ImagePicker, PageHeader, Se
 import { PAPER_OPTIONS, PaperIcon } from "../components/print";
 import { LicenseSettings } from "../components/license";
 import { UsersSettings } from "../components/usersAdmin";
+import { MobileAccessSettings } from "../components/mobileAccess";
 import { useAccess } from "../lib/access";
 
 const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
@@ -21,6 +22,7 @@ const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   security: <KeyRound size={16} />,
   data: <Database size={16} />,
   users: <Users size={16} />,
+  mobile: <Smartphone size={16} />,
   license: <BadgeCheck size={16} />,
   updates: <RefreshCw size={16} />,
   about: <Info size={16} />,
@@ -58,6 +60,7 @@ export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
           {tab === "data" && <DataSettings {...props} />}
           {tab === "license" && <LicenseSettings {...props} />}
           {tab === "users" && <UsersSettings {...props} />}
+          {tab === "mobile" && <MobileAccessSettings />}
           {tab === "updates" && <UpdatesSection version={props.overview.appVersion} />}
           {tab === "about" && <AboutSettings {...props} />}
         </div>
