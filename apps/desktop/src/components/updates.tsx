@@ -7,9 +7,10 @@ import { api } from "../services/systemClient";
 import { autoCheckEnabled, checkForUpdate, setAutoCheck, updateErrorMessage, updatesSupported, type AvailableUpdate } from "../services/updates";
 import { Alert, Button, Modal, Switch } from "./ui";
 
-const SIX_HOURS = 6 * 60 * 60 * 1000;
+/** Cada cuánto se buscan actualizaciones automáticamente. */
+const CHECK_EVERY = 12 * 60 * 60 * 1000;
 
-/** Busca actualizaciones sola (al iniciar y cada 6 horas) si el usuario lo permite. */
+/** Busca actualizaciones sola (al iniciar y cada 12 horas) si el usuario lo permite. */
 export function useAutoUpdateCheck(enabled: boolean): [AvailableUpdate | null, (u: AvailableUpdate | null) => void] {
   const [update, setUpdate] = useState<AvailableUpdate | null>(null);
   useEffect(() => {
@@ -22,7 +23,7 @@ export function useAutoUpdateCheck(enabled: boolean): [AvailableUpdate | null, (
         .catch(() => undefined); // sin Internet: se intenta más tarde, sin molestar
     };
     const first = window.setTimeout(run, 8000);
-    const every = window.setInterval(run, SIX_HOURS);
+    const every = window.setInterval(run, CHECK_EVERY);
     return () => {
       alive = false;
       window.clearTimeout(first);
@@ -163,7 +164,7 @@ export function UpdatesSection({ version }: { version: string }) {
                   setAutoCheck(v);
                 }}
                 label="Buscar actualizaciones automáticamente"
-                description="Al abrir el programa y cada 6 horas. Siempre te pregunta antes de instalar."
+                description="Al abrir el programa y cada 12 horas. Siempre te pregunta antes de instalar."
               />
             </div>
           </>
