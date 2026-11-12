@@ -6,7 +6,8 @@
  * - Los bordes siguen permitiendo cambiar el tamaño (Tauri lo maneja en ventanas sin decoración).
  * - En la vista previa del navegador se muestra igual, pero los botones no hacen nada.
  */
-import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { isPhoneApp } from "../services/appMode";
 import { Minus, X } from "lucide-react";
 import { isDesktop } from "../services/systemClient";
 
@@ -125,10 +126,12 @@ function TitleBar({ title, logo }: FrameTitle) {
 export function WindowFrame({ children }: { children: ReactNode }) {
   const [frame, setFrame] = useState<FrameTitle>({ title: "Cartucho ERP", logo: null });
   const set = useCallback((t: FrameTitle) => setFrame((prev) => (prev.title === t.title && prev.logo === t.logo ? prev : t)), []);
+  const phone = useMemo(isPhoneApp, []);
   return (
     <TitleContext.Provider value={set}>
-      <div className="window-frame">
-        <TitleBar {...frame} />
+      <div className={`window-frame ${phone ? "is-phone" : ""}`}>
+        {/* En el teléfono la barra de título la pone Android. */}
+        {!phone && <TitleBar {...frame} />}
         <div className="window-content">
           {children}
           {/* Paneles y diálogos: dentro del área de contenido, debajo de la barra de título. */}

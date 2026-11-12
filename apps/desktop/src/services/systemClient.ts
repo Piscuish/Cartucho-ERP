@@ -65,15 +65,103 @@ export const isDesktop = (): boolean => {
   }
 };
 
+import {
+  cachePcOverview,
+  getPc,
+  isPcMode,
+  PC_ONLY_MESSAGE,
+  PC_SESSION_EVENT,
+  REMOTE_COMMANDS,
+  setLocalPrefs,
+  setPcToken,
+  signedOutOverview,
+  withLocalPrefs,
+} from "./appMode";
+
 let previewModule: Promise<typeof import("./previewBackend")> | null = null;
 
-async function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+/** Llama al programa local: Rust en la app, o el backend de vista previa en el navegador. */
+async function rawCall<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
   if (isDesktop()) {
     return invoke<T>(command, args);
   }
   previewModule ??= import("./previewBackend");
   const mod = await previewModule;
   return mod.handlePreviewCommand(command, args) as Promise<T>;
+}
+
+async function call<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+  // App de Android con la base en el PC: la operación viaja al PC por la red local.
+  if (isPcMode()) return pcCall<T>(command, args);
+  return rawCall<T>(command, args);
+}
+
+function cleanRemoteError(e: unknown): never {
+  const msg = typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
+  if (msg.startsWith("SESION_PC:")) {
+    setPcToken(null);
+    window.dispatchEvent(new Event(PC_SESSION_EVENT));
+    throw new Error(msg.replace(/^SESION_PC:\s*/, ""));
+  }
+  throw new Error(msg.replace(/^SIN_CONEXION:\s*/, ""));
+}
+
+async function pcCall<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  const pc = getPc();
+  if (!pc) throw new Error("Primero conecta la app con el PC.");
+  const rpc = async <R>(cmd: string, a: Record<string, unknown> = {}): Promise<R> => {
+    const fresh = getPc();
+    if (!fresh?.token) {
+      window.dispatchEvent(new Event(PC_SESSION_EVENT));
+      throw new Error("Inicia sesión para continuar.");
+    }
+    try {
+      return await rawCall<R>("remote_rpc", { base: fresh.base, token: fresh.token, command: cmd, args: a });
+    } catch (e) {
+      cleanRemoteError(e);
+    }
+  };
+  const overviewNow = async (): Promise<SystemOverview> => {
+    const o = await rpc<SystemOverview>("get_system_overview");
+    cachePcOverview(o);
+    return withLocalPrefs(o);
+  };
+  switch (command) {
+    case "get_system_overview":
+      if (!getPc()?.token) return signedOutOverview() as T;
+      try {
+        return (await overviewNow()) as T;
+      } catch (e) {
+        // Sin sesión (o expirada): pantalla de entrada. Sin conexión: se avisa.
+        if (!getPc()?.token) return signedOutOverview() as T;
+        throw e;
+      }
+    case "login_user": {
+      const input = (args.input ?? {}) as { username?: string; password?: string };
+      try {
+        const r = await rawCall<{ base: string; token: string }>("remote_login", { base: pc.base, username: input.username ?? "", password: input.password ?? "" });
+        setPcToken(r.token);
+      } catch (e) {
+        cleanRemoteError(e);
+      }
+      return (await overviewNow()) as T;
+    }
+    case "logout_user":
+      if (pc.token) await rawCall("remote_logout", { base: pc.base, token: pc.token }).catch(() => undefined);
+      setPcToken(null);
+      return signedOutOverview() as T;
+    case "set_theme_preference":
+      setLocalPrefs({ theme: args.theme as ThemePreference });
+      return (pc.token ? await overviewNow() : signedOutOverview()) as T;
+    case "set_appearance":
+      setLocalPrefs({ appearance: args.appearance as Appearance, ...(args.theme ? { theme: args.theme as ThemePreference } : {}) });
+      return (pc.token ? await overviewNow() : signedOutOverview()) as T;
+    case "record_persistence_check":
+      return (await overviewNow()) as T;
+    default:
+      if (!REMOTE_COMMANDS.has(command)) throw new Error(PC_ONLY_MESSAGE);
+      return rpc<T>(command, args);
+  }
 }
 
 const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS, ...USER_COMMANDS, ...LAN_COMMANDS };
@@ -176,6 +264,11 @@ export const api = {
   restoreBackup: (source: string) => call<RestoreResult>(C.RESTORE_BACKUP, { source }),
   moveDataLocation: (newDir: string) => call<DataLocationInfo>(C.MOVE_DATA_LOCATION, { newDir }),
   useExistingDataLocation: (dir: string) => call<SystemOverview>(C.USE_EXISTING_DATA_LOCATION, { dir }),
+  /** App de Android: buscar el PC y comprobar una dirección (no requieren sesión). */
+  pcDiscover: () => rawCall<{ base: string; tradeName: string | null; logoDataUrl: string | null; version: string | null }[]>("remote_discover"),
+  pcPing: (base: string) => rawCall<{ base: string; tradeName: string | null; logoDataUrl: string | null; version: string | null }>("remote_ping", { base }),
+  /** PC: permitir que la app de Android registre ventas, clientes y gastos. */
+  setLanWrites: (allowed: boolean) => call<LanStatus>("set_lan_writes", { allowed }),
   /** Primera ejecución: dónde guardar los datos. */
   setupDataLocation: (mode: SetupDataMode, dir: string | null) => call<SystemOverview>(C.SETUP_DATA_LOCATION, { mode, dir }),
 };

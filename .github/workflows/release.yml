@@ -88,3 +88,10 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
+
+  android:
+    needs: windows
+    uses: ./.github/workflows/android.yml
+    with:
+      release: true
+    secrets: inherit

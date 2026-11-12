@@ -30,12 +30,15 @@ use std::time::{Duration, Instant};
 pub const DEFAULT_PORT: u16 = 8787;
 const META_ENABLED: &str = "lan_access_enabled";
 const META_PORT: &str = "lan_access_port";
+/// ¿La app de Android puede registrar (ventas, clientes, gastos…)? Apagado por defecto.
+const META_WRITES: &str = "lan_access_writes";
 /// La sesión del celular se cierra tras 12 horas sin uso.
 const SESSION_IDLE: Duration = Duration::from_secs(12 * 60 * 60);
 const MAX_SESSIONS: usize = 100;
 const MAX_FAILED_LOGINS: u32 = 5;
 const LOCKOUT: Duration = Duration::from_secs(120);
-const MAX_BODY: u64 = 16 * 1024;
+/// Las fotos de productos viajan en base64 desde la app: se permite hasta 8 MB por petición.
+const MAX_BODY: u64 = 8 * 1024 * 1024;
 const WORKERS: usize = 4;
 /// Módulos que se pueden consultar desde el celular.
 pub const MOBILE_MODULES: &[&str] = &["invoices", "quotes"];
@@ -82,6 +85,33 @@ pub fn save_config(db: &LocalDatabase, cfg: LanConfig) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// ¿El administrador permite registrar desde la app de Android?
+pub fn writes_allowed(db: &LocalDatabase) -> bool {
+    db.connect()
+        .ok()
+        .and_then(|c| {
+            c.query_row("SELECT value FROM _app_metadata WHERE key = ?1", params![META_WRITES], |r| r.get::<_, String>(0))
+                .optional()
+                .ok()
+                .flatten()
+        })
+        .as_deref()
+        == Some("1")
+}
+
+pub fn save_writes_allowed(db: &LocalDatabase, allowed: bool) -> Result<(), String> {
+    let conn = db.connect()?;
+    conn.execute(
+        "INSERT INTO _app_metadata (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params![META_WRITES, if allowed { "1" } else { "0" }, chrono::Utc::now().to_rfc3339()],
+    )
+    .map_err(|_| "No se pudo guardar el permiso de la app.".to_string())?;
+    Ok(())
+}
+
+pub mod rpc;
 
 fn valid_port(p: u16) -> bool {
     p >= 1024
@@ -196,6 +226,9 @@ impl HttpResponse {
 struct LoginBody {
     username: String,
     password: String,
+    /// "app" cuando entra la app de Android (puede usar cualquier módulo de su rol).
+    #[serde(default)]
+    client: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -318,12 +351,17 @@ pub fn handle(
         ("GET", "/icon.svg") => return HttpResponse::text("image/svg+xml", ICON_SVG),
         ("POST", "/api/login") => return login(state, sessions, body),
         ("GET", "/api/brand") => return brand(state),
+        // La app de Android lo usa para reconocer un PC con Cartucho en la red.
+        ("GET", "/api/ping") => {
+            return HttpResponse::json(200, json!({ "app": "cartucho-erp", "version": env!("CARGO_PKG_VERSION") }));
+        }
         _ => {}
     }
     if !path.starts_with("/api/") {
         return HttpResponse::error(404, "No encontrado.");
     }
-    if method != "GET" && !(method == "POST" && path == "/api/logout") {
+    let is_rpc = method == "POST" && path.starts_with("/api/rpc/");
+    if method != "GET" && !(method == "POST" && path == "/api/logout") && !is_rpc {
         return HttpResponse::error(405, "Desde el celular solo se puede consultar.");
     }
 
@@ -341,6 +379,22 @@ pub fn handle(
             HttpResponse::json(200, json!({ "ok": true }))
         }
         ("GET", ["me"]) => to_json(profile(state, user_id)),
+        ("POST", ["rpc", cmd]) => {
+            let args: Value = if body.is_empty() {
+                Value::Object(Default::default())
+            } else {
+                match serde_json::from_slice(body) {
+                    Ok(v) => v,
+                    Err(_) => return HttpResponse::error(400, "Solicitud no válida."),
+                }
+            };
+            let writes = state.with_db(|db| Ok(writes_allowed(db))).unwrap_or(false);
+            match rpc::dispatch(state, user_id, cmd, &args, writes) {
+                Ok(v) => HttpResponse::json(200, json!({ "ok": true, "data": v })),
+                Err(e) if e == rpc::WRITES_DISABLED || e == rpc::ONLY_ON_PC => HttpResponse::error(403, &e),
+                Err(e) => map_err(e),
+            }
+        }
         ("GET", ["invoices"]) => {
             let filter = InvoiceFilter {
                 search: q.get("q").cloned(),
@@ -418,8 +472,9 @@ fn login(state: &AppState, sessions: &LanSessions, body: &[u8]) -> HttpResponse 
         }
     };
     sessions.register_success();
+    let is_app = input.client.as_deref() == Some("app");
     match profile(state, user_id) {
-        Ok(p) if p.modules.is_empty() => HttpResponse::error(
+        Ok(p) if p.modules.is_empty() && !is_app => HttpResponse::error(
             403,
             "Tu rol no tiene permiso para ver facturas ni cotizaciones. Pídele acceso al administrador.",
         ),
@@ -462,6 +517,8 @@ pub struct LanStatus {
     pub qr_svg: Option<String>,
     pub active_sessions: usize,
     pub error: Option<String>,
+    /// La app de Android puede registrar ventas, clientes y gastos.
+    pub writes_allowed: bool,
 }
 
 impl LanController {
@@ -543,6 +600,7 @@ impl LanController {
             urls,
             active_sessions: if self.is_running() { self.sessions.active_count() } else { 0 },
             error: self.last_error.clone(),
+            writes_allowed: false,
         }
     }
 }

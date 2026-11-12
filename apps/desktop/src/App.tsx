@@ -13,7 +13,9 @@ import { useIdleTimeout } from "./lib/idle";
 import { errorMessage } from "./lib/format";
 import { AppShell } from "./components/layout";
 import { LoginScreen, SetupWizard, StartupErrorScreen } from "./components/onboarding";
-import { ToastProvider, useToast } from "./components/ui";
+import { MobileStart } from "./components/mobileStart";
+import { getMode, getPc, isPcMode, isPhoneApp, PC_SESSION_EVENT, resetAppMode } from "./services/appMode";
+import { Button, ToastProvider, useToast } from "./components/ui";
 import { Route } from "./config/moduleRegistry";
 import { PageRouter } from "./components/views";
 
@@ -47,6 +49,8 @@ function AppInner() {
   const toast = useToast();
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
+  // App de Android: primero se elige dónde está la base principal.
+  const [needsMode, setNeedsMode] = useState(() => isPhoneApp() && !getMode());
   const [route, setRoute] = useState<Route>({ page: "dashboard" });
   const [, setHistory] = useState<Route[]>([]);
   const [lowStockCount, setLowStockCount] = useState(0);
@@ -88,8 +92,22 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    void load();
+    if (!needsMode) void load();
+  }, [load, needsMode]);
+
+  // Modo PC: si el PC cerró la sesión del teléfono, se vuelve a la pantalla de entrada.
+  useEffect(() => {
+    const h = () => void load();
+    window.addEventListener(PC_SESSION_EVENT, h);
+    return () => window.removeEventListener(PC_SESSION_EVENT, h);
   }, [load]);
+
+  const changeBase = useCallback(() => {
+    resetAppMode();
+    setOverview(null);
+    setStartupError(null);
+    setNeedsMode(true);
+  }, []);
 
   const authenticated = !!overview?.isAuthenticated;
 
@@ -140,6 +158,34 @@ function AppInner() {
     });
   }, []);
 
+  if (needsMode) {
+    return (
+      <MobileStart
+        onDone={() => {
+          setOverview(null);
+          setNeedsMode(false);
+        }}
+      />
+    );
+  }
+
+  if (startupError && isPcMode()) {
+    return (
+      <div className="mstart">
+        <div className="mstart-head">
+          <h1>No se pudo conectar con el PC</h1>
+          <p className="muted">{startupError}</p>
+        </div>
+        <Button variant="primary" size="lg" block onClick={() => void load()}>
+          Reintentar
+        </Button>
+        <Button variant="ghost" block onClick={changeBase}>
+          Cambiar base principal
+        </Button>
+      </div>
+    );
+  }
+
   if (startupError) {
     return (
       <StartupErrorScreen
@@ -164,7 +210,7 @@ function AppInner() {
     );
   }
 
-  if (license?.mode === "unlicensed") {
+  if (license?.mode === "unlicensed" && !isPcMode()) {
     return <ActivationScreen license={license} onActivated={load} />;
   }
 
@@ -191,6 +237,16 @@ function AppInner() {
     return (
       <LoginScreen
         company={overview.company}
+        footer={
+          isPhoneApp() ? (
+            <div className="auth-base">
+              {isPcMode() ? `Conectado al PC ${getPc()?.base.replace("http://", "") ?? ""}` : "Base en este teléfono"} ·{" "}
+              <button type="button" className="link-btn" onClick={changeBase}>
+                Cambiar base principal
+              </button>
+            </div>
+          ) : null
+        }
         onLogin={async (username, password) => {
           setOverview(await api.login({ username, password }));
           setRoute({ page: "dashboard" });

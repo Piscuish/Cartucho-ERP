@@ -616,7 +616,13 @@ fn encode_code(bytes: &[u8]) -> String {
 /// Código de equipo estable: derivado del identificador de la máquina (en Windows,
 /// MachineGuid). Se publica cifrado con SHA-256, nunca el identificador original.
 fn machine_device_code(file: &mut LicenseFile) -> String {
-    let base = match machine_uid::get() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let machine = machine_uid::get().map_err(|e| e.to_string());
+    // En el teléfono no hay un identificador de máquina accesible: se usa una semilla aleatoria
+    // guardada en el archivo de licencia (estable mientras la app no se desinstale).
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let machine: Result<String, String> = Err("sin identificador".to_string());
+    let base = match machine {
         Ok(id) if !id.trim().is_empty() => id,
         _ => file
             .fallback_device_seed
@@ -655,6 +661,9 @@ fn mask_key(key: &str) -> String {
 
 /// Nombre del equipo para mostrar en el panel del proveedor.
 pub fn device_name() -> String {
+    if cfg!(target_os = "android") {
+        return "Teléfono Android".to_string();
+    }
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .ok()

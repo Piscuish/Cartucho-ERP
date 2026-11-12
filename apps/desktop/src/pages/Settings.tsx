@@ -1,4 +1,5 @@
 import { CSSProperties, useEffect, useState } from "react";
+import { getPc, isPcMode, isPhoneApp, resetAppMode } from "../services/appMode";
 import { UpdatesSection } from "../components/updates";
 import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RefreshCw, RotateCcw, BadgeCheck, Check, Save, ShieldCheck, Smartphone, Users } from "lucide-react";
 import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
@@ -25,6 +26,7 @@ const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   mobile: <Smartphone size={16} />,
   license: <BadgeCheck size={16} />,
   updates: <RefreshCw size={16} />,
+  app: <Smartphone size={16} />,
   about: <Info size={16} />,
 };
 
@@ -32,13 +34,20 @@ export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
   const access = useAccess();
   // Con la licencia desactivada solo quedan las opciones que no modifican datos del negocio.
   // Usuarios que no son administradores solo cambian su contraseña.
-  const tabs = !access.isAdmin
-    ? SETTINGS_TABS.filter((t) => t.id === "security" || t.id === "about")
-    : access.restricted
-      ? SETTINGS_TABS.filter((t) => t.id !== "company" && t.id !== "billing")
-      : SETTINGS_TABS;
+  const phone = isPhoneApp();
+  const pcMode = isPcMode();
+  const tabs = (
+    pcMode
+      ? // App conectada al PC: la configuración del negocio se hace en el PC.
+        SETTINGS_TABS.filter((t) => t.id === "appearance" || t.id === "app" || t.id === "about")
+      : !access.isAdmin
+        ? SETTINGS_TABS.filter((t) => t.id === "security" || t.id === "about" || t.id === "app")
+        : access.restricted
+          ? SETTINGS_TABS.filter((t) => t.id !== "company" && t.id !== "billing")
+          : SETTINGS_TABS
+  ).filter((t) => (phone ? t.id !== "updates" && t.id !== "mobile" : t.id !== "app"));
   const [tab, setTab] = useState<SettingsTab>(() => {
-    const wanted = props.tab ?? (access.restricted ? "license" : "company");
+    const wanted = props.tab ?? (pcMode ? "appearance" : access.restricted ? "license" : "company");
     return tabs.some((t) => t.id === wanted) ? wanted : tabs[0].id;
   });
   return (
@@ -62,10 +71,39 @@ export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
           {tab === "users" && <UsersSettings {...props} />}
           {tab === "mobile" && <MobileAccessSettings />}
           {tab === "updates" && <UpdatesSection version={props.overview.appVersion} />}
+          {tab === "app" && <BaseSettings />}
           {tab === "about" && <AboutSettings {...props} />}
         </div>
       </div>
     </div>
+  );
+}
+
+/** App de Android: dónde está la base principal y cómo cambiarla. */
+function BaseSettings() {
+  const pc = getPc();
+  const pcMode = isPcMode();
+  return (
+    <Section
+      title="Base principal"
+      desc={pcMode ? "Esta app trabaja sobre los datos del PC por la red WiFi." : "Esta app guarda los datos aquí en el teléfono."}
+    >
+      <div className="path-box mb-16">
+        <strong>{pcMode ? `PC ${pc?.tradeName ?? ""} · ${pc?.base.replace("http://", "") ?? ""}` : "Este teléfono"}</strong>
+      </div>
+      <p className="muted mb-16">
+        Al cambiarla vuelves a la pantalla de inicio para elegir. No se borra nada: los datos del teléfono siguen aquí y los del PC siguen en el PC.
+      </p>
+      <Button
+        icon={<RefreshCw size={16} />}
+        onClick={() => {
+          resetAppMode();
+          window.location.reload();
+        }}
+      >
+        Cambiar base principal
+      </Button>
+    </Section>
   );
 }
 

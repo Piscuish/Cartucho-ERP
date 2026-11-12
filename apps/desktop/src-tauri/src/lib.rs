@@ -4,6 +4,7 @@ pub mod users;
 pub mod erp;
 pub mod licensing;
 pub mod lan;
+pub mod remote;
 
 use db::LocalDatabase;
 use licensing::{check_gate, Entitlements, Gate, LicenseManager, LicenseStatus};
@@ -448,9 +449,11 @@ mod tauri_commands {
     }
 
     fn lan_status(state: &AppState) -> Result<lan::LanStatus, String> {
-        let cfg = state.gated(Gate::Admin, |db| lan::read_config(db))?;
+        let (cfg, writes) = state.gated(Gate::Admin, |db| Ok((lan::read_config(db)?, lan::writes_allowed(db))))?;
         let ctl = state.lan.lock().map_err(|_| "Error interno del acceso desde celulares.".to_string())?;
-        Ok(ctl.status(cfg))
+        let mut st = ctl.status(cfg);
+        st.writes_allowed = writes;
+        Ok(st)
     }
 
     #[tauri::command]
@@ -465,6 +468,41 @@ mod tauri_commands {
         // El error de arranque (puerto ocupado) queda en el estado para mostrarlo.
         let _ = apply_lan_config(&app, &state, cfg);
         lan_status(&state)
+    }
+
+    #[tauri::command]
+    pub fn set_lan_writes(allowed: bool, state: S<'_>) -> Result<lan::LanStatus, String> {
+        state.gated(Gate::Admin, |db| lan::save_writes_allowed(db, allowed))?;
+        lan_status(&state)
+    }
+
+    // ------------------------------------------------------------ App de Android: base en el PC
+    // Corren en el teléfono; hablan con el PC desde Rust (ver `remote.rs`). Son asíncronos para
+    // no bloquear la interfaz mientras esperan la red.
+
+    #[tauri::command]
+    pub async fn remote_ping(base: String) -> Result<serde_json::Value, String> {
+        tauri::async_runtime::spawn_blocking(move || remote::ping(&base)).await.map_err(|e| e.to_string())?
+    }
+
+    #[tauri::command]
+    pub async fn remote_discover() -> Result<Vec<serde_json::Value>, String> {
+        tauri::async_runtime::spawn_blocking(remote::discover).await.map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn remote_login(base: String, username: String, password: String) -> Result<serde_json::Value, String> {
+        tauri::async_runtime::spawn_blocking(move || remote::login(&base, &username, &password)).await.map_err(|e| e.to_string())?
+    }
+
+    #[tauri::command]
+    pub async fn remote_logout(base: String, token: String) -> Result<(), String> {
+        tauri::async_runtime::spawn_blocking(move || remote::logout(&base, &token)).await.map_err(|e| e.to_string())
+    }
+
+    #[tauri::command]
+    pub async fn remote_rpc(base: String, token: String, command: String, args: serde_json::Value) -> Result<serde_json::Value, String> {
+        tauri::async_runtime::spawn_blocking(move || remote::rpc(&base, &token, &command, args)).await.map_err(|e| e.to_string())?
     }
 
     #[tauri::command]
@@ -771,14 +809,24 @@ mod tauri_commands {
     }
 
     pub fn run_tauri_app() {
-        let app_state = AppState::initialize();
-
-        tauri::Builder::default()
-            .plugin(tauri_plugin_dialog::init())
+        let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+        // Escritorio: actualizaciones automáticas y la base se abre de una vez.
+        #[cfg(desktop)]
+        let builder = builder
             .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_process::init())
-            .manage(app_state)
+            .manage(AppState::initialize());
+
+        builder
             .setup(|app| {
+                // Teléfono: la carpeta de datos la da Android; la base se abre aquí.
+                #[cfg(mobile)]
+                {
+                    use tauri::Manager;
+                    let dir = app.path().app_data_dir()?;
+                    db::set_app_data_dir_override(dir);
+                    app.manage(AppState::initialize());
+                }
                 // Reporte con el servidor de licencias: al iniciar y cada hora mientras la
                 // aplicación esté abierta. Sin conexión no pasa nada: el token sigue siendo
                 // válido hasta 30 días.
@@ -818,6 +866,12 @@ mod tauri_commands {
                 get_lan_status,
                 set_lan_access,
                 disconnect_lan_devices,
+                set_lan_writes,
+                remote_ping,
+                remote_discover,
+                remote_login,
+                remote_logout,
+                remote_rpc,
                 get_license_status,
                 activate_license_online,
                 activate_license_offline,
@@ -887,6 +941,13 @@ mod tauri_commands {
 
 #[cfg(feature = "desktop-tauri")]
 pub use tauri_commands::run_tauri_app;
+
+/// Punto de entrada de la app de Android.
+#[cfg(feature = "desktop-tauri")]
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    run_tauri_app();
+}
 
 #[cfg(test)]
 mod role_gate_tests {

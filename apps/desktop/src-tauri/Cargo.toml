@@ -7,8 +7,9 @@ edition = "2021"
 
 [lib]
 name = "cartucho_erp_desktop_lib"
-# Solo escritorio: "staticlib"/"cdylib" son para móvil y ocupaban ~1 GB extra por compilación.
-crate-type = ["rlib"]
+# "cdylib" es la librería que carga la app de Android. ("staticlib", solo para iOS, ocupaba ~1 GB
+# extra por compilación y no se usa.)
+crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []
@@ -20,7 +21,6 @@ tauri-build = { version = "2", features = [], optional = true }
 [dependencies]
 ed25519-dalek = "2"
 sha2 = "0.10"
-machine-uid = "0.5"
 ureq = { version = "2", features = ["json"] }
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 base64 = "0.22"
@@ -36,6 +36,12 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 local-ip-address = "0.6"
 tauri = { version = "2", features = [], optional = true }
 tauri-plugin-dialog = { version = "2", optional = true }
+
+
+# Solo escritorio: identificador de la máquina y actualizaciones automáticas (en Android las
+# actualizaciones llegan con un nuevo .apk).
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+machine-uid = "0.5"
 tauri-plugin-updater = { version = "2", optional = true }
 tauri-plugin-process = { version = "2", optional = true }
 

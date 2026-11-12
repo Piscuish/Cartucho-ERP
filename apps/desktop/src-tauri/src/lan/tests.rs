@@ -379,3 +379,78 @@ fn demo_server() {
     println!("DEMO http://127.0.0.1:{port}/");
     std::thread::sleep(Duration::from_secs(900));
 }
+
+// ------------------------------------------------------------------ App de Android (RPC)
+
+fn app_token(f: &Fixture, user: &str) -> String {
+    let b = json!({ "username": user, "password": PASS, "client": "app" }).to_string();
+    let r = handle(&f.state, &f.sessions, "POST", "/api/login", None, b.as_bytes());
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    body(&r)["token"].as_str().unwrap().to_string()
+}
+
+fn rpc(f: &Fixture, token: &str, cmd: &str, args: Value) -> HttpResponse {
+    handle(&f.state, &f.sessions, "POST", &format!("/api/rpc/{}", cmd), Some(&format!("Bearer {}", token)), args.to_string().as_bytes())
+}
+
+#[test]
+fn app_rpc_reads_with_the_user_role_and_writes_only_when_allowed() {
+    let f = fixture();
+    // Sin sesión no hay acceso.
+    assert_eq!(handle(&f.state, &f.sessions, "POST", "/api/rpc/list_invoices", None, b"{}").status, 401);
+    // El rol de bodega entra desde la app (aunque no vea facturas) y solo ve su módulo.
+    let bodega = app_token(&f, "bodeguero");
+    assert_eq!(rpc(&f, &bodega, "list_products", json!({})).status, 200);
+    assert_eq!(rpc(&f, &bodega, "list_invoices", json!({ "filter": {} })).status, 403);
+
+    let t = app_token(&f, "vendedora");
+    let r = rpc(&f, &t, "list_invoices", json!({ "filter": {} }));
+    assert_eq!(r.status, 200);
+    assert_eq!(body(&r)["data"].as_array().unwrap().len(), 1);
+    // Resumen del sistema con la sesión del celular (no la del PC).
+    let r = rpc(&f, &t, "get_system_overview", json!({}));
+    assert_eq!(body(&r)["data"]["currentUser"]["username"], "vendedora");
+    // Opciones que solo existen en el PC.
+    for cmd in ["restore_backup", "save_user", "set_lan_access", "complete_initial_setup", "no_existe"] {
+        let r = rpc(&f, &t, cmd, json!({}));
+        assert_eq!(r.status, 403, "{cmd}");
+    }
+
+    // Registrar: apagado por defecto.
+    let sale = json!({ "input": {
+        "customer": { "name": "Cliente App" }, "issueDate": "2026-11-12",
+        "lines": [{ "description": "Venta desde el celular", "quantity": 1, "unitPrice": 12000 }],
+        "initialPayment": { "amount": 12000, "method": "cash", "paidAt": "2026-11-12" }
+    }});
+    let r = rpc(&f, &t, "create_invoice", sale.clone());
+    assert_eq!(r.status, 403);
+    assert!(body(&r)["error"].as_str().unwrap().contains("Permitir registrar"));
+    f.state.with_db(|db| save_writes_allowed(db, true)).unwrap();
+    let r = rpc(&f, &t, "create_invoice", sale);
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(body(&r)["data"]["balance"], 0);
+    // Quedó a nombre de la vendedora y el PC sigue sin sesión.
+    let (who, pc_session) = f.state.with_db(|db| {
+        let who: Option<String> = db
+            .connect()?
+            .query_row("SELECT u.username FROM invoices i JOIN app_users u ON u.id = i.created_by ORDER BY i.id DESC LIMIT 1", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok((who, db.require_authenticated_user().ok().map(|u| u.username)))
+    }).unwrap();
+    assert_eq!(who.as_deref(), Some("vendedora"));
+    let pc_before = f.state.with_db(|db| Ok(db.require_authenticated_user().ok().map(|u| u.username))).unwrap();
+    assert_eq!(pc_session, pc_before, "la sesión del PC no cambia");
+    assert_ne!(pc_session.as_deref(), Some("vendedora"));
+    // Su rol no puede borrar gastos (sin permiso de escritura en gastos).
+    assert_eq!(rpc(&f, &t, "delete_expense", json!({ "id": 1 })).status, 403);
+    // Datos mal formados.
+    assert_eq!(rpc(&f, &t, "get_invoice", json!({ "id": "x" })).status, 400);
+}
+
+#[test]
+fn ping_identifies_cartucho_without_login() {
+    let f = fixture();
+    let r = handle(&f.state, &f.sessions, "GET", "/api/ping", None, b"");
+    assert_eq!(r.status, 200);
+    assert_eq!(body(&r)["app"], "cartucho-erp");
+}

@@ -271,7 +271,18 @@ pub struct SystemOverview {
 /// - Windows: %LOCALAPPDATA%\cartucho\cartucho-erp\data
 /// - Linux:   ~/.local/share/cartucho-erp
 /// - macOS:   ~/Library/Application Support/com.cartucho.cartucho-erp
+/// En el teléfono la carpeta de datos la da el sistema (Tauri) al arrancar.
+static APP_DATA_DIR_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn set_app_data_dir_override(dir: PathBuf) {
+    let _ = APP_DATA_DIR_OVERRIDE.set(dir);
+}
+
 pub fn resolve_os_app_data_dir() -> Result<PathBuf, String> {
+    if let Some(dir) = APP_DATA_DIR_OVERRIDE.get() {
+        fs::create_dir_all(dir).map_err(|e| format!("No se pudo crear la carpeta de datos {:?}: {}", dir, e))?;
+        return Ok(dir.clone());
+    }
     if let Some(proj_dirs) = ProjectDirs::from("com", "cartucho", "cartucho-erp") {
         let data_dir = proj_dirs.data_local_dir().to_path_buf();
         fs::create_dir_all(&data_dir).map_err(|e| {

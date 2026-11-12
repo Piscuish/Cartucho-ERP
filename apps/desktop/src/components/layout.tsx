@@ -10,6 +10,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CornerDownLeft,
+  Menu,
   FilePlus2,
   FileSignature,
   FileText,
@@ -69,9 +70,13 @@ export function AppShell({
       /* ignorar */
     }
   }, [collapsedPref]);
+  // Pantallas angostas (teléfono): el menú se abre como panel lateral y nunca va contraído.
+  const narrow = useNarrow();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  useEffect(() => setMobileOpen(false), [route, narrow]);
   // El diseño «Riel» siempre muestra el menú como columna de íconos.
-  const railOnly = layout === "riel";
-  const collapsed = railOnly || collapsedPref;
+  const railOnly = layout === "riel" && !narrow;
+  const collapsed = !narrow && (railOnly || collapsedPref);
 
   // Etiqueta flotante del menú contraído (se calcula con la posición real del botón).
   const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null);
@@ -94,7 +99,8 @@ export function AppShell({
   useHotkey((e) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b", () => setCollapsed((c) => !c));
 
   return (
-    <div className={`app-shell ${collapsed ? "is-collapsed" : ""}`}>
+    <div className={`app-shell ${collapsed ? "is-collapsed" : ""} ${narrow ? "is-narrow" : ""} ${mobileOpen ? "is-menu-open" : ""}`}>
+      {narrow && mobileOpen && <div className="sb-scrim" onClick={() => setMobileOpen(false)} />}
       <aside className="sidebar">
         <div className="sb-brand">
           <div className="sb-logo">
@@ -144,7 +150,7 @@ export function AppShell({
               <div className="sb-user-name">{user.fullName}</div>
               <div className="sb-user-role">{user.roleName || (user.role === "admin" ? "Administrador" : user.role)}</div>
             </div>
-            {!railOnly && (
+            {!railOnly && !narrow && (
               <button className="sb-icon-btn sb-hide-collapsed" onClick={() => setCollapsed(true)} title="Contraer menú (Ctrl+B)" aria-label="Contraer menú">
                 <ChevronsLeft size={16} />
               </button>
@@ -174,21 +180,26 @@ export function AppShell({
 
       <div className="main-area">
         <header className="topbar">
-          <button className="topbar-search" onClick={() => setPaletteOpen(true)}>
+          {narrow && (
+            <button className="topbar-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menú">
+              <Menu size={20} />
+            </button>
+          )}
+          <button className="topbar-search" onClick={() => setPaletteOpen(true)} aria-label="Buscar">
             <Search size={16} />
-            <span>Buscar facturas, clientes, productos…</span>
-            <span className="kbd">Ctrl K</span>
+            <span>{narrow ? "Buscar…" : "Buscar facturas, clientes, productos…"}</span>
+            {!narrow && <span className="kbd">Ctrl K</span>}
           </button>
           <div className="topbar-spacer" />
           {update && <UpdateButton update={update} onOpen={() => setUpdateOpen(true)} />}
-          {access.canWrite("quotes") && access.showNav("quotes") && (
+          {!narrow && access.canWrite("quotes") && access.showNav("quotes") && (
             <Button variant="secondary" icon={<FileSignature size={16} />} onClick={() => navigate({ page: "quote-new" })}>
               {access.navLabel("quotes", "Cotización")}
             </Button>
           )}
           {access.canWrite("invoices") && access.showNav("invoice-new") && (
-            <Button variant="primary" icon={<Plus size={16} />} onClick={() => navigate({ page: "invoice-new" })}>
-              {access.navLabel("invoice-new", "Nueva factura")}
+            <Button variant="primary" icon={<Plus size={16} />} onClick={() => navigate({ page: "invoice-new" })} aria-label={access.navLabel("invoice-new", "Nueva factura")}>
+              {narrow ? "Factura" : access.navLabel("invoice-new", "Nueva factura")}
             </Button>
           )}
         </header>
@@ -205,6 +216,20 @@ export function AppShell({
 }
 
 /** Menú lateral filtrado por los módulos de la licencia. */
+/** ¿Pantalla angosta (teléfono)? */
+function useNarrow(): boolean {
+  const query = "(max-width: 760px)";
+  const [narrow, setNarrow] = useState(() => window.matchMedia?.(query).matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const h = () => setNarrow(mq.matches);
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
+  return narrow;
+}
+
 function useVisibleNavigation(): NavGroup[] {
   const access = useAccess();
   return useMemo(
