@@ -29,8 +29,13 @@ Fases incrementales, priorizando la estabilidad local antes de añadir complejid
 - Desactivación remota de licencia o equipo → solo ver facturas y «Contacta a soporte».
 - Servidor Cloudflare Workers + D1 y panel de administración (`license-server/`). **Pendiente: publicarlo con la cuenta del propietario.**
 
+## Fase 2.6: Celulares en la red local — Lista (noviembre 2026)
+- **Configuración › Celulares:** el PC hace de servidor y los celulares de la misma red WiFi consultan facturas y cotizaciones con su usuario y rol (solo lectura, ver ADR 0009).
+- Página para el celular incluida en el programa, con código QR, PDF/impresión y acceso directo en la pantalla de inicio.
+
 ## Fase 3: Próximos pasos sugeridos
-- **Modo servidor para red local:** un equipo como servidor y los demás como clientes, sin compartir el archivo SQLite (ver ADR 0003).
+- **APK de Android** que use la misma conexión con el PC.
+- **Modo servidor completo para red local:** otros PC como clientes con todas las funciones, sin compartir el archivo SQLite (ver ADR 0003 y 0009).
 - **Usuarios con roles** (vendedor, administrador) y permisos por módulo.
 - Proveedores y órdenes de compra.
 - Cierre de caja diario.

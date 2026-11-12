@@ -21,9 +21,10 @@ Programa de **facturación y gestión para pequeñas empresas**. Funciona sin In
 | **Datos** | Exportar copia (por ejemplo, a una USB), crear respaldo, restaurar, mover la carpeta de datos, usar una carpeta traída de otro equipo y respaldo automático diario. |
 | **Usuarios y roles** | Varios usuarios por instalación. El administrador crea roles (Vendedor, Solo consulta o propios) eligiendo por módulo «Ver» o «Ver y editar», solo entre los módulos de la licencia. |
 | **Licencias y módulos** | Activación con clave `CE-XXXX-…` o código sin Internet; cada licencia define módulos (Básico, Tienda, Completo o personalizado) y equipos (1 a 5). Valida cada hora y funciona 30 días sin Internet. Si se desactiva, solo permite ver facturas y el inicio muestra «Contacta a soporte». Servidor y panel en `license-server/` (ver su README). |
+| **Celulares** | En **Configuración › Celulares** el administrador activa el acceso desde la red local. Desde Chrome en el celular (escaneando el QR) se consultan facturas y cotizaciones con el mismo usuario y rol. Solo consulta; los datos siguen en el PC (ADR 0009). |
 | **Interfaz** | Estilo «lateral oscuro» con acento violeta, tema claro/oscuro, menú colapsable (Ctrl+B) y búsqueda rápida (Ctrl+K). |
 
-**Fuera del alcance actual:** facturación electrónica DIAN e impuestos (las facturas son documentos internos), varios usuarios con roles, trabajo en red local y nube. La arquitectura está preparada para red local y nube (ver `docs/01-architecture/adr/0003-lan-and-cloud-readiness.md`).
+**Fuera del alcance actual:** facturación electrónica DIAN e impuestos (las facturas son documentos internos), trabajo completo en red local (hoy los celulares solo consultan) y nube. La arquitectura está preparada para red local y nube (ver `docs/01-architecture/adr/0003-lan-and-cloud-readiness.md`).
 
 ### Actualizar desde la versión anterior
 
