@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Archive, ArchiveRestore, Download, LayoutGrid, List, Package, PackagePlus, Tags } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Archive, ArchiveRestore, Download, LayoutGrid, List, Package, PackagePlus, Tags, Wrench } from "lucide-react";
 import type { Category, Product, ProductInput } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
@@ -34,7 +34,10 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
   });
   const q = useDebounced(search);
   const { data, loading, error, reload } = useAsync(() => api.listProducts({ search: q, categoryId, includeInactive: showArchived }), [q, categoryId, showArchived]);
-  const page = useShowMore(data?.length ?? 0, 100, data);
+  // Filtro por tipo: productos (con existencias) o servicios.
+  const [kind, setKind] = useState<"" | "product" | "service">("");
+  const items = useMemo(() => (data ?? []).filter((p) => !kind || (kind === "product" ? p.trackStock : !p.trackStock)), [data, kind]);
+  const page = useShowMore(items.length, 100, items);
   const cats = useAsync(() => api.listCategories("product"), []);
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [managingCats, setManagingCats] = useState(false);
@@ -94,6 +97,15 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
       <div className="card">
         <div className="toolbar">
           <SearchBox value={search} onChange={setSearch} placeholder="Nombre, código o descripción…" />
+          <Segmented<"" | "product" | "service">
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: "", label: "Todos" },
+              { value: "product", label: "Productos" },
+              { value: "service", label: "Servicios" },
+            ]}
+          />
           <select className="select" style={{ width: 200 }} value={categoryId ?? ""} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}>
             <option value="">Todas las categorías</option>
             {cats.data?.map((c) => (
@@ -138,7 +150,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
           />
         ) : view === "grid" ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 14, padding: 16 }}>
-            {data?.slice(0, page.limit).map((p) => (
+            {items.slice(0, page.limit).map((p) => (
               <button
                 key={p.id}
                 className="card"
@@ -180,7 +192,7 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
                 </tr>
               </thead>
               <tbody>
-                {data?.slice(0, page.limit).map((p) => (
+                {items.slice(0, page.limit).map((p) => (
                   <tr key={p.id} className={`is-clickable ${p.isActive ? "" : "is-muted"}`} onClick={() => setEditing(p)}>
                     <td>
                       <div className="cell-flex">
@@ -326,6 +338,21 @@ function ProductDrawer({
       }
     >
       <div className="stack-lg">
+        <Field label="Tipo" hint={form.trackStock ? "Se guarda en bodega: tiene existencias y las ventas las descuentan." : "Se presta, no se almacena: sin existencias y no suma al valor del inventario."}>
+          <Segmented<"product" | "service">
+            value={form.trackStock ? "product" : "service"}
+            onChange={(v) => setForm({ ...form, trackStock: v === "product" })}
+            options={[
+              { value: "product", label: <><Package size={14} /> Producto</> },
+              { value: "service", label: <><Wrench size={14} /> Servicio</> },
+            ]}
+          />
+        </Field>
+        {product?.trackStock && !form.trackStock && product.stockQty !== 0 && (
+          <Alert tone="warning">
+            Al guardar, sus {qty(product.stockQty)} {product.unit} en existencia pasarán a cero (queda registrado en los movimientos de inventario).
+          </Alert>
+        )}
         <Field label="Foto de referencia" optional>
           <ImagePicker
             value={image}
@@ -390,16 +417,11 @@ function ProductDrawer({
           </div>
         </div>
 
-        {withStock && (
+        {withStock && form.trackStock && (
         <div className="form-section">
-          <Switch
-            checked={form.trackStock}
-            onChange={(v) => setForm({ ...form, trackStock: v })}
-            label="Controlar inventario"
-            description="Desactívalo para servicios (impresiones, mano de obra, etc.)."
-          />
-          {form.trackStock && (
-            <div className="form-grid cols-3 mt-16">
+          <div className="form-section-title">Inventario</div>
+          {(
+            <div className="form-grid cols-3">
               <Field label="Unidad">
                 <select className="select" value={form.unit ?? "und"} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
                   {UNITS.map((u) => (
