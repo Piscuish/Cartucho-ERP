@@ -52,6 +52,25 @@ npm run db:local
 npm run dev                                  # abre http://localhost:8787 y entra con el ADMIN_TOKEN de .dev.vars
 ```
 
+## Panel: menú por cliente, pagos y vencimientos
+
+- **Menú personalizado** (en el detalle de cada licencia): ocultar opciones del menú, darles un nombre
+  propio («Pedidos» en vez de «Cotizaciones») y activar **funciones exclusivas** (`pedidos-domicilio`…)
+  para menús hechos a la medida. Viaja firmado en el token; el cliente lo recibe en su próxima
+  validación. Es solo visual: los permisos los siguen dando los módulos del plan.
+- **Pagos:** valor, forma de pago, fecha y «paga hasta». Si «paga hasta» es posterior al vencimiento,
+  la licencia se extiende sola. El inicio muestra lo cobrado en el mes y las licencias que vencen en 15 días.
+- **Vencimiento:** el programa avisa al cliente 7 días antes; también avisa si lleva días sin Internet.
+- **Equipos:** última validación, versión instalada, IP y país de cada equipo.
+
+## Publicar desde GitHub (recomendado)
+
+El flujo `.github/workflows/license-server.yml` crea la base D1 (la primera vez), aplica las
+migraciones, publica el Worker y carga los secretos. Solo necesita estos secretos del repositorio:
+`CLOUDFLARE_API_TOKEN` (plantilla «Edit Cloudflare Workers» + permiso «D1: Edit»),
+`CLOUDFLARE_ACCOUNT_ID`, `LICENSE_PRIVATE_KEY` y `ADMIN_TOKEN`. Se ejecuta al cambiar `license-server/`
+en `main` o a mano desde la pestaña Actions. Sin `CLOUDFLARE_API_TOKEN` no hace nada.
+
 ## Publicar (cuando decidas conectar tu cuenta)
 
 1. **Claves definitivas** (una sola vez; guárdalas en un lugar seguro):

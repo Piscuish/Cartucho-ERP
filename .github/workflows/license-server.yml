@@ -1,0 +1,99 @@
+# Publica el servidor de licencias en Cloudflare (Workers + D1).
+# Corre a mano (pestaña Actions › «Servidor de licencias» › Run workflow) o al cambiar license-server/ en main.
+#
+# Secretos necesarios (Settings › Secrets and variables › Actions):
+#   CLOUDFLARE_API_TOKEN   token de Cloudflare con permisos «Workers Scripts: Edit» y «D1: Edit»
+#   CLOUDFLARE_ACCOUNT_ID  id de la cuenta de Cloudflare
+#   LICENSE_PRIVATE_KEY    clave privada de licencias (firma los tokens)
+#   ADMIN_TOKEN            contraseña del panel de administración (mínimo 12 caracteres)
+# Sin CLOUDFLARE_API_TOKEN el flujo no hace nada.
+name: Servidor de licencias
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - license-server/**
+      - .github/workflows/license-server.yml
+
+concurrency:
+  group: license-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: license-server
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ¿Está configurado?
+        id: cfg
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::Faltan CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID: no se publica nada."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.skip != '1'
+        with:
+          node-version: 22
+
+      - name: Dependencias
+        if: steps.cfg.outputs.skip != '1'
+        run: npm ci
+
+      - name: Base de datos D1 (se crea la primera vez)
+        if: steps.cfg.outputs.skip != '1'
+        run: |
+          set -euo pipefail
+          find_id() { npx wrangler d1 list --json | jq -r '.[] | select(.name=="cartucho-licencias") | .uuid' | head -n1; }
+          ID=$(find_id || true)
+          if [ -z "$ID" ]; then
+            npx wrangler d1 create cartucho-licencias
+            ID=$(find_id)
+          fi
+          test -n "$ID"
+          sed -i "s/^database_id = .*/database_id = \"$ID\"/" wrangler.toml
+          npx wrangler d1 migrations apply cartucho-licencias --remote
+
+      - name: Publicar
+        id: deploy
+        if: steps.cfg.outputs.skip != '1'
+        run: |
+          set -euo pipefail
+          npx wrangler deploy | tee deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -n1 || true)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Secretos del servidor
+        if: steps.cfg.outputs.skip != '1'
+        env:
+          LICENSE_PRIVATE_KEY: ${{ secrets.LICENSE_PRIVATE_KEY }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$LICENSE_PRIVATE_KEY" ] || [ -z "$ADMIN_TOKEN" ]; then
+            echo "::warning::Faltan LICENSE_PRIVATE_KEY o ADMIN_TOKEN: el servidor no podrá emitir licencias ni abrir el panel."
+            exit 0
+          fi
+          jq -n --arg k "$LICENSE_PRIVATE_KEY" --arg a "$ADMIN_TOKEN" '{LICENSE_PRIVATE_KEY:$k, ADMIN_TOKEN:$a}' > /tmp/secrets.json
+          npx wrangler secret bulk /tmp/secrets.json
+          rm -f /tmp/secrets.json
+
+      - name: Comprobar
+        if: steps.cfg.outputs.skip != '1' && steps.deploy.outputs.url != ''
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          sleep 5
+          curl -fsS "$URL/v1/health"
+          echo "### Servidor de licencias publicado" >> "$GITHUB_STEP_SUMMARY"
+          echo "Panel: $URL" >> "$GITHUB_STEP_SUMMARY"

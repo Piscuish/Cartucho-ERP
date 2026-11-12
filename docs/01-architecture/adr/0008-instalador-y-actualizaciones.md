@@ -37,3 +37,14 @@ no está publicado.
 - Pruebas: `setup_data_location_only_before_admin_exists`, `setup_saves_default_paper_size`,
   `token_brings_company_data_and_old_tokens_still_work`.
 - Riesgo: perder la clave privada de actualizaciones impide actualizar las copias instaladas.
+
+## Adenda — Servidor de licencias listo para publicar
+
+- Migración D1 `0003_menu_and_payments.sql` (aditiva): columna `licenses.ui` y tabla `payments`.
+- El token agrega `ui` opcional `{hide, labels, features}` (normalizado en el servidor y recortado en
+  Rust). La app oculta/renombra opciones del menú y expone `hasFeature()`; no cambia permisos.
+- Pagos con «paga hasta» extienden `expires_at`; eliminar un pago no lo reduce.
+- Aviso en la app: vencimiento en ≤ 7 días o validación pendiente en ≤ 5 días.
+- Publicación con GitHub Actions (`license-server.yml`), sin credenciales en el repositorio.
+- Prueba de punta a punta (`npm run test:e2e`, wrangler local) cubre empresa, menú, versión del
+  equipo, pagos y vencimiento.

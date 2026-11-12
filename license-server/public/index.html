@@ -32,7 +32,7 @@
   header.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 28px; background: rgba(255,255,255,.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
   header.top .title { font-weight: 600; } header.top .sp { flex: 1; }
   main { max-width: 1180px; margin: 0 auto; padding: 24px 28px 64px; }
-  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px; }
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; box-shadow: var(--shadow); }
   .tile-label { color: var(--text-2); font-size: 13px; } .tile-value { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
   .tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-3); border-radius: 10px; margin-bottom: 14px; }
@@ -93,6 +93,13 @@
   .alert { padding: 10px 14px; border-radius: var(--radius); background: var(--danger-soft); color: var(--danger); margin-bottom: 14px; }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: #fff; padding: 10px 18px; border-radius: 10px; z-index: 50; animation: fade .2s; }
   @keyframes fade { from { opacity: 0 } } @keyframes slide { from { transform: translateX(30px); opacity: 0 } }
+  .navrow { display: grid; grid-template-columns: 22px 1fr 1.2fr; gap: 8px; align-items: center; padding: 4px 0; }
+  .navrow .input { height: 32px; }
+  .pay { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--border, #e5e7eb); }
+  .pay:last-child { border-bottom: 0; }
+  .pay .amt { font-weight: 600; min-width: 110px; }
+  .warn-row td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+  @media (max-width: 1100px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
   @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } main, header.top { padding-left: 14px; padding-right: 14px; } .hide-sm { display: none; } }
 </style>
 </head>
@@ -125,6 +132,8 @@
       <div class="tile"><div class="tile-label">Activas</div><div class="tile-value" id="tAct">–</div></div>
       <div class="tile"><div class="tile-label">Equipos activos</div><div class="tile-value" id="tDev">–</div></div>
       <div class="tile"><div class="tile-label"><span class="dot on"></span>Conectados ahora</div><div class="tile-value" id="tOn">–</div></div>
+      <div class="tile"><div class="tile-label">Vencen en 15 días</div><div class="tile-value" id="tExp">–</div></div>
+      <div class="tile"><div class="tile-label">Cobrado este mes</div><div class="tile-value" id="tPaid">–</div></div>
     </div>
 
     <div class="bar">
@@ -152,6 +161,13 @@ const MODULES = [
 ];
 const MODULE_LABEL = Object.fromEntries(MODULES);
 const REQUIRES = { quotes: "invoices", inventory: "catalog", finance: "invoices" };
+/** Opciones del menú de Cartucho ERP que se pueden ocultar o renombrar por cliente. */
+const NAV_ITEMS = [
+  ["pos", "Punto de venta"], ["invoice-new", "Nueva factura"], ["invoices", "Facturas"], ["quotes", "Cotizaciones"], ["cash-close", "Cierre de caja"],
+  ["customers", "Clientes"], ["catalog", "Catálogo"], ["inventory", "Inventario"], ["finance", "Resumen"], ["expenses", "Gastos"],
+];
+const money = (n) => "$ " + Number(n || 0).toLocaleString("es-CO");
+const PAY_METHODS = ["Efectivo", "Transferencia", "Nequi", "Daviplata", "Tarjeta", "Otro"];
 const PLAN_LABEL = { basico: "Básico", tienda: "Tienda", completo: "Completo", personalizado: "Personalizado" };
 let PLANS = { basico: ["invoices", "customers"], tienda: ["invoices", "quotes", "customers", "catalog", "inventory"], completo: MODULES.map(m => m[0]) };
 
@@ -209,6 +225,7 @@ async function load() {
   if (s.plans) PLANS = s.plans;
   $("#tLic").textContent = s.summary.licenses; $("#tAct").textContent = s.summary.activeLicenses;
   $("#tDev").textContent = s.summary.devices; $("#tOn").textContent = s.summary.online;
+  $("#tExp").textContent = s.summary.expiringSoon ?? 0; $("#tPaid").textContent = money(s.summary.paidThisMonth);
   licenses = l.licenses; online = o.devices; events = s.events;
   render();
 }
@@ -226,13 +243,13 @@ function render() {
   if (tab === "licenses") {
     const rows = licenses.filter((l) => !q || l.customer.toLowerCase().includes(q) || l.key.toLowerCase().includes(q) || (l.contact || "").toLowerCase().includes(q));
     view.innerHTML = rows.length ? `<table><thead><tr><th>Cliente</th><th>Plan</th><th>Equipos</th><th class="hide-sm">Clave</th><th>Estado</th><th class="hide-sm">Vence</th></tr></thead><tbody>${rows.map((l) => `
-      <tr class="click" data-key="${esc(l.key)}">
+      <tr class="click ${soon(l) ? "warn-row" : ""}" data-key="${esc(l.key)}">
         <td><div style="font-weight:500">${esc(l.customer)}</div><div class="subtle">${esc(l.contact || "")}</div></td>
         <td><span class="badge b-plan">${esc(PLAN_LABEL[l.plan] || l.plan)}</span></td>
         <td><span class="dot ${l.devices.online ? "on" : ""}"></span>${l.devices.active} / ${l.maxDevices}${l.devices.online ? ` <span class="subtle">· ${l.devices.online} en línea</span>` : ""}</td>
         <td class="mono hide-sm subtle">${esc(l.key)}</td>
         <td>${statusBadge(l)}</td>
-        <td class="hide-sm subtle">${l.expiresAt ? fmtDate(l.expiresAt) : "No vence"}</td>
+        <td class="hide-sm ${soon(l) ? "" : "subtle"}">${l.expiresAt ? fmtDate(l.expiresAt) + (soon(l) ? ' <span class="badge b-warn">Pronto</span>' : "") : "No vence"}</td>
       </tr>`).join("")}</tbody></table>` : `<div class="empty">${licenses.length ? "Sin resultados." : "Aún no has creado licencias. Pulsa «Nueva licencia»."}</div>`;
     view.querySelectorAll("tr.click").forEach((tr) => (tr.onclick = () => openLicense(tr.dataset.key)));
   } else if (tab === "online") {
@@ -251,7 +268,11 @@ function render() {
   }
 }
 
+/** Vence en los próximos 15 días (o ya venció) y sigue activa. */
+const soon = (l) => l.status === "active" && l.expiresAt && l.expiresAt - Date.now() / 1000 < 15 * 86400;
+
 const EVENT_LABEL = {
+  admin_payment: "Pago registrado", admin_payment_delete: "Pago eliminado",
   activate: "Activación", rejected: "Rechazado", admin_create: "Licencia creada", admin_update: "Licencia modificada",
   admin_offline_code: "Código sin Internet", admin_device_revoke: "Equipo desactivado", admin_device_restore: "Equipo reactivado",
 };
@@ -394,6 +415,35 @@ async function openLicense(key, justCreated = false) {
 
       <form class="section" id="f"><div class="section-title">Datos y plan</div>${licenseForm(l)}<div class="alert hidden" id="err"></div></form>
 
+      <div class="section" id="pays">
+        <div class="section-title">Pagos <span class="subtle">${data.payments.length ? money(data.payments.reduce((s, p) => s + p.amount, 0)) + " en total" : ""}</span></div>
+        ${data.payments.length ? data.payments.map((p) => `
+          <div class="pay"><span class="amt">${money(p.amount)}</span><div style="flex:1"><div>${fmtDate(p.paidAt)} · ${esc(p.method || "")}</div>
+          <div class="subtle">${p.coversUntil ? "Paga hasta " + fmtDate(p.coversUntil) : ""} ${esc(p.note || "")}</div></div>
+          <button class="btn btn-sm" data-delpay="${p.id}" title="Eliminar pago">✕</button></div>`).join("") : '<div class="subtle">Sin pagos registrados.</div>'}
+        <div class="grid2" style="margin-top:12px">
+          <label class="f"><span>Valor</span><input class="input" id="payAmount" inputmode="numeric" placeholder="50000" /></label>
+          <label class="f"><span>Forma de pago</span><select id="payMethod">${PAY_METHODS.map((m) => `<option>${m}</option>`).join("")}</select></label>
+        </div>
+        <div class="grid2">
+          <label class="f"><span>Fecha del pago</span><input class="input" type="date" id="payDate" value="${new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10)}" /></label>
+          <label class="f"><span>Paga hasta (extiende el vencimiento)</span><input class="input" type="date" id="payUntil" value="${nextPeriod(l.expiresAt)}" /></label>
+        </div>
+        <label class="f"><span>Nota (opcional)</span><input class="input" id="payNote" /></label>
+        <button class="btn" id="addPay">Registrar pago</button>
+      </div>
+
+      <div class="section" id="menu">
+        <div class="section-title">Menú personalizado</div>
+        <div class="subtle" style="margin-bottom:8px">Solo para este cliente: oculta opciones o cámbiales el nombre. Le llega en su próxima validación, sin reinstalar.</div>
+        ${NAV_ITEMS.map(([id, label]) => `
+          <div class="navrow"><input type="checkbox" data-show="${id}" ${l.ui.hide.includes(id) ? "" : "checked"} title="Mostrar" />
+          <span>${label}</span><input class="input" data-label="${id}" value="${esc(l.ui.labels[id] || "")}" placeholder="Nombre propio (opcional)" maxlength="30" /></div>`).join("")}
+        <label class="f" style="margin-top:10px"><span>Funciones exclusivas (separadas por comas)</span><input class="input mono" id="uiFeatures" value="${esc(l.ui.features.join(", "))}" placeholder="ej. pedidos-domicilio" /></label>
+        <div class="subtle" style="margin:-4px 0 10px">Activan menús hechos a la medida de este cliente. Los módulos del plan siguen mandando: ocultar no da permisos.</div>
+        <button class="btn" id="saveMenu">Guardar menú</button>
+      </div>
+
       <div class="section"><div class="section-title">Actividad</div>${data.events.length ? data.events.map(eventRow).join("") : '<div class="subtle">Sin actividad.</div>'}</div>
     </div>
     <div class="drawer-foot">
@@ -422,6 +472,31 @@ async function openLicense(key, justCreated = false) {
     try { await api(`/api/devices/${id}/${action}`, { method: "POST" }); toast(action === "revoke" ? "Equipo desactivado" : "Equipo reactivado"); await load(); openLicense(l.key); }
     catch (e) { toast(e.message); }
   }));
+  $("#saveMenu", d).onclick = async () => {
+    const ui = {
+      hide: NAV_ITEMS.map(([id]) => id).filter((id) => !d.querySelector(`[data-show="${id}"]`).checked),
+      labels: Object.fromEntries(NAV_ITEMS.map(([id]) => [id, d.querySelector(`[data-label="${id}"]`).value.trim()]).filter(([, v]) => v)),
+      features: $("#uiFeatures", d).value.split(",").map((x) => x.trim()).filter(Boolean),
+    };
+    try { await api(`/api/licenses/${encodeURIComponent(l.key)}`, { method: "PATCH", body: JSON.stringify({ ui }) }); toast("Menú guardado. El cliente lo verá en su próxima validación."); await load(); openLicense(l.key); }
+    catch (e) { toast(e.message); }
+  };
+  $("#addPay", d).onclick = async () => {
+    const amount = Number($("#payAmount", d).value.replace(/[^0-9]/g, ""));
+    if (!amount) return toast("Escribe el valor del pago.");
+    const until = $("#payUntil", d).value;
+    try {
+      await api(`/api/licenses/${encodeURIComponent(l.key)}/payments`, { method: "POST", body: JSON.stringify({
+        amount, method: $("#payMethod", d).value, paidAt: `${$("#payDate", d).value}T12:00:00-05:00`,
+        coversUntil: until ? `${until}T23:59:59-05:00` : null, note: $("#payNote", d).value.trim() }) });
+      toast("Pago registrado"); await load(); openLicense(l.key);
+    } catch (e) { toast(e.message); }
+  };
+  d.querySelectorAll("[data-delpay]").forEach((b) => (b.onclick = async () => {
+    if (!confirm("¿Eliminar este pago? El vencimiento de la licencia no cambia.")) return;
+    try { await api(`/api/payments/${b.dataset.delpay}`, { method: "DELETE" }); toast("Pago eliminado"); await load(); openLicense(l.key); }
+    catch (e) { toast(e.message); }
+  }));
   $("#genCode", d).onclick = async () => {
     try {
       const r = await api(`/api/licenses/${encodeURIComponent(l.key)}/offline-code`, { method: "POST", body: JSON.stringify({ deviceCode: $("#devCode", d).value }) });
@@ -429,6 +504,13 @@ async function openLicense(key, justCreated = false) {
       $("#copyCode", d).onclick = () => navigator.clipboard.writeText(r.token).then(() => toast("Código copiado"));
     } catch (e) { toast(e.message); }
   };
+}
+
+/** Fecha sugerida para «paga hasta»: un mes después del vencimiento actual (o de hoy). */
+function nextPeriod(exp) {
+  const base = new Date(Math.max(Date.now(), (exp || 0) * 1000));
+  base.setMonth(base.getMonth() + 1);
+  return base.toISOString().slice(0, 10);
 }
 
 // Arranque

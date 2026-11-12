@@ -383,6 +383,17 @@ export interface LicenseStatus {
   company?: LicenseCompany | null;
   /** `false` cuando esta copia no usa licencias (todo habilitado). */
   licensingEnabled?: boolean;
+  /** Menú personalizado del cliente (viene en la licencia). */
+  ui?: LicenseUi | null;
+}
+
+export interface LicenseUi {
+  /** Opciones del menú ocultas (ids de NavigationSectionId). */
+  hide: string[];
+  /** Nombres propios por opción. */
+  labels: Record<string, string>;
+  /** Funciones exclusivas habilitadas. */
+  features: string[];
 }
 
 export interface LicenseCompany {
