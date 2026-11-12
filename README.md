@@ -157,7 +157,7 @@ base de datos → empresa → logotipo → impresión → administrador.
 **Cómo se arma:** GitHub lo compila en una máquina Windows (`.github/workflows/release.yml`).
 
 1. Sube la versión en `apps/desktop/src-tauri/tauri.conf.json` (y `Cargo.toml` / `package.json`).
-2. Crea y sube una etiqueta: `git tag v0.3.1 && git push origin v0.3.1` (o pulsa *Run workflow* en la pestaña Actions).
+2. Al llegar ese cambio a `main`, GitHub arma el instalador solo (también con una etiqueta `vX.Y.Z` o con *Run workflow* en la pestaña Actions).
 3. En unos 15 minutos aparece en **Releases** el archivo `Cartucho ERP_X.Y.Z_x64-setup.exe` y `latest.json`.
 
 **Actualizaciones automáticas:** el programa consulta
