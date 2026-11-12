@@ -319,6 +319,27 @@ export const USER_COMMANDS = {
   SAVE_USER: "save_user",
 } as const;
 
+/** Acceso desde celulares por la red local (ADR 0009). Solo administradores. */
+export const LAN_COMMANDS = {
+  GET_LAN_STATUS: "get_lan_status",
+  SET_LAN_ACCESS: "set_lan_access",
+  DISCONNECT_LAN_DEVICES: "disconnect_lan_devices",
+} as const;
+
+export interface LanStatus {
+  /** El administrador dejó activo el acceso (se vuelve a abrir al iniciar el programa). */
+  enabled: boolean;
+  /** El servidor está funcionando en este momento. */
+  running: boolean;
+  port: number;
+  /** Direcciones para abrir en el celular; la primera es la recomendada. */
+  urls: string[];
+  /** Código QR (SVG) de la primera dirección. */
+  qrSvg: string | null;
+  activeSessions: number;
+  error: string | null;
+}
+
 export interface SystemOverview {
   appName: string;
   appVersion: string;

@@ -31,6 +31,8 @@ import {
   InvoiceSummary,
   LICENSE_CHANGED_EVENT,
   LICENSE_COMMANDS,
+  LAN_COMMANDS,
+  LanStatus,
   USER_COMMANDS,
   Role,
   RoleInput,
@@ -74,7 +76,7 @@ async function call<T>(command: string, args: Record<string, unknown> = {}): Pro
   return mod.handlePreviewCommand(command, args) as Promise<T>;
 }
 
-const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS, ...USER_COMMANDS };
+const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS, ...USER_COMMANDS, ...LAN_COMMANDS };
 
 export const api = {
   // Sistema y sesión
@@ -95,6 +97,10 @@ export const api = {
   saveRole: (input: RoleInput) => call<Role>(C.SAVE_ROLE, { input }),
   deleteRole: (id: number) => call<void>(C.DELETE_ROLE, { id }),
   listUsers: () => call<UserAccount[]>(C.LIST_USERS),
+  // Acceso desde celulares
+  getLanStatus: () => call<LanStatus>(C.GET_LAN_STATUS),
+  setLanAccess: (enabled: boolean, port: number) => call<LanStatus>(C.SET_LAN_ACCESS, { enabled, port }),
+  disconnectLanDevices: () => call<LanStatus>(C.DISCONNECT_LAN_DEVICES),
   saveUser: (input: UserInput) => call<UserAccount>(C.SAVE_USER, { input }),
 
   // Licencia
