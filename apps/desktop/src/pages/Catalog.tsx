@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ArchiveRestore, Download, LayoutGrid, List, Package, PackagePlus, Tags, Wrench } from "lucide-react";
-import type { Category, Product, ProductInput } from "@cartucho/shared";
+import { itemKind, type Category, type ItemKind, type Product, type ProductInput } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api, isDesktop, pickSavePath } from "../services/systemClient";
 import { useAccess } from "../lib/access";
@@ -12,7 +12,8 @@ import { CategoryManager } from "../components/categories";
 const UNITS = ["und", "kg", "g", "l", "ml", "m", "cm", "caja", "paquete", "docena", "par", "serv", "hora"];
 
 export function stockBadge(p: Product) {
-  if (!p.trackStock) return <Badge dot={false}>Servicio</Badge>;
+  if (itemKind(p) === "service") return <Badge dot={false}>Servicio</Badge>;
+  if (!p.trackStock) return <Badge dot={false}>Sin límite</Badge>;
   if (p.stockQty <= 0) return <Badge tone="danger">Agotado</Badge>;
   if (p.isLowStock) return <Badge tone="warning">{qty(p.stockQty)} {p.unit}</Badge>;
   return <Badge tone="success">{qty(p.stockQty)} {p.unit}</Badge>;
@@ -34,9 +35,9 @@ export function CatalogPage({ openId }: PageProps & { openId?: number }) {
   });
   const q = useDebounced(search);
   const { data, loading, error, reload } = useAsync(() => api.listProducts({ search: q, categoryId, includeInactive: showArchived }), [q, categoryId, showArchived]);
-  // Filtro por tipo: productos (con existencias) o servicios.
-  const [kind, setKind] = useState<"" | "product" | "service">("");
-  const items = useMemo(() => (data ?? []).filter((p) => !kind || (kind === "product" ? p.trackStock : !p.trackStock)), [data, kind]);
+  // Filtro por tipo: productos (con o sin control de existencias) o servicios.
+  const [kind, setKind] = useState<"" | ItemKind>("");
+  const items = useMemo(() => (data ?? []).filter((p) => !kind || itemKind(p) === kind), [data, kind]);
   const page = useShowMore(items.length, 100, items);
   const cats = useAsync(() => api.listCategories("product"), []);
   const [editing, setEditing] = useState<Product | "new" | null>(null);
@@ -270,7 +271,9 @@ function ProductDrawer({
     cost: product?.cost ?? 0,
     trackStock: product?.trackStock ?? true,
     minStock: product?.minStock ?? 0,
+    kind: product ? itemKind(product) : "product",
   });
+  const isService = form.kind === "service";
   const [minText, setMinText] = useState(String(product?.minStock ?? 0));
   const [initialText, setInitialText] = useState("0");
   const [image, setImage] = useState<string | null>(product?.imageDataUrl ?? null);
@@ -319,7 +322,15 @@ function ProductDrawer({
       wide
       readOnly={!canEditProduct}
       title={product ? product.name : "Nuevo producto"}
-      subtitle={product ? (product.trackStock ? `Existencias: ${qty(product.stockQty)} ${product.unit}` : "Servicio (sin inventario)") : "Producto o servicio de tu catálogo"}
+      subtitle={
+        product
+          ? product.trackStock
+            ? `Existencias: ${qty(product.stockQty)} ${product.unit}`
+            : itemKind(product) === "service"
+              ? "Servicio (sin inventario)"
+              : "Producto sin control de existencias"
+          : "Producto o servicio de tu catálogo"
+      }
       onClose={onClose}
       footer={
         <>
@@ -338,10 +349,19 @@ function ProductDrawer({
       }
     >
       <div className="stack-lg">
-        <Field label="Tipo" hint={form.trackStock ? "Se guarda en bodega: tiene existencias y las ventas las descuentan." : "Se presta, no se almacena: sin existencias y no suma al valor del inventario."}>
-          <Segmented<"product" | "service">
-            value={form.trackStock ? "product" : "service"}
-            onChange={(v) => setForm({ ...form, trackStock: v === "product" })}
+        <Field
+          label="Tipo"
+          hint={
+            isService
+              ? "Se presta, no se almacena: sin existencias y no suma al valor del inventario."
+              : form.trackStock
+                ? "Se guarda en bodega: tiene existencias y las ventas las descuentan."
+                : "Se vende sin límite: no lleva existencias ni suma al valor del inventario."
+          }
+        >
+          <Segmented<ItemKind>
+            value={form.kind ?? "product"}
+            onChange={(v) => setForm({ ...form, kind: v, trackStock: v === "product" })}
             options={[
               { value: "product", label: <><Package size={14} /> Producto</> },
               { value: "service", label: <><Wrench size={14} /> Servicio</> },
@@ -417,11 +437,19 @@ function ProductDrawer({
           </div>
         </div>
 
-        {withStock && form.trackStock && (
+        {withStock && !isService && (
         <div className="form-section">
           <div className="form-section-title">Inventario</div>
-          {(
-            <div className="form-grid cols-3">
+          <div className="mt-8">
+            <Switch
+              checked={!!form.trackStock}
+              onChange={(v) => setForm({ ...form, trackStock: v })}
+              label="Controlar existencias"
+              description="Apágalo si no se puede contar (ej.: el pan del día): se vende sin límite y no suma al valor del inventario."
+            />
+          </div>
+          {form.trackStock && (
+            <div className="form-grid cols-3 mt-8">
               <Field label="Unidad">
                 <select className="select" value={form.unit ?? "und"} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
                   {UNITS.map((u) => (

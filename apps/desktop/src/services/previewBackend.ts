@@ -502,7 +502,9 @@ function buildDoc(input: Record<string, unknown>) {
     const lt = Math.round(q * price);
     total += lt;
     costs.push(p?.cost ?? 0);
-    return { id: nextId("line"), position: i + 1, productId: pid, description: desc, quantity: q, unitPrice: price, lineTotal: lt };
+    const note = opt(l.note);
+    if (note && note.length > 500) fail(`El campo 'Descripción adicional de la línea ${i + 1}' es demasiado largo.`);
+    return { id: nextId("line"), position: i + 1, productId: pid, description: desc, note, quantity: q, unitPrice: price, lineTotal: lt };
   });
   return { customerId: cid, customer, issueDate, lines: out, total, costs };
 }
@@ -902,12 +904,14 @@ const handlers: Record<string, Handler> = {
       cost: Math.max(0, Math.round(Number(i.cost) || 0)),
       trackStock: Boolean(i.trackStock),
       minStock: Math.max(0, Number(i.minStock) || 0),
+      kind: (i.kind === "service" || i.kind === "product" ? i.kind : i.kind == null ? (i.trackStock ? "product" : "service") : fail("Tipo de ítem no válido.")) as "product" | "service",
     };
+    if (data.kind === "service") data.trackStock = false;
     let p = i.id ? db.products.find((x) => x.id === i.id) : undefined;
     if (p) {
       // Producto que pasa a servicio: existencias a cero con movimiento (igual que en Rust).
       if (p.trackStock && !data.trackStock && p.stockQty !== 0) {
-        stockChange(p.id, -p.stockQty, "adjustment", null, null, "Convertido en servicio: existencias en cero");
+        stockChange(p.id, -p.stockQty, "adjustment", null, null, data.kind === "service" ? "Convertido en servicio: existencias en cero" : "Sin control de existencias: existencias en cero");
       }
       Object.assign(p, data, { updatedAt: now() });
     }

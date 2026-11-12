@@ -117,7 +117,10 @@ function FullDocument({ doc, company, settings, half }: { doc: PrintableDoc; com
           {doc.lines.map((l) => (
             <tr key={l.id}>
               <td>{l.position}</td>
-              <td>{l.description}</td>
+              <td>
+                {l.description}
+                {l.note && <span className="doc-line-note">{l.note}</span>}
+              </td>
               <td className="r">{qty(l.quantity)}</td>
               <td className="r">{money(l.unitPrice)}</td>
               <td className="r">{money(l.lineTotal)}</td>
@@ -209,6 +212,7 @@ function TicketDocument({ doc, company, settings, narrow }: { doc: PrintableDoc;
       {doc.lines.map((l) => (
         <div key={l.id} className="t-item">
           <div className="t-wrap">{l.description}</div>
+          {l.note && <div className="t-wrap" style={{ fontSize: "0.9em" }}>{l.note}</div>}
           <div className="t-row">
             <span>
               {qty(l.quantity)} × {money(l.unitPrice)}

@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from "react";
 import { Check, Package, PencilLine, Plus, Search } from "lucide-react";
-import type { Product } from "@cartucho/shared";
+import { itemKind, type Product } from "@cartucho/shared";
 import { money, parseQty, qty } from "../lib/format";
 import { Button, Field, Modal, MoneyInput, Segmented } from "./ui";
 
@@ -165,7 +165,7 @@ export function ProductPickerModal({
                       <div className="row-between">
                         <span className="pick-price">{money(p.price)}</span>
                         <span className={`pick-stock ${out ? "is-out" : p.isLowStock ? "is-low" : ""}`}>
-                          {!showStock ? p.unit : p.trackStock ? (out ? "Agotado" : `${qty(p.stockQty)} ${p.unit}`) : "Servicio"}
+                          {!showStock ? p.unit : p.trackStock ? (out ? "Agotado" : `${qty(p.stockQty)} ${p.unit}`) : itemKind(p) === "service" ? "Servicio" : "Sin límite"}
                         </span>
                       </div>
                     </div>
