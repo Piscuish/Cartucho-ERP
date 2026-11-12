@@ -5,7 +5,7 @@
  * Funciona con el diálogo de impresión del sistema (WebView2 en Windows), así que
  * también permite "Guardar como PDF".
  */
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Printer } from "lucide-react";
 import type { BusinessSettings, CompanyProfile, CustomerSnapshot, DocumentLine, PaperSize, Payment } from "@cartucho/shared";
@@ -295,6 +295,8 @@ export function PrintDialog({
   company: CompanyProfile;
   settings: BusinessSettings;
   onClose: () => void;
+  /** Viene de «Guardar e imprimir»: no imprime de una vez; primero se elige el formato aquí
+   *  y el botón «Imprimir» queda enfocado (Enter imprime). */
   autoPrint?: boolean;
 }) {
   const [paper, setPaper] = useState<PaperSize>(settings.paperSize);
@@ -302,13 +304,6 @@ export function PrintDialog({
   const opt = PAPER_OPTIONS.find((p) => p.id === paper)!;
   const previewScale = opt.h ? Math.min(1, 560 / (opt.w * MM_TO_PX)) : 1;
 
-  useEffect(() => {
-    if (autoPrint && rootRef.current) {
-      const t = setTimeout(() => rootRef.current && runPrint(paper, rootRef.current), 350);
-      return () => clearTimeout(t);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <>
@@ -323,7 +318,7 @@ export function PrintDialog({
             <Button variant="ghost" onClick={onClose}>
               Cerrar
             </Button>
-            <Button variant="primary" icon={<Printer size={16} />} onClick={() => rootRef.current && runPrint(paper, rootRef.current)}>
+            <Button autoFocus={autoPrint} variant="primary" icon={<Printer size={16} />} onClick={() => rootRef.current && runPrint(paper, rootRef.current)}>
               Imprimir
             </Button>
           </>
