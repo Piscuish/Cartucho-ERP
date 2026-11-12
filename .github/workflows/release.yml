@@ -1,5 +1,6 @@
 # Arma el instalador de Windows (.exe) y lo publica en «Releases» de GitHub.
-# Se ejecuta al subir una etiqueta vX.Y.Z (por ejemplo v0.3.0) o a mano desde la pestaña Actions.
+# Se ejecuta solo cuando cambia la versión en main (tauri.conf.json), al subir una etiqueta vX.Y.Z
+# o a mano desde la pestaña Actions. La etiqueta vX.Y.Z la crea este mismo flujo.
 #
 # Configuración opcional (Settings › Secrets and variables › Actions):
 #   Secrets:   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD  → firma de actualizaciones
@@ -10,6 +11,10 @@ name: Instalador de Windows
 
 on:
   push:
+    branches: [main]
+    paths:
+      - apps/desktop/src-tauri/tauri.conf.json
+      - .github/workflows/release.yml
     tags: ["v*"]
   workflow_dispatch:
 
