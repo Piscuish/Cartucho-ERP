@@ -292,7 +292,10 @@ pub fn resolve_os_app_data_dir() -> Result<PathBuf, String> {
         fs::create_dir_all(dir).map_err(|e| format!("No se pudo crear la carpeta de datos {:?}: {}", dir, e))?;
         return Ok(dir.clone());
     }
-    if let Some(proj_dirs) = ProjectDirs::from("com", "cartucho", "cartucho-erp") {
+    // El instalador de prueba se compila con CARTUCHO_DATA_DIR_NAME para guardar sus datos en
+    // otra carpeta y no tocar nunca la base de datos real del equipo.
+    let dir_name = option_env!("CARTUCHO_DATA_DIR_NAME").filter(|n| !n.trim().is_empty()).unwrap_or("cartucho-erp");
+    if let Some(proj_dirs) = ProjectDirs::from("com", "cartucho", dir_name) {
         let data_dir = proj_dirs.data_local_dir().to_path_buf();
         fs::create_dir_all(&data_dir).map_err(|e| {
             format!(

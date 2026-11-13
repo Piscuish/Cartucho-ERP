@@ -1,0 +1,38 @@
+{
+  "productName": "Cartucho ERP Prueba",
+  "identifier": "com.cartucho.erp.prueba",
+  "app": {
+    "windows": [
+      {
+        "title": "Cartucho ERP Prueba",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "label": "main",
+        "decorations": false,
+        "shadow": true,
+        "center": true,
+        "maximized": true
+      }
+    ]
+  },
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "shortDescription": "Versión de prueba de Cartucho ERP (datos aparte)",
+    "windows": {
+      "nsis": {
+        "startMenuFolder": "Cartucho ERP Prueba"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Piscuish/Cartucho-ERP/releases/download/prueba-sin-actualizaciones/latest.json"
+      ]
+    }
+  }
+}

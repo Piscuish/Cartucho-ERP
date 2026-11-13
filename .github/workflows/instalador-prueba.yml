@@ -1,0 +1,67 @@
+# Arma un instalador de Windows DE PRUEBA («Cartucho ERP Prueba») para revisar cambios antes
+# de publicarlos. NO crea versión ni etiqueta, NO se publica en Releases y NO llega a los
+# clientes: el .exe queda como archivo descargable de esta ejecución (pestaña Actions).
+#
+# El programa de prueba se instala al lado del Cartucho ERP normal y guarda sus datos en otra
+# carpeta (cartucho-erp-prueba), así que no toca la base de datos real del equipo. No se
+# actualiza solo y no exige licencia.
+#
+# Se ejecuta a mano (Actions › «Instalador de prueba» › Run workflow) o al cambiar, en una rama
+# claude/**, este archivo o .github/instalador-prueba.txt.
+name: Instalador de prueba
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths:
+      - .github/workflows/instalador-prueba.yml
+      - .github/instalador-prueba.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instalador-prueba-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "apps/desktop/src-tauri -> target"
+          key: prueba
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Pruebas de Rust
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Compilar instalador de prueba
+        working-directory: apps/desktop
+        env:
+          CARTUCHO_DATA_DIR_NAME: cartucho-erp-prueba
+        run: pnpm tauri build --features desktop-tauri --config src-tauri/tauri.prueba.conf.json
+
+      - name: Guardar el instalador
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cartucho-ERP-Prueba-instalador
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
