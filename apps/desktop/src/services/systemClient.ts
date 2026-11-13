@@ -55,6 +55,9 @@ import {
   TAURI_COMMANDS,
   ThemePreference,
   Appearance,
+  MODULE_COMMANDS,
+  ModuleKey,
+  UiPreferences,
 } from "@cartucho/shared";
 
 export const isDesktop = (): boolean => {
@@ -156,6 +159,13 @@ async function pcCall<T>(command: string, args: Record<string, unknown>): Promis
     case "set_appearance":
       setLocalPrefs({ appearance: args.appearance as Appearance, ...(args.theme ? { theme: args.theme as ThemePreference } : {}) });
       return (pc.token ? await overviewNow() : signedOutOverview()) as T;
+    case "set_ui_preferences":
+      // En el teléfono conectado al PC la apariencia es propia del teléfono.
+      setLocalPrefs({ ui: args.prefs as UiPreferences });
+      return (pc.token ? await overviewNow() : signedOutOverview()) as T;
+    case "reset_ui_preferences":
+      setLocalPrefs({ ui: undefined });
+      return (pc.token ? await overviewNow() : signedOutOverview()) as T;
     case "record_persistence_check":
       return (await overviewNow()) as T;
     default:
@@ -164,7 +174,7 @@ async function pcCall<T>(command: string, args: Record<string, unknown>): Promis
   }
 }
 
-const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS, ...USER_COMMANDS, ...LAN_COMMANDS };
+const C = { ...TAURI_COMMANDS, ...ERP_COMMANDS, ...LICENSE_COMMANDS, ...USER_COMMANDS, ...LAN_COMMANDS, ...MODULE_COMMANDS };
 
 export const api = {
   // Sistema y sesión
@@ -176,6 +186,13 @@ export const api = {
   setTheme: (theme: ThemePreference) => call<SystemOverview>(C.SET_THEME_PREFERENCE, { theme }),
   setAppearance: (appearance: Appearance, theme?: ThemePreference) =>
     call<SystemOverview>(C.SET_APPEARANCE, { appearance, theme: theme ?? null }),
+  /** Diseño del panel, tema y widgets: del usuario o (administrador) predeterminados de la instalación. */
+  setUiPreferences: (prefs: UiPreferences, installation = false) => call<SystemOverview>(C.SET_UI_PREFERENCES, { prefs, installation }),
+  resetUiPreferences: (installation = false) => call<SystemOverview>(C.RESET_UI_PREFERENCES, { installation }),
+  /** Módulos y apartados (solo administrador). */
+  setModuleActive: (module: ModuleKey, active: boolean, withDependencies = false) =>
+    call<SystemOverview>(C.SET_MODULE_ACTIVE, { module, active, withDependencies }),
+  setModuleVisible: (module: ModuleKey, visible: boolean) => call<SystemOverview>(C.SET_MODULE_VISIBLE, { module, visible }),
   saveCompany: (input: SaveCompanyProfileInput) => call<SystemOverview>(C.SAVE_COMPANY_PROFILE, { input }),
   resetDataLocation: () => call<SystemOverview>(C.RESET_DATA_LOCATION),
   retryOpenDatabase: () => call<SystemOverview>(C.RETRY_OPEN_DATABASE),
@@ -246,7 +263,8 @@ export const api = {
   saveExpense: (input: ExpenseInput) => call<Expense>(C.SAVE_EXPENSE, { input }),
   deleteExpense: (id: number) => call<void>(C.DELETE_EXPENSE, { id }),
   financeSummary: (dateFrom: string, dateTo: string) => call<FinanceSummary>(C.FINANCE_SUMMARY, { dateFrom, dateTo }),
-  dashboard: (today: string) => call<DashboardData>(C.GET_DASHBOARD, { today }),
+  dashboard: (today: string, dateFrom: string | null = null, dateTo: string | null = null) =>
+    call<DashboardData>(C.GET_DASHBOARD, { today, dateFrom, dateTo }),
   cashClose: (date: string, userId: number | null) => call<CashClose>(C.GET_CASH_CLOSE, { date, userId }),
   customerStatement: (customerId: number, today: string) => call<CustomerStatement>(C.GET_CUSTOMER_STATEMENT, { customerId, today }),
   setAutoLock: (minutes: number) => call<SystemOverview>(C.SET_AUTO_LOCK, { minutes }),

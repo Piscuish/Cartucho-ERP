@@ -8,7 +8,7 @@
  * La apariencia es de cada teléfono: en modo PC se guarda aquí y no cambia la del PC.
  */
 import { isTauri } from "@tauri-apps/api/core";
-import type { Appearance, SystemOverview, ThemePreference } from "@cartucho/shared";
+import type { Appearance, SystemOverview, ThemePreference, UiPreferences } from "@cartucho/shared";
 
 export type AppMode = "local" | "pc";
 
@@ -80,6 +80,7 @@ export function resetAppMode() {
 interface LocalPrefs {
   theme?: ThemePreference;
   appearance?: Appearance;
+  ui?: UiPreferences;
 }
 export const getLocalPrefs = (): LocalPrefs => read<LocalPrefs>(K_PREFS) ?? {};
 export const setLocalPrefs = (p: LocalPrefs) => write(K_PREFS, { ...getLocalPrefs(), ...p });
@@ -93,6 +94,7 @@ export function withLocalPrefs(o: SystemOverview): SystemOverview {
       ...o.preferences,
       ...(p.theme ? { theme: p.theme } : {}),
       ...(p.appearance ? { appearance: p.appearance } : {}),
+      ...(p.ui ? { ui: p.ui, uiPersonal: true } : {}),
     },
   };
 }

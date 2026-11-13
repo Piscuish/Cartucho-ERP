@@ -30,7 +30,8 @@ import type {
   SearchHit,
   SystemOverview,
 } from "@cartucho/shared";
-import { ACCENTS, ALL_MODULES, DARK_BACKGROUNDS, DEFAULT_APPEARANCE, LAYOUTS, LIGHT_BACKGROUNDS } from "@cartucho/shared";
+import { ACCENTS, ALL_MODULES, COLOR_THEMES, DARK_BACKGROUNDS, DASHBOARD_LAYOUTS, DEFAULT_APPEARANCE, DEFAULT_UI_PREFERENCES, LAYOUTS, LIGHT_BACKGROUNDS, MODULE_LABELS, MODULE_REQUIRES } from "@cartucho/shared";
+import type { ModuleSettings, UiPreferences } from "@cartucho/shared";
 
 const KEY = "cartucho_erp_preview_v4";
 const SESSION_KEY = "cartucho_erp_preview_session";
@@ -40,6 +41,9 @@ interface Store {
   firstInitializedAt: string;
   theme: string;
   appearance?: Appearance;
+  ui?: UiPreferences;
+  uiByUser?: Record<number, UiPreferences>;
+  moduleSettings?: ModuleSettings;
   autoLockMinutes?: number;
   roles?: PreviewRole[];
   users?: PreviewUser[];
@@ -265,6 +269,8 @@ function overview(): SystemOverview {
     preferences: {
       theme: db.theme as SystemOverview["preferences"]["theme"],
       appearance: db.appearance ?? { ...DEFAULT_APPEARANCE },
+      ui: (authed && db.uiByUser?.[sessionUser()!.id]) || db.ui || { ...DEFAULT_UI_PREFERENCES },
+      uiPersonal: !!(authed && db.uiByUser?.[sessionUser()!.id]),
       autoLockMinutes: db.autoLockMinutes ?? 0,
       updatedAt: now(),
     },
@@ -286,6 +292,7 @@ function overview(): SystemOverview {
     },
     company: db.company,
     license: licenseStatus(),
+    moduleSettings: moduleSettings(),
     hasAdminUser: !!db.admin,
     isAuthenticated: authed,
     currentUser: (() => {
@@ -394,9 +401,53 @@ function licenseStatus(): LicenseStatus {
   return base;
 }
 
+function moduleSettings(): ModuleSettings {
+  return { disabled: [...(db.moduleSettings?.disabled ?? [])], hidden: [...(db.moduleSettings?.hidden ?? [])] };
+}
+
+/** Módulos activos: los de la licencia que no están desactivados y cuya dependencia sigue activa. */
+function activeModules(): Set<ModuleKey> {
+  const off = new Set(moduleSettings().disabled);
+  const set = new Set(licenseStatus().modules.filter((m) => !off.has(m)));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const m of [...set]) {
+      const dep = MODULE_REQUIRES[m];
+      if (dep && !set.has(dep)) {
+        set.delete(m);
+        changed = true;
+      }
+    }
+  }
+  return set;
+}
+
+/** Módulo que exige cada comando (como las compuertas de Rust). */
+const COMMAND_MODULE: Record<string, ModuleKey> = {
+  list_customers: "customers", save_customer: "customers", set_customer_active: "customers", get_customer_statement: "customers",
+  list_products: "catalog", save_product: "catalog", set_product_active: "catalog",
+  adjust_stock: "inventory", list_inventory_movements: "inventory",
+  create_invoice: "invoices", list_invoices: "invoices", get_invoice: "invoices", add_payment: "invoices", void_invoice: "invoices", list_payments: "invoices", get_cash_close: "invoices", get_dashboard: "invoices",
+  create_quote: "quotes", list_quotes: "quotes", get_quote: "quotes", cancel_quote: "quotes", convert_quote_to_invoice: "quotes",
+  list_expenses: "expenses", save_expense: "expenses", delete_expense: "expenses",
+  finance_summary: "finance",
+};
+
+function validUi(p: UiPreferences): UiPreferences {
+  if (!DASHBOARD_LAYOUTS.some((l) => l.id === p?.dashboardLayout)) fail("Diseño del panel desconocido.");
+  if (p.colorTheme != null && !COLOR_THEMES.some((t) => t.id === p.colorTheme)) fail("Tema de color desconocido.");
+  return {
+    dashboardLayout: p.dashboardLayout,
+    colorTheme: p.colorTheme ?? null,
+    dashboardWidgets: p.dashboardWidgets ? [...new Set(p.dashboardWidgets)] : null,
+    widgetSizes: { ...(p.widgetSizes ?? {}) },
+  };
+}
+
 /** Comandos permitidos en modo restringido (como en Rust). */
 const RESTRICTED_ALLOWED = new Set([
-  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_appearance", "list_roles", "save_role", "delete_role", "list_users", "save_user",
+  "get_system_overview", "login_user", "logout_user", "change_user_password", "set_theme_preference", "set_appearance", "set_ui_preferences", "reset_ui_preferences", "list_roles", "save_role", "delete_role", "list_users", "save_user",
   "list_invoices", "get_invoice", "list_payments", "get_cash_close", "get_dashboard", "global_search",
   "get_business_settings", "get_data_location", "export_backup", "create_manual_backup",
   "get_license_status", "activate_license_online", "activate_license_offline", "check_license_now",
@@ -884,6 +935,70 @@ const handlers: Record<string, Handler> = {
     save();
     return overview();
   },
+  set_ui_preferences: ({ prefs, installation }) => {
+    const p = validUi(prefs as UiPreferences);
+    if (installation) {
+      requireAdmin();
+      db.ui = p;
+    } else {
+      requireAuth();
+      db.uiByUser = { ...(db.uiByUser ?? {}), [sessionUser()!.id]: p };
+    }
+    save();
+    return overview();
+  },
+  reset_ui_preferences: ({ installation }) => {
+    if (installation) {
+      requireAdmin();
+      delete db.ui;
+    } else {
+      requireAuth();
+      const next = { ...(db.uiByUser ?? {}) };
+      delete next[sessionUser()!.id];
+      db.uiByUser = next;
+    }
+    save();
+    return overview();
+  },
+  set_module_active: ({ module, active, withDependencies }) => {
+    requireAdmin();
+    const m = module as ModuleKey;
+    if (!ALL_MODULES.includes(m)) fail("Módulo desconocido.");
+    const st = moduleSettings();
+    const off = new Set(st.disabled);
+    const licensed = new Set(licenseStatus().modules);
+    if (active) {
+      if (!licensed.has(m)) fail(`${MODULE_LABELS[m]} no está incluido en tu licencia.`);
+      for (let dep = MODULE_REQUIRES[m]; dep; dep = MODULE_REQUIRES[dep]) {
+        if (!licensed.has(dep)) fail(`${MODULE_LABELS[m]} necesita ${MODULE_LABELS[dep]}, que no está incluido en tu licencia.`);
+        if (off.has(dep)) {
+          if (!withDependencies) fail(`Para utilizar ${MODULE_LABELS[m]} también debe estar activo ${MODULE_LABELS[dep]}.`);
+          off.delete(dep);
+        }
+      }
+      off.delete(m);
+    } else {
+      const act = activeModules();
+      const blocker = ALL_MODULES.find((x) => MODULE_REQUIRES[x] === m && act.has(x));
+      if (blocker) fail(`No se puede desactivar ${MODULE_LABELS[m]} porque ${MODULE_LABELS[blocker]} depende de él. Desactiva ${MODULE_LABELS[blocker]} primero o revisa los módulos que lo necesitan.`);
+      off.add(m);
+    }
+    db.moduleSettings = { ...st, disabled: [...off] };
+    save();
+    return overview();
+  },
+  set_module_visible: ({ module, visible }) => {
+    requireAdmin();
+    const m = module as ModuleKey;
+    if (!ALL_MODULES.includes(m)) fail("Módulo desconocido.");
+    const st = moduleSettings();
+    const hidden = new Set(st.hidden);
+    if (visible) hidden.delete(m);
+    else hidden.add(m);
+    db.moduleSettings = { ...st, hidden: [...hidden] };
+    save();
+    return overview();
+  },
   set_theme_preference: ({ theme }) => {
     requireAuth();
     db.theme = String(theme);
@@ -1281,14 +1396,48 @@ const handlers: Record<string, Handler> = {
     requireAuth();
     return summary(String(dateFrom), String(dateTo));
   },
-  get_dashboard: ({ today: t }): DashboardData => {
+  get_dashboard: ({ today: t, dateFrom, dateTo }): DashboardData => {
     requireAuth();
     const td = String(t);
+    const to = typeof dateTo === "string" && dateTo ? dateTo : td;
+    const from = typeof dateFrom === "string" && dateFrom ? dateFrom : `${to.slice(0, 7)}-01`;
+    if (from > to) fail("La fecha inicial no puede ser posterior a la final.");
     const open = db.invoices.filter((i) => i.status === "pending" || i.status === "partial");
     const overdue = open.filter((i) => i.dueDate && i.dueDate < td);
+    // Alcance según módulos activos y rol (como en Rust).
+    const u = sessionUser();
+    const isAdmin = u?.roleKey === "admin";
+    const perms = isAdmin ? null : (roles().find((r) => r.key === u?.roleKey)?.permissions ?? {});
+    const act = activeModules();
+    const can = (m: ModuleKey) => act.has(m) && (perms === null || m in perms);
+    const scope = { expenses: can("expenses"), finance: isAdmin || can("finance"), inventory: can("inventory") };
+    const month = summary(from, to);
+    const day = 86400000;
+    const parse = (iso: string) => new Date(`${iso}T00:00:00`);
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const span = Math.round((parse(to).getTime() - parse(from).getTime()) / day);
+    const prevEnd = new Date(parse(from).getTime() - day);
+    const prevStart = new Date(prevEnd.getTime() - span * day);
+    const prev = summary(iso(prevStart), iso(prevEnd));
+    const daily = span <= 92;
+    const periods: string[] = [];
+    if (daily) for (let d = parse(from); d <= parse(to); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) periods.push(iso(d));
+    else for (let d = new Date(parse(from).getFullYear(), parse(from).getMonth(), 1); d <= parse(to); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) periods.push(iso(d).slice(0, 7));
+    const valid = db.invoices.filter((i) => i.status !== "void");
+    const sumBy = <T,>(items: T[], date: (x: T) => string, val: (x: T) => number, p: string) =>
+      items.filter((x) => inRange(date(x), from, to) && date(x).startsWith(p)).reduce((s, x) => s + val(x), 0);
+    const trend = periods.map((p) => ({
+      period: p,
+      invoiced: sumBy(valid, (i) => i.issueDate, (i) => i.total, p),
+      collected: sumBy(valid.flatMap((i) => i.payments), (x) => x.paidAt, (x) => x.amount, p),
+      expenses: scope.expenses || scope.finance ? sumBy(db.expenses, (e) => e.expenseDate, (e) => e.amount, p) : 0,
+    }));
+    if (!scope.expenses) Object.assign(month, { operatingExpenses: 0, inventoryPurchases: 0, expensesByCategory: [] });
+    if (!scope.finance) Object.assign(month, { costOfGoodsSold: 0, grossProfit: 0, netCashFlow: 0 });
+    if (!scope.expenses && !scope.finance) month.monthly.forEach((m) => (m.expenses = 0));
     return {
       today: td,
-      month: summary(`${td.slice(0, 7)}-01`, td),
+      month,
       todayCollected: db.invoices.filter((i) => i.status !== "void").flatMap((i) => i.payments).filter((p) => p.paidAt === td).reduce((s, p) => s + p.amount, 0),
       openInvoiceCount: open.length,
       overdueCount: overdue.length,
@@ -1296,8 +1445,18 @@ const handlers: Record<string, Handler> = {
       openQuoteCount: db.quotes.filter((q) => q.status === "open").length,
       productCount: db.products.filter((p) => p.isActive).length,
       customerCount: db.customers.filter((c) => c.isActive).length,
-      lowStock: db.products.map(productView).filter((p) => p.isLowStock && p.isActive).slice(0, 8),
+      lowStock: scope.inventory ? db.products.map(productView).filter((p) => p.isLowStock && p.isActive).slice(0, 8) : [],
       recentInvoices: [...db.invoices].sort((a, b) => b.issueDate.localeCompare(a.issueDate) || b.id - a.id).slice(0, 8).map(invoiceSummary),
+      previous: {
+        dateFrom: prev.dateFrom,
+        dateTo: prev.dateTo,
+        invoicedTotal: prev.invoicedTotal,
+        collectedTotal: prev.collectedTotal,
+        expensesTotal: scope.expenses ? prev.operatingExpenses + prev.inventoryPurchases : 0,
+        netCashFlow: scope.finance ? prev.netCashFlow : 0,
+      },
+      trend,
+      scope,
     };
   },
   global_search: ({ query }): SearchHit[] => {
@@ -1378,6 +1537,10 @@ export async function handlePreviewCommand(command: string, args: Record<string,
   }
   const h = handlers[command] ?? licenseHandlers[command];
   if (!h) throw new Error(`Comando no disponible en vista previa: ${command}`);
+  const needs = COMMAND_MODULE[command];
+  if (needs && moduleSettings().disabled.length > 0 && !activeModules().has(needs) && licenseStatus().modules.includes(needs)) {
+    throw `${MODULE_LABELS[needs]} está desactivado en esta instalación. Un administrador puede activarlo en Configuración › Módulos y apartados.`;
+  }
   // Pequeña espera para simular la comunicación con el backend.
   await new Promise((r) => setTimeout(r, 60));
   try {

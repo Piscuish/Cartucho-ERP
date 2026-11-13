@@ -1,5 +1,7 @@
 # Identidad Visual «Lateral oscuro», Navegación y Temas
 
+> **Actualización (noviembre de 2026):** el diseño del panel (A, B, C), los temas de color Blanco, Negro y Gris, los widgets y el menú por áreas (Operación diaria, Dinero, Administración) se describen en el [ADR 0011](../01-architecture/adr/0011-modulos-activables-y-apariencia-por-usuario.md). El acento predeterminado pasó a azul. Lo que sigue describe la base anterior, que se conserva.
+
 ## 1. Dirección visual
 
 Elegida por el propietario en noviembre de 2026 (opción C):

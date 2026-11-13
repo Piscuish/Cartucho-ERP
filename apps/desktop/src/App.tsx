@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { CompleteInitialSetupInput, ResolvedTheme, SystemOverview, ThemePreference } from "@cartucho/shared";
-import { DEFAULT_APPEARANCE } from "@cartucho/shared";
+import { COLOR_THEMES, DEFAULT_APPEARANCE, DEFAULT_UI_PREFERENCES } from "@cartucho/shared";
 import { api, onLicenseChanged } from "./services/systemClient";
 import { AccessProvider, buildAccess } from "./lib/access";
 import { ActivationScreen } from "./components/license";
@@ -54,17 +54,24 @@ function AppInner() {
   const [route, setRoute] = useState<Route>({ page: "dashboard" });
   const [, setHistory] = useState<Route[]>([]);
   const [lowStockCount, setLowStockCount] = useState(0);
-  const theme = useResolvedTheme(overview?.preferences.theme);
+  const legacyTheme = useResolvedTheme(overview?.preferences.theme);
   useWindowTitle(overview?.company?.tradeName || "Cartucho ERP", overview?.company?.logoDataUrl ?? null);
 
   const appearance = overview?.preferences.appearance ?? DEFAULT_APPEARANCE;
+  const ui = overview?.preferences.ui ?? DEFAULT_UI_PREFERENCES;
+  // Tema de color: el elegido; si nunca se eligió, se deriva del tema anterior (claro u oscuro).
+  const palette = ui.colorTheme ?? (legacyTheme === "dark" ? "black" : "white");
+  const theme: ResolvedTheme = COLOR_THEMES.find((t) => t.id === palette)?.base ?? "light";
 
-  // Tema, fondo, acento y diseño se aplican en <html>; el cambio se anima brevemente.
+  // Tema de color (data-palette), diseño del panel (data-dash), acento y estilo del menú se
+  // aplican en <html> como atributos independientes; el cambio se anima brevemente.
   useEffect(() => {
     const root = document.documentElement;
     const next: Record<string, string> = {
       theme,
-      bg: theme === "dark" ? appearance.bgDark : appearance.bgLight,
+      palette,
+      dash: ui.dashboardLayout,
+      bg: theme === "dark" ? "pizarra" : "blanco",
       accent: appearance.accent,
       layout: appearance.layout,
       borders: appearance.tintedBorders ? "accent" : "default",
@@ -79,7 +86,7 @@ function AppInner() {
     } else {
       apply();
     }
-  }, [theme, appearance]);
+  }, [theme, palette, ui.dashboardLayout, appearance]);
 
   const load = useCallback(async () => {
     try {
@@ -121,7 +128,7 @@ function AppInner() {
     }
   });
   const license = overview?.license ?? null;
-  const access = buildAccess(license, overview?.currentUser);
+  const access = buildAccess(license, overview?.currentUser, overview?.moduleSettings);
 
   // La verificación periódica (cada hora) puede cambiar módulos o desactivar la licencia.
   useEffect(() => onLicenseChanged(() => void load()), [load]);
@@ -130,7 +137,7 @@ function AppInner() {
   useEffect(() => {
     if (!access.canOpen(route)) setRoute({ page: "dashboard" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [license]);
+  }, [license, overview?.moduleSettings]);
 
   // Contador de stock bajo para el menú lateral; se refresca al navegar.
   useEffect(() => {
@@ -140,7 +147,7 @@ function AppInner() {
       .then((p) => setLowStockCount(p.length))
       .catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated, route, license]);
+  }, [authenticated, route, license, overview?.moduleSettings]);
 
   const navigate = useCallback(
     (r: Route) => {
@@ -257,7 +264,7 @@ function AppInner() {
   }
 
   return (
-    <AccessProvider license={license} user={overview.currentUser}>
+    <AccessProvider license={license} user={overview.currentUser} settings={overview.moduleSettings}>
     <AppShell
       company={overview.company}
       user={overview.currentUser}

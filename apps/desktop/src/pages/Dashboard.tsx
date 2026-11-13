@@ -1,25 +1,98 @@
-import { useState } from "react";
-import { AlertTriangle, ArrowRight, Boxes, Check, FilePlus2, FileSignature, LifeBuoy, PackagePlus, Receipt, TrendingDown, TrendingUp, Wallet, X } from "lucide-react";
+import { Fragment, ReactNode, useEffect, useState } from "react";
+import { ArrowRight, Check, ChevronRight, LayoutGrid, LifeBuoy, SlidersHorizontal, X } from "lucide-react";
+import { DEFAULT_UI_PREFERENCES } from "@cartucho/shared";
+import type { InvoiceSummary, UiPreferences, WidgetId } from "@cartucho/shared";
 import { useAccess } from "../lib/access";
-import type { InvoiceSummary } from "@cartucho/shared";
 import type { PageProps } from "../components/views";
 import { api } from "../services/systemClient";
 import { useAsync } from "../lib/hooks";
-import { fmtDate, fmtMonthLong, greeting, isOverdue, money, qty, todayISO } from "../lib/format";
-import { Alert, Button, EmptyState, InvoiceStatusBadge, SkeletonRows, StatCard } from "../components/ui";
-import { MonthlyBars } from "../components/charts";
-import { ChevronRight } from "lucide-react";
+import { addDays, errorMessage, fmtDate, greeting, isOverdue, money, monthStart, todayISO } from "../lib/format";
+import { Alert, Button, Drawer, EmptyState, Field, InvoiceStatusBadge, Segmented, SkeletonRows, useToast } from "../components/ui";
+import { renderWidget, WidgetContext } from "../components/dashboardWidgets";
+import { WidgetListEditor } from "../components/appearance";
 import { NAV_DESCRIPTION, NAVIGATION } from "../config/moduleRegistry";
+import { visibleWidgets, WidgetInfo, widgetSize } from "../config/widgetCatalog";
 
-export function DashboardPage({ navigate, overview }: PageProps) {
+// ------------------------------------------------------------------ Periodo
+
+type PeriodId = "today" | "7d" | "30d" | "month" | "year" | "custom";
+
+const PERIODS: { value: PeriodId; label: string }[] = [
+  { value: "today", label: "Hoy" },
+  { value: "7d", label: "7 días" },
+  { value: "30d", label: "30 días" },
+  { value: "month", label: "Este mes" },
+  { value: "year", label: "Este año" },
+  { value: "custom", label: "Rango" },
+];
+
+interface PeriodState {
+  id: PeriodId;
+  from: string;
+  to: string;
+}
+
+const PERIOD_KEY = "cartucho_dashboard_period";
+
+function loadPeriod(today: string): PeriodState {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PERIOD_KEY) ?? "null") as Partial<PeriodState> | null;
+    if (raw && PERIODS.some((p) => p.value === raw.id)) {
+      // Un rango personalizado guardado se conserva; los relativos se recalculan cada día.
+      if (raw.id === "custom" && raw.from && raw.to && raw.from <= raw.to) return { id: "custom", from: raw.from, to: raw.to };
+      if (raw.id !== "custom") return { id: raw.id!, from: monthStart(today), to: today };
+    }
+  } catch {
+    /* preferencia opcional */
+  }
+  return { id: "month", from: monthStart(today), to: today };
+}
+
+function periodRange(p: PeriodState, today: string): { from: string; to: string; label: string } {
+  switch (p.id) {
+    case "today":
+      return { from: today, to: today, label: "Hoy" };
+    case "7d":
+      return { from: addDays(today, -6), to: today, label: "Últimos 7 días" };
+    case "30d":
+      return { from: addDays(today, -29), to: today, label: "Últimos 30 días" };
+    case "year":
+      return { from: `${today.slice(0, 4)}-01-01`, to: today, label: "Este año" };
+    case "custom":
+      return { from: p.from, to: p.to, label: `${fmtDate(p.from)} – ${fmtDate(p.to)}` };
+    default:
+      return { from: monthStart(today), to: today, label: "Este mes" };
+  }
+}
+
+// ------------------------------------------------------------------ Página
+
+export function DashboardPage({ navigate, overview, setOverview }: PageProps) {
   const today = todayISO();
   const access = useAccess();
+  const toast = useToast();
   // Las cifras del inicio salen de las facturas: un rol sin acceso a Facturas ve sus módulos.
   const withFigures = access.can("invoices");
-  const { data, loading, error } = useAsync(() => (withFigures ? api.dashboard(today) : Promise.resolve(null)), [today, withFigures]);
+  const [period, setPeriod] = useState<PeriodState>(() => loadPeriod(today));
+  const range = periodRange(period, today);
+  const { data, loading, error } = useAsync(
+    () => (withFigures ? api.dashboard(today, range.from, range.to) : Promise.resolve(null)),
+    [today, withFigures, range.from, range.to],
+  );
   const firstName = overview.currentUser?.fullName.split(" ")[0] ?? "";
-  // Balance y gráfico de ingresos vs. gastos: administrador o rol con Resumen financiero.
-  const showMoney = access.isAdmin || access.can("finance");
+  const savedUi = overview.preferences.ui ?? DEFAULT_UI_PREFERENCES;
+  // Mientras se personaliza, el panel muestra el borrador; solo se guarda al confirmar.
+  const [draft, setDraft] = useState<UiPreferences | null>(null);
+  const [saving, setSaving] = useState(false);
+  const ui = draft ?? savedUi;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PERIOD_KEY, JSON.stringify(period));
+    } catch {
+      /* preferencia opcional */
+    }
+  }, [period]);
 
   if (!withFigures && !access.restricted) {
     return (
@@ -41,232 +114,263 @@ export function DashboardPage({ navigate, overview }: PageProps) {
     return <RestrictedDashboard navigate={navigate} overview={overview} recent={data?.recentInvoices ?? []} loading={loading} />;
   }
 
+  const saveWidgets = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      setOverview(await api.setUiPreferences(draft, false));
+      setDraft(null);
+      toast("Tu panel quedó guardado");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const ctx: WidgetContext | null = data
+    ? { data, scope: data.scope ?? { expenses: access.can("expenses"), finance: access.isAdmin || access.can("finance"), inventory: access.can("inventory") }, access, navigate, periodLabel: range.label }
+    : null;
+  const visible = visibleWidgets(ui, access);
+
   return (
-    <div className="page">
-      <div className="hero">
+    <div className="page is-wide dash-page">
+      <div className="hero dash-hero">
         <div>
           <div className="hero-greeting">
             {greeting()}, {firstName}
           </div>
           <p className="muted">
-            Así va {overview.company?.tradeName} en {fmtMonthLong(today).toLowerCase()}.
+            Resumen de {overview.company?.tradeName} · {range.label.toLowerCase()}
           </p>
+        </div>
+        <div className="dash-controls">
+          <Segmented options={PERIODS} value={period.id} onChange={(id) => setPeriod((p) => ({ ...p, id }))} />
+          <Button
+            variant={ui.dashboardLayout === "widgets" ? "primary" : "secondary"}
+            icon={<SlidersHorizontal size={16} />}
+            onClick={() => setDraft({ ...savedUi, dashboardWidgets: visibleWidgets(savedUi, access).map((w) => w.id) })}
+          >
+            Personalizar
+          </Button>
         </div>
       </div>
 
-      {overview.preferences.appearance?.layout === "estudio" ? (
-        <ModuleTiles navigate={navigate} />
-      ) : (
-      <div className="quick-actions">
-        {access.canWrite("invoices") && access.showNav("invoice-new") && (
-        <button className="quick-action" onClick={() => navigate({ page: "invoice-new" })}>
-          <span className="stat-icon">
-            <FilePlus2 size={18} />
-          </span>
-          <span>
-            <div className="qa-title">{access.navLabel("invoice-new", "Nueva factura")}</div>
-            <div className="qa-sub">Vende e imprime</div>
-          </span>
-        </button>
-        )}
-        {access.canWrite("quotes") && access.showNav("quotes") && (
-        <button className="quick-action" onClick={() => navigate({ page: "quote-new" })}>
-          <span className="stat-icon is-info">
-            <FileSignature size={18} />
-          </span>
-          <span>
-            <div className="qa-title">{access.navLabel("quotes", "Cotización")}</div>
-            <div className="qa-sub">{data ? `${data.openQuoteCount} abiertas` : "Envía un presupuesto"}</div>
-          </span>
-        </button>
-        )}
-        {access.canWrite("expenses") && access.showNav("expenses") && (
-        <button className="quick-action" onClick={() => navigate({ page: "expenses" })}>
-          <span className="stat-icon is-warning">
-            <Receipt size={18} />
-          </span>
-          <span>
-            <div className="qa-title">Registrar gasto</div>
-            <div className="qa-sub">Arriendo, luz, compras…</div>
-          </span>
-        </button>
-        )}
-        {access.can("catalog") && access.showNav("catalog") && (
-        <button className="quick-action" onClick={() => navigate({ page: "catalog" })}>
-          <span className="stat-icon is-success">
-            <PackagePlus size={18} />
-          </span>
-          <span>
-            <div className="qa-title">{access.navLabel("catalog", "Productos")}</div>
-            <div className="qa-sub">{data ? `${data.productCount} en catálogo` : "Tu catálogo"}</div>
-          </span>
-        </button>
-        )}
-      </div>
+      {period.id === "custom" && (
+        <div className="dash-range card">
+          <Field label="Desde">
+            <input className="input" type="date" value={period.from} max={period.to} onChange={(e) => e.target.value && setPeriod({ ...period, from: e.target.value })} />
+          </Field>
+          <Field label="Hasta">
+            <input className="input" type="date" value={period.to} min={period.from} max={today} onChange={(e) => e.target.value && setPeriod({ ...period, to: e.target.value })} />
+          </Field>
+          <p className="subtle">La variación compara con el periodo anterior de igual duración.</p>
+        </div>
       )}
 
-      {error && <Alert tone="danger">{error}</Alert>}
+      {error && (
+        <Alert tone="danger" title="No se pudo cargar el panel">
+          {error}
+        </Alert>
+      )}
 
       {data && <GettingStarted navigate={navigate} hasLogo={!!overview.company?.logoDataUrl} products={data.productCount} customers={data.customerCount} invoices={data.recentInvoices.length} />}
 
       {loading && !data ? (
-        <div className="card">
+        <div className="card" aria-busy="true">
           <SkeletonRows rows={6} />
         </div>
-      ) : data ? (
-        <>
-          {data.overdueCount > 0 && (
-            <div className="mb-16">
-              <Alert tone="warning" title={`Tienes ${data.overdueCount} ${data.overdueCount === 1 ? "factura vencida" : "facturas vencidas"} por ${money(data.overdueTotal)}`}>
-                <button className="back-link" style={{ marginTop: 4, color: "inherit", textDecoration: "underline" }} onClick={() => navigate({ page: "invoices", status: "open" })}>
-                  Ver facturas por cobrar
-                </button>
-              </Alert>
+      ) : ctx ? (
+        <div className={loading ? "dash-body is-loading" : "dash-body"} aria-busy={loading}>
+          {visible.length === 0 ? (
+            <div className="card">
+              <EmptyState
+                icon={<LayoutGrid size={24} />}
+                title="Tu panel está vacío"
+                text="Elige qué indicadores, gráficas y listas quieres ver al abrir Cartucho."
+                action={
+                  <Button variant="primary" onClick={() => setDraft({ ...savedUi, dashboardWidgets: [] })}>
+                    Agregar widgets
+                  </Button>
+                }
+              />
             </div>
+          ) : ui.dashboardLayout === "analytics" ? (
+            <AnalyticsLayout ctx={ctx} visible={visible} />
+          ) : ui.dashboardLayout === "widgets" ? (
+            <WidgetsLayout ctx={ctx} visible={visible} ui={ui} />
+          ) : (
+            <ColumnsLayout ctx={ctx} visible={visible} />
           )}
-
-          <div className={`grid ${["grid-2", "grid-3", "grid-4"][Number(access.can("expenses")) + Number(showMoney)]} mb-16`}>
-            <StatCard label="Ventas del mes" value={money(data.month.invoicedTotal)} icon={<TrendingUp size={18} />} foot={`${data.month.invoiceCount} facturas emitidas`} />
-            <StatCard label="Dinero recibido" value={money(data.month.collectedTotal)} icon={<Wallet size={18} />} tone="success" foot={`Hoy: ${money(data.todayCollected)}`} />
-            {access.can("expenses") && (
-            <StatCard
-              label="Gastos del mes"
-              value={money(data.month.operatingExpenses + data.month.inventoryPurchases)}
-              icon={<TrendingDown size={18} />}
-              tone="warning"
-              foot={`Inventario: ${money(data.month.inventoryPurchases)}`}
-            />
-            )}
-            {showMoney && (
-            <StatCard
-              label="Balance del mes"
-              value={<span className={data.month.netCashFlow >= 0 ? "profit-positive" : "profit-negative"}>{money(data.month.netCashFlow)}</span>}
-              icon={<Boxes size={18} />}
-              tone="info"
-              foot={`Por cobrar: ${money(data.month.receivableTotal)}`}
-            />
-            )}
-          </div>
-
-          <div className="grid grid-main-side">
-            <div className="stack-lg">
-              {showMoney && (
-              <div className="card">
-                <div className="card-header">
-                  <div>
-                    <div className="card-title">Ingresos vs. gastos</div>
-                    <div className="card-subtitle">Últimos 6 meses</div>
-                  </div>
-                  {access.can("finance") && (
-                    <Button size="sm" variant="ghost" onClick={() => navigate({ page: "finance" })}>
-                      Ver finanzas <ArrowRight size={14} />
-                    </Button>
-                  )}
-                </div>
-                <div className="card-body">
-                  <MonthlyBars data={data.month.monthly} months={6} />
-                </div>
-              </div>
-              )}
-
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">Últimas facturas</div>
-                  <Button size="sm" variant="ghost" onClick={() => navigate({ page: "invoices" })}>
-                    Ver todas <ArrowRight size={14} />
-                  </Button>
-                </div>
-                {data.recentInvoices.length === 0 ? (
-                  <EmptyState
-                    icon={<FilePlus2 size={24} />}
-                    title="Crea tu primera factura"
-                    text="Agrega productos o servicios, imprímela en el tamaño que necesites y registra el pago."
-                    action={
-                      access.canWrite("invoices") ? (
-                        <Button variant="primary" onClick={() => navigate({ page: "invoice-new" })}>
-                          Nueva factura
-                        </Button>
-                      ) : undefined
-                    }
-                  />
-                ) : (
-                  <div className="list">
-                    {data.recentInvoices.map((i) => (
-                      <div key={i.id} className="list-item is-clickable" onClick={() => navigate({ page: "invoice", id: i.id })}>
-                        <div className="list-item-main">
-                          <div className="cell-main">{i.customerName}</div>
-                          <div className="cell-sub">
-                            {i.number} · {fmtDate(i.issueDate)}
-                          </div>
-                        </div>
-                        <InvoiceStatusBadge status={i.status} overdue={isOverdue(i.dueDate, i.balance, i.status)} />
-                        <div className="money t-strong" style={{ minWidth: 110, textAlign: "right", fontWeight: 600 }}>
-                          {money(i.total)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="stack-lg">
-              {access.can("inventory") && (
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">Stock bajo</div>
-                  <Button size="sm" variant="ghost" onClick={() => navigate({ page: "inventory" })}>
-                    Inventario <ArrowRight size={14} />
-                  </Button>
-                </div>
-                {data.lowStock.length === 0 ? (
-                  <div className="card-body subtle">Todo en orden: ningún producto está por debajo de su mínimo.</div>
-                ) : (
-                  <div className="list">
-                    {data.lowStock.map((p) => (
-                      <div key={p.id} className="list-item is-clickable" onClick={() => navigate({ page: "inventory" })}>
-                        <div className="thumb" style={{ width: 34, height: 34 }}>
-                          {p.imageDataUrl ? <img src={p.imageDataUrl} alt="" /> : <AlertTriangle size={16} color="var(--warning)" />}
-                        </div>
-                        <div className="list-item-main">
-                          <div className="cell-main">{p.name}</div>
-                          <div className="cell-sub">Mínimo {qty(p.minStock)}</div>
-                        </div>
-                        <span className={`badge ${p.stockQty <= 0 ? "badge-danger" : "badge-warning"}`}>
-                          {qty(p.stockQty)} {p.unit}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              )}
-
-              <div className="card">
-                <div className="card-header">
-                  <div className="card-title">Más vendidos del mes</div>
-                </div>
-                {data.month.topProducts.length === 0 ? (
-                  <div className="card-body subtle">Aún no hay ventas este mes.</div>
-                ) : (
-                  <div className="list">
-                    {data.month.topProducts.slice(0, 5).map((p, idx) => (
-                      <div key={p.name} className="list-item">
-                        <span className="badge badge-accent no-dot">{idx + 1}</span>
-                        <div className="list-item-main">
-                          <div className="cell-main">{p.name}</div>
-                          <div className="cell-sub">{qty(p.quantity)} vendidos</div>
-                        </div>
-                        <span className="money">{money(p.total)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+        </div>
       ) : null}
+
+      {draft && (
+        <Drawer
+          title="Personalizar el panel"
+          subtitle="Activa, ordena y cambia el tamaño de los bloques. Los cambios se aplican al guardar."
+          onClose={() => setDraft(null)}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDraft(null)}>
+                Cancelar
+              </Button>
+              <Button variant="primary" loading={saving} onClick={saveWidgets}>
+                Guardar mi panel
+              </Button>
+            </>
+          }
+        >
+          <WidgetListEditor prefs={draft} onChange={setDraft} />
+          <p className="subtle mt-16" style={{ fontSize: 12.5 }}>
+            Para cambiar el diseño del panel o el tema de color ve a{" "}
+            <button type="button" className="link-btn" onClick={() => navigate({ page: "settings", tab: "appearance" })}>
+              Configuración › Apariencia
+            </button>
+            .
+          </p>
+        </Drawer>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ Diseños del panel
+// Cada diseño es una distribución distinta de los mismos widgets. Ninguno define colores.
+
+interface LayoutProps {
+  ctx: WidgetContext;
+  visible: WidgetInfo[];
+}
+
+const KPI_IDS: WidgetId[] = ["salesKpi", "collectedKpi", "expensesKpi", "balanceKpi", "receivableKpi"];
+
+/** Dibuja los widgets pedidos que estén visibles y tengan datos para el usuario. */
+function useSlots({ ctx, visible }: LayoutProps) {
+  const shown = new Set(visible.map((w) => w.id));
+  const one = (id: WidgetId): ReactNode => (shown.has(id) ? renderWidget(id, ctx) : null);
+  const many = (ids: WidgetId[]) =>
+    ids
+      .map((id) => ({ id, node: one(id) }))
+      .filter((x) => x.node !== null)
+      .map((x) => <Fragment key={x.id}>{x.node}</Fragment>);
+  return { one, many };
+}
+
+/** A · Clásico por columnas: indicadores arriba, barras con accesos rápidos y tabla al final. */
+function ColumnsLayout(props: LayoutProps) {
+  const { one, many } = useSlots(props);
+  const kpis = many(KPI_IDS).slice(0, 5);
+  // Sin acceso al balance, la gráfica comparativa se reemplaza por la evolución de ventas.
+  const chart = one("incomeVsExpenses") ?? (props.visible.some((w) => w.id === "incomeVsExpenses" || w.id === "salesTrend") ? renderWidget("salesTrend", props.ctx) : null);
+  const actions = one("quickActions");
+  const side = many(["overdueAlerts", "lowStock", "topProducts"]);
+  const table = one("recentInvoices");
+  return (
+    <div className="dash dash-columns">
+      {kpis.length > 0 && <div className="dash-kpis" data-count={kpis.length}>{kpis}</div>}
+      {(chart || actions) && (
+        <div className={`dash-split ${chart && actions ? "" : "is-single"}`}>
+          {chart}
+          {actions}
+        </div>
+      )}
+      {(table || side.length > 0) && (
+        <div className={`dash-split ${table && side.length > 0 ? "" : "is-single"}`}>
+          {table}
+          {side.length > 0 && <div className="dash-stack">{side}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** B · Analítico: gráfica amplia de tendencia, indicadores al lado y composición debajo. */
+function AnalyticsLayout(props: LayoutProps) {
+  const { one, many } = useSlots(props);
+  const { data, scope, navigate } = props.ctx;
+  const kpis = many(["salesKpi", "collectedKpi", "expensesKpi", "balanceKpi"]);
+  const trend = one("salesTrend");
+  const composition = many(["paymentMethods", "expensesByCategory", "topProducts"]);
+  const compare = one("incomeVsExpenses");
+  const alerts = one("overdueAlerts");
+  const prev = data.previous;
+  const growth = prev && prev.invoicedTotal > 0 ? ((data.month.invoicedTotal - prev.invoicedTotal) / prev.invoicedTotal) * 100 : null;
+  const margin = scope.finance && data.month.invoicedTotal > 0 ? (data.month.grossProfit / data.month.invoicedTotal) * 100 : null;
+  const average = data.month.invoiceCount > 0 ? Math.round(data.month.invoicedTotal / data.month.invoiceCount) : null;
+  const pct = (v: number) => `${v > 0 ? "+" : ""}${v.toLocaleString("es-CO", { maximumFractionDigits: 1 })} %`;
+  return (
+    <div className="dash dash-analytics">
+      {kpis.length > 0 && <div className="dash-kpis is-compact" data-count={kpis.length}>{kpis}</div>}
+      <div className="dash-focus">
+        {trend}
+        <section className="card widget dash-indicators" aria-label="Indicadores del periodo">
+          <header className="widget-head">
+            <div>
+              <h2 className="widget-title">Indicadores</h2>
+              <div className="widget-sub">{props.ctx.periodLabel}</div>
+            </div>
+          </header>
+          <dl className="indicator-list">
+            <div>
+              <dt title="Variación de las ventas facturadas frente al periodo anterior de igual duración.">Crecimiento de ventas</dt>
+              <dd>{growth === null ? <span className="subtle">Sin periodo anterior para comparar</span> : pct(growth)}</dd>
+            </div>
+            {scope.finance && (
+              <div>
+                <dt title="(Ventas − costo de lo vendido) ÷ ventas. Usa el costo registrado en cada producto.">Margen bruto</dt>
+                <dd>{margin === null ? <span className="subtle">Sin ventas en el periodo</span> : `${margin.toLocaleString("es-CO", { maximumFractionDigits: 1 })} %`}</dd>
+              </div>
+            )}
+            <div>
+              <dt title="Ventas facturadas ÷ número de facturas del periodo.">Factura promedio</dt>
+              <dd>{average === null ? <span className="subtle">Sin facturas en el periodo</span> : money(average)}</dd>
+            </div>
+            <div>
+              <dt title="Saldo de las facturas cuya fecha de vencimiento ya pasó.">Cartera vencida</dt>
+              <dd className={data.overdueTotal > 0 ? "profit-negative" : ""}>{money(data.overdueTotal)}</dd>
+            </div>
+            <div>
+              <dt title="Saldo pendiente de todas las facturas abiertas, al día de hoy.">Por cobrar</dt>
+              <dd>{money(data.month.receivableTotal)}</dd>
+            </div>
+            {scope.inventory && (
+              <div>
+                <dt title="Productos activos por debajo de su existencia mínima.">Productos con stock bajo</dt>
+                <dd>
+                  <button type="button" className="link-btn" onClick={() => navigate({ page: "inventory" })}>
+                    {data.lowStock.length}
+                    {data.lowStock.length === 8 ? " o más" : ""}
+                  </button>
+                </dd>
+              </div>
+            )}
+          </dl>
+        </section>
+      </div>
+      {composition.length > 0 && <div className="dash-trio" data-count={composition.length}>{composition}</div>}
+      {(compare || alerts) && (
+        <div className={`dash-split ${compare && alerts ? "" : "is-single"}`}>
+          {compare}
+          {alerts}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** C · Modular: cuadrícula con los widgets que el usuario eligió, en su orden y tamaño. */
+function WidgetsLayout({ ctx, visible, ui }: LayoutProps & { ui: UiPreferences }) {
+  const cells = visible
+    .map((w) => ({ w, node: renderWidget(w.id, ctx) }))
+    .filter((c) => c.node !== null);
+  return (
+    <div className="dash dash-widgets">
+      {cells.map(({ w, node }) => (
+        <div key={w.id} className={`dash-cell is-${widgetSize(ui, w)}`}>
+          {node}
+        </div>
+      ))}
     </div>
   );
 }
@@ -437,7 +541,7 @@ function RestrictedDashboard({
   );
 }
 
-/** Inicio del diseño Estudio: accesos grandes a cada módulo habilitado. */
+/** Accesos grandes a cada módulo habilitado (para roles sin acceso a las cifras de ventas). */
 function ModuleTiles({ navigate }: { navigate: PageProps["navigate"] }) {
   const access = useAccess();
   const items = NAVIGATION.flatMap((g) => g.items)

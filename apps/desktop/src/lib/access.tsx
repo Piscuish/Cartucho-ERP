@@ -1,18 +1,30 @@
 /**
- * Acceso por licencia: qué módulos están activos y si la instalación está restringida.
+ * Acceso: licencia, módulos activos en la instalación, visibilidad en el menú y rol.
+ * Son cuatro controles distintos:
+ *  - licencia: qué puede usar el cliente;
+ *  - módulo activo: lo que el administrador habilitó (Configuración › Módulos y apartados);
+ *  - mostrar en menú: solo visual, no concede ni quita permisos;
+ *  - rol: qué puede hacer cada usuario.
  *
  * La regla real se aplica en Rust (cada comando pasa por una compuerta); aquí solo se
  * usa para no mostrar menús, botones o pantallas que el backend rechazaría.
  */
 import { createContext, ReactNode, useContext, useMemo } from "react";
-import { ALL_MODULES, AuthenticatedUserSummary, LicenseStatus, ModuleKey } from "@cartucho/shared";
+import { ALL_MODULES, AuthenticatedUserSummary, LicenseStatus, MODULE_REQUIRES, ModuleKey, ModuleSettings } from "@cartucho/shared";
+import { NAV_MODULE } from "../config/moduleRegistry";
 import type { Route } from "../config/moduleRegistry";
 
 export interface Access {
   license: LicenseStatus | null;
   /** Licencia desactivada o vencida: solo consultar facturas. */
   restricted: boolean;
-  /** Puede ver el módulo. */
+  /** La licencia incluye el módulo. */
+  licensed: (m: ModuleKey) => boolean;
+  /** El módulo está activo en la instalación (licencia + activación + dependencias). */
+  active: (m: ModuleKey) => boolean;
+  /** El administrador ocultó el módulo del menú (solo visual). */
+  hiddenInMenu: (m: ModuleKey) => boolean;
+  /** Puede ver el módulo (activo y permitido por su rol). */
   can: (m: ModuleKey) => boolean;
   /** Puede crear o modificar en el módulo. */
   canWrite: (m: ModuleKey) => boolean;
@@ -40,10 +52,30 @@ function rolePermissions(user: AuthenticatedUserSummary | null | undefined): Map
   return map;
 }
 
-export function buildAccess(license: LicenseStatus | null | undefined, user?: AuthenticatedUserSummary | null): Access {
+/** Módulos utilizables: los de la licencia que no están desactivados y cuya dependencia sigue activa. */
+export function activeModuleSet(licensed: Iterable<ModuleKey>, disabled: Iterable<ModuleKey>): Set<ModuleKey> {
+  const off = new Set(disabled);
+  const set = new Set([...licensed].filter((m) => !off.has(m)));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const m of [...set]) {
+      const dep = MODULE_REQUIRES[m];
+      if (dep && !set.has(dep)) {
+        set.delete(m);
+        changed = true;
+      }
+    }
+  }
+  return set;
+}
+
+export function buildAccess(license: LicenseStatus | null | undefined, user?: AuthenticatedUserSummary | null, settings?: ModuleSettings | null): Access {
   // Backend sin información de licencia (versiones antiguas): todo habilitado.
   const lic = license ?? null;
-  const modules = new Set<ModuleKey>(lic ? lic.modules : ALL_MODULES);
+  const licensedSet = new Set<ModuleKey>(lic ? lic.modules : ALL_MODULES);
+  const modules = activeModuleSet(licensedSet, settings?.disabled ?? []);
+  const menuHidden = new Set<ModuleKey>(settings?.hidden ?? []);
   const restricted = lic?.mode === "restricted";
   const role = rolePermissions(user);
   const isAdmin = role === null;
@@ -81,10 +113,26 @@ export function buildAccess(license: LicenseStatus | null | undefined, user?: Au
   const ui = lic?.ui ?? null;
   const hidden = new Set(ui?.hide ?? []);
   const features = new Set(ui?.features ?? []);
-  const showNav = (id: string) => !hidden.has(id);
+  const showNav = (id: string) => {
+    const module = NAV_MODULE[id as keyof typeof NAV_MODULE];
+    return !hidden.has(id) && !(module && menuHidden.has(module));
+  };
   const navLabel = (id: string, fallback: string) => ui?.labels?.[id] || fallback;
   const hasFeature = (f: string) => features.has(f);
-  return { license: lic, restricted, can, canWrite, canOpen, isAdmin, showNav, navLabel, hasFeature };
+  return {
+    license: lic,
+    restricted,
+    licensed: (m) => licensedSet.has(m),
+    active: (m) => modules.has(m),
+    hiddenInMenu: (m) => menuHidden.has(m),
+    can,
+    canWrite,
+    canOpen,
+    isAdmin,
+    showNav,
+    navLabel,
+    hasFeature,
+  };
 }
 
 const AccessContext = createContext<Access>(buildAccess(null));
@@ -92,13 +140,15 @@ const AccessContext = createContext<Access>(buildAccess(null));
 export function AccessProvider({
   license,
   user,
+  settings,
   children,
 }: {
   license: LicenseStatus | null | undefined;
   user?: AuthenticatedUserSummary | null;
+  settings?: ModuleSettings | null;
   children: ReactNode;
 }) {
-  const value = useMemo(() => buildAccess(license, user), [license, user]);
+  const value = useMemo(() => buildAccess(license, user, settings), [license, user, settings]);
   return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>;
 }
 

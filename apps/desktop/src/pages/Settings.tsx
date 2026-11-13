@@ -1,10 +1,10 @@
-import { CSSProperties, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { getPc, isPcMode, isPhoneApp, resetAppMode } from "../services/appMode";
 import { UpdatesSection } from "../components/updates";
-import { Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RefreshCw, RotateCcw, BadgeCheck, Check, Save, ShieldCheck, Smartphone, Users } from "lucide-react";
-import type { BusinessSettings, DataLocationInfo, PaperSize, ThemePreference } from "@cartucho/shared";
-import { ACCENTS, APPEARANCE_PRESETS, DARK_BACKGROUNDS, DEFAULT_APPEARANCE, LAYOUTS, LIGHT_BACKGROUNDS } from "@cartucho/shared";
-import type { AccentId, Appearance, AppearancePreset, LayoutId } from "@cartucho/shared";
+import { Blocks, Building2, Database, FolderInput, FolderOpen, HardDriveDownload, Info, KeyRound, Palette, Printer, RefreshCw, RotateCcw, BadgeCheck, Save, ShieldCheck, Smartphone, Users } from "lucide-react";
+import type { BusinessSettings, DataLocationInfo, PaperSize } from "@cartucho/shared";
+import { AppearanceSettings } from "../components/appearance";
+import { ModulesSettings } from "../components/modulesAdmin";
 import type { PageProps } from "../components/views";
 import { SETTINGS_TABS, SettingsTab } from "../config/moduleRegistry";
 import { api, isDesktop, pickBackupFile, pickFolder } from "../services/systemClient";
@@ -18,6 +18,7 @@ import { useAccess } from "../lib/access";
 
 const TAB_ICONS: Record<SettingsTab, React.ReactNode> = {
   company: <Building2 size={16} />,
+  modules: <Blocks size={16} />,
   billing: <Printer size={16} />,
   appearance: <Palette size={16} />,
   security: <KeyRound size={16} />,
@@ -41,18 +42,19 @@ export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
       ? // App conectada al PC: la configuración del negocio se hace en el PC.
         SETTINGS_TABS.filter((t) => t.id === "appearance" || t.id === "app" || t.id === "about")
       : !access.isAdmin
-        ? SETTINGS_TABS.filter((t) => t.id === "security" || t.id === "about" || t.id === "app")
+        ? // La apariencia del panel es personal: cualquier usuario cambia la suya.
+          SETTINGS_TABS.filter((t) => t.id === "appearance" || t.id === "security" || t.id === "about" || t.id === "app")
         : access.restricted
-          ? SETTINGS_TABS.filter((t) => t.id !== "company" && t.id !== "billing")
+          ? SETTINGS_TABS.filter((t) => t.id !== "company" && t.id !== "billing" && t.id !== "modules")
           : SETTINGS_TABS
   ).filter((t) => (phone ? t.id !== "updates" && t.id !== "mobile" : t.id !== "app"));
   const [tab, setTab] = useState<SettingsTab>(() => {
-    const wanted = props.tab ?? (pcMode ? "appearance" : access.restricted ? "license" : "company");
+    const wanted = props.tab ?? (pcMode ? "appearance" : access.restricted ? "license" : access.isAdmin ? "company" : "appearance");
     return tabs.some((t) => t.id === wanted) ? wanted : tabs[0].id;
   });
   return (
     <div className="page">
-      <PageHeader title="Configuración" subtitle={access.isAdmin ? "Datos de la empresa, facturación, apariencia, usuarios, seguridad y respaldos." : "Tu cuenta y contraseña."} />
+      <PageHeader title="Configuración" subtitle={access.isAdmin ? "Empresa, módulos y apartados, facturación, apariencia, usuarios, seguridad y respaldos." : "Tu apariencia, tu cuenta y tu contraseña."} />
       <div className="settings-layout">
         <nav className="settings-nav">
           {tabs.map((t) => (
@@ -63,6 +65,7 @@ export function SettingsPage(props: PageProps & { tab?: SettingsTab }) {
         </nav>
         <div key={tab} style={{ animation: "page-in 200ms var(--ease)" }}>
           {tab === "company" && <CompanySettings {...props} />}
+          {tab === "modules" && <ModulesSettings {...props} />}
           {tab === "billing" && <BillingSettings />}
           {tab === "appearance" && <AppearanceSettings {...props} />}
           {tab === "security" && <SecuritySettings {...props} />}
@@ -297,193 +300,6 @@ function BillingSettings() {
         )}
       </Section>
     </>
-  );
-}
-
-// ------------------------------------------------------------------ Apariencia
-
-function LayoutMini({ layout, colors, accent }: { layout: LayoutId; colors: { bg: string; surface: string; sidebar: string; line: string; text: string }; accent: string }) {
-  const vars = {
-    "--m-bg": colors.bg,
-    "--m-surface": colors.surface,
-    "--m-side": colors.sidebar,
-    "--m-line": colors.line,
-    "--m-text": colors.text,
-    "--m-accent": accent,
-  } as CSSProperties;
-  const body = (
-    <>
-      <div className="lm-side">
-        <div className="lm-logo" />
-        <div className="lm-item on" />
-        <div className="lm-item" />
-        <div className="lm-item" />
-        <div className="lm-item" />
-      </div>
-      <div className="lm-main">
-        <div className="lm-row">
-          <div className="lm-top" />
-          <div className="lm-btn" />
-        </div>
-        <div className="lm-row">
-          <div className="lm-card" />
-          <div className="lm-card" />
-          <div className="lm-card" />
-        </div>
-        <div className="lm-card big" />
-      </div>
-    </>
-  );
-  return (
-    <div className={`lm is-${layout}`} style={vars}>
-      {layout === "flotante" ? <div className="lm-inner">{body}</div> : body}
-    </div>
-  );
-}
-
-function AppearanceSettings({ overview, setOverview }: PageProps) {
-  const toast = useToast();
-  const ap = overview.preferences.appearance ?? DEFAULT_APPEARANCE;
-  const pref = overview.preferences.theme;
-  const dark = pref === "dark" || (pref === "system" && !!window.matchMedia?.("(prefers-color-scheme: dark)").matches);
-  const accentOf = (id: AccentId, isDark: boolean) => {
-    const a = ACCENTS.find((x) => x.id === id) ?? ACCENTS[0];
-    return isDark ? a.dark : a.light;
-  };
-  const swatchNow = dark
-    ? (DARK_BACKGROUNDS.find((b) => b.id === ap.bgDark) ?? DARK_BACKGROUNDS[0]).swatch
-    : (LIGHT_BACKGROUNDS.find((b) => b.id === ap.bgLight) ?? LIGHT_BACKGROUNDS[0]).swatch;
-
-  // Se aplica al instante (optimista) y luego se confirma con el backend.
-  const save = async (patch: Partial<Appearance>, theme?: ThemePreference) => {
-    const before = overview;
-    const next = { ...ap, ...patch };
-    setOverview({ ...overview, preferences: { ...overview.preferences, appearance: next, theme: theme ?? overview.preferences.theme } });
-    try {
-      setOverview(await api.setAppearance(next, theme));
-    } catch (e) {
-      setOverview(before);
-      toast(errorMessage(e), "error");
-    }
-  };
-  const presetActive = (p: AppearancePreset) =>
-    p.appearance.layout === ap.layout &&
-    p.appearance.accent === ap.accent &&
-    p.appearance.tintedBorders === ap.tintedBorders &&
-    (p.theme === "dark" ? p.appearance.bgDark === ap.bgDark && dark : p.appearance.bgLight === ap.bgLight && !dark);
-
-  return (
-    <>
-      <Section title="Combinaciones rápidas" desc="Un clic aplica diseño, fondo y color. Después puedes ajustar cada parte por separado.">
-        <div className="ap-grid">
-          {APPEARANCE_PRESETS.map((p) => {
-            const isDark = p.theme === "dark";
-            const sw = isDark
-              ? DARK_BACKGROUNDS.find((b) => b.id === p.appearance.bgDark)!.swatch
-              : LIGHT_BACKGROUNDS.find((b) => b.id === p.appearance.bgLight)!.swatch;
-            const on = presetActive(p);
-            return (
-              <button key={p.id} type="button" className={`ap-card ${on ? "is-active" : ""}`} onClick={() => save(p.appearance, p.theme)}>
-                <LayoutMini layout={p.appearance.layout} colors={sw} accent={accentOf(p.appearance.accent, isDark)} />
-                <div className="ap-card-name">
-                  {p.label}
-                  {on && <Check size={16} color="var(--accent)" />}
-                </div>
-                <div className="ap-card-desc">{p.description}</div>
-              </button>
-            );
-          })}
-        </div>
-      </Section>
-
-      <Section title="Diseño" desc="La forma del menú, las tarjetas y las esquinas.">
-        <div className="ap-grid">
-          {LAYOUTS.map((l) => (
-            <button key={l.id} type="button" className={`ap-card ${ap.layout === l.id ? "is-active" : ""}`} onClick={() => ap.layout !== l.id && save({ layout: l.id })}>
-              <LayoutMini layout={l.id} colors={swatchNow} accent={accentOf(ap.accent, dark)} />
-              <div className="ap-card-name">
-                {l.label}
-                {ap.layout === l.id && <Check size={16} color="var(--accent)" />}
-              </div>
-              <div className="ap-card-desc">{l.description}</div>
-            </button>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Fondo" desc="El color de la pantalla, las tarjetas y el menú. Elige uno oscuro o uno claro.">
-        <div className="ap-subtitle">Oscuros</div>
-        <div className="swatch-row mb-16">
-          {DARK_BACKGROUNDS.map((b) => (
-            <BgSwatch key={b.id} label={b.label} sw={b.swatch} accent={accentOf(ap.accent, true)} active={ap.bgDark === b.id && dark} onClick={() => save({ bgDark: b.id }, dark ? undefined : "dark")} />
-          ))}
-        </div>
-        <div className="ap-subtitle">Claros</div>
-        <div className="swatch-row">
-          {LIGHT_BACKGROUNDS.map((b) => (
-            <BgSwatch key={b.id} label={b.label} sw={b.swatch} accent={accentOf(ap.accent, false)} active={ap.bgLight === b.id && !dark} onClick={() => save({ bgLight: b.id }, dark ? "light" : undefined)} />
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Color de acento" desc="Botones, elemento activo del menú, enlaces y resaltados.">
-        <div className="swatch-row">
-          {ACCENTS.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className={`accent-dot ${ap.accent === a.id ? "is-active" : ""}`}
-              style={{ background: dark ? a.dark : a.light }}
-              title={a.label}
-              aria-label={a.label}
-              onClick={() => ap.accent !== a.id && save({ accent: a.id })}
-            >
-              {ap.accent === a.id && <Check size={16} color={a.id === "mono" && dark ? "#111" : a.id === "ambar" && dark ? "#1c1302" : "#fff"} strokeWidth={3} />}
-            </button>
-          ))}
-        </div>
-        <div className="mt-16">
-          <Switch
-            checked={ap.tintedBorders}
-            onChange={(v) => save({ tintedBorders: v })}
-            label="Bordes del color de acento"
-            description="Tarjetas, campos y menú con bordes teñidos (por ejemplo, fondo negro con bordes azules)."
-          />
-        </div>
-        <p className="subtle mt-16" style={{ fontSize: 12.5 }}>
-          Atajos: Ctrl K para buscar · Ctrl B para contraer el menú.
-        </p>
-      </Section>
-    </>
-  );
-}
-
-function BgSwatch({
-  label,
-  sw,
-  accent,
-  active,
-  onClick,
-}: {
-  label: string;
-  sw: { bg: string; surface: string; sidebar: string; line: string };
-  accent: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className={`bg-swatch ${active ? "is-active" : ""}`} onClick={onClick}>
-      <span className="bg-swatch-box" style={{ background: sw.bg }}>
-        <span style={{ width: "30%", background: sw.sidebar, borderRight: `1px solid ${sw.line}`, display: "flex", flexDirection: "column", gap: 4, padding: "8px 5px" }}>
-          <span style={{ height: 4, borderRadius: 2, background: accent }} />
-          <span style={{ height: 4, borderRadius: 2, background: sw.line }} />
-        </span>
-        <span style={{ flex: 1, padding: 7 }}>
-          <span style={{ display: "block", height: "100%", borderRadius: 5, background: sw.surface, border: `1px solid ${sw.line}` }} />
-        </span>
-      </span>
-      {label}
-    </button>
   );
 }
 
