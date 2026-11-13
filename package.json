@@ -1,6 +1,6 @@
 {
   "name": "cartucho-erp",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "description": "Cartucho ERP — Plataforma ERP de escritorio local-first, modular y multiplataforma (Tauri 2 + React + TypeScript + Rust + SQLite)",
   "packageManager": "pnpm@12.18.0",
