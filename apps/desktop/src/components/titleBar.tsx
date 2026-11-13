@@ -7,6 +7,7 @@
  * - En la vista previa del navegador se muestra igual, pero los botones no hacen nada.
  */
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { BrandMark } from "./brand";
 import { isPhoneApp } from "../services/appMode";
 import { Minus, X } from "lucide-react";
 import { isDesktop } from "../services/systemClient";
@@ -91,8 +92,8 @@ function TitleBar({ title, logo }: FrameTitle) {
         {logo ? (
           <img className="titlebar-logo" src={logo} alt="" data-tauri-drag-region draggable={false} />
         ) : (
-          <span className="titlebar-mark" data-tauri-drag-region>
-            CE
+          <span className="titlebar-mark is-brand" data-tauri-drag-region>
+            <BrandMark size={18} />
           </span>
         )}
         <span className="titlebar-title" data-tauri-drag-region>

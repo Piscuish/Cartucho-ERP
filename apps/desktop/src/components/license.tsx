@@ -2,6 +2,7 @@
  * Licencia: pantalla de activación (antes del asistente inicial) y pestaña «Licencia» en Configuración.
  */
 import { FormEvent, useState } from "react";
+import { BrandMark } from "./brand";
 import { BadgeCheck, Copy, KeyRound, RefreshCw, ShieldAlert, WifiOff } from "lucide-react";
 import { ALL_MODULES, LicenseStatus, MODULE_LABELS } from "@cartucho/shared";
 import type { PageProps } from "./views";
@@ -126,7 +127,7 @@ export function ActivationScreen({ license, onActivated }: { license: LicenseSta
     <div className="auth">
       <section className="auth-brand">
         <div className="auth-brand-top">
-          <span className="sb-logo" style={{ width: 28, height: 28, borderRadius: 8, fontSize: 11 }}>CE</span>
+          <BrandMark size={28} />
           Cartucho ERP
         </div>
         <div className="auth-company">

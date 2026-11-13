@@ -2,6 +2,7 @@
  * Pantallas de acceso: asistente de primera ejecución, inicio de sesión y error de arranque.
  */
 import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { BrandMark } from "./brand";
 import { ArrowLeft, ArrowRight, Building2, Check, Database, Eye, EyeOff, FolderInput, FolderOpen, HardDrive, ImageIcon, Lock, Printer, RotateCcw, ShieldCheck, User } from "lucide-react";
 import { MODULE_LABELS, type BusinessSettings, type CompanyProfile, type CompleteInitialSetupInput, type LicenseStatus, type PaperSize, type SetupDataMode, type SystemOverview } from "@cartucho/shared";
 import { errorMessage, greeting, initials } from "../lib/format";
@@ -204,9 +205,7 @@ export function SetupWizard({
     <div className="wizard">
       <aside className="wizard-side">
         <div>
-          <div className="sb-logo" style={{ width: 44, height: 44, marginBottom: 20 }}>
-            CE
-          </div>
+          <BrandMark size={44} className="brand-mark-wizard" />
           <div className="wizard-title">Bienvenido a Cartucho ERP</div>
           <p style={{ marginTop: 8, fontSize: 13.5 }}>Configura tu negocio en menos de dos minutos. Todo se guarda en este equipo, sin Internet.</p>
         </div>
@@ -519,7 +518,7 @@ export function LoginScreen({
     <div className="auth">
       <section className="auth-brand">
         <div className="auth-brand-top">
-          <span className="sb-logo" style={{ width: 28, height: 28, borderRadius: 8, fontSize: 11 }}>CE</span>
+          <BrandMark size={28} />
           Cartucho ERP
         </div>
         <div className="auth-company">
