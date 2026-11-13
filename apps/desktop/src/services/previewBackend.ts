@@ -1636,4 +1636,9 @@ if (typeof window !== "undefined") {
     await seedDemo();
     window.location.reload();
   };
+  // Vista previa del navegador: abrir con «?demo» carga los datos de demostración (solo si
+  // aún no hay empresa configurada) sin tener que usar la consola.
+  if (new URLSearchParams(window.location.search).has("demo") && !db.company) {
+    void seedDemo().then(() => window.location.replace(window.location.pathname));
+  }
 }
