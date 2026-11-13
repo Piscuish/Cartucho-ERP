@@ -4450,3 +4450,6 @@ a {
   flex-direction: column;
   gap: 12px;
 }
+.brand-mark-wizard { display: block; margin-bottom: 20px; border-radius: 12px; }
+.titlebar-mark.is-brand { background: none; padding: 0; width: auto; height: auto; pointer-events: none; }
+.titlebar-mark.is-brand svg { display: block; border-radius: 5px; }

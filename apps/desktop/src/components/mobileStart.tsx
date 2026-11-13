@@ -2,6 +2,7 @@
  * App de Android: elegir dónde está la base principal (PC o este teléfono) y conectar con el PC.
  */
 import { FormEvent, useState } from "react";
+import { BrandMark } from "./brand";
 import { ArrowLeft, Check, Loader2, Monitor, Search, Smartphone, Wifi } from "lucide-react";
 import { api } from "../services/systemClient";
 import { setMode, setPc } from "../services/appMode";
@@ -18,7 +19,7 @@ export function MobileStart({ onDone }: { onDone: () => void }) {
   return (
     <div className="mstart">
       <div className="mstart-head">
-        <span className="sb-logo mstart-logo">CE</span>
+        <BrandMark size={64} />
         <h1>Cartucho ERP</h1>
         <p className="muted">¿Dónde está la base principal de tu negocio?</p>
       </div>
