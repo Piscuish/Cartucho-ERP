@@ -369,6 +369,35 @@ export interface DashboardData {
   customerCount: number;
   lowStock: Product[];
   recentInvoices: InvoiceSummary[];
+  /** Totales del periodo anterior de igual duración (para la variación). */
+  previous?: PeriodTotals | null;
+  /** Serie del periodo: por día hasta 92 días; por mes en rangos más largos. */
+  trend?: TrendPoint[];
+  /** Fuentes incluidas según módulos activos y rol. Lo no incluido llega vacío: no es un cero real. */
+  scope?: DashboardScope;
+}
+
+export interface PeriodTotals {
+  dateFrom: string;
+  dateTo: string;
+  invoicedTotal: number;
+  collectedTotal: number;
+  expensesTotal: number;
+  netCashFlow: number;
+}
+
+export interface TrendPoint {
+  /** AAAA-MM-DD (diaria) o AAAA-MM (mensual). */
+  period: string;
+  invoiced: number;
+  collected: number;
+  expenses: number;
+}
+
+export interface DashboardScope {
+  expenses: boolean;
+  finance: boolean;
+  inventory: boolean;
 }
 
 export type SearchHitKind = "invoice" | "customer" | "product" | "quote";

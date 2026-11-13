@@ -870,3 +870,86 @@ fn product_barcode_is_unique_searchable_and_validated() {
         .unwrap();
     assert_eq!(edited.barcode, None);
 }
+
+// ------------------------------------------------------------------ Panel por periodo
+
+#[test]
+fn dashboard_range_trend_previous_period_and_scope() {
+    let (_dir, mut db) = setup();
+    // Mínimo 60 con 50 en existencia: aparece en «stock bajo».
+    let pid = db
+        .save_product(&ProductInput { name: "Tinta".into(), price: 10_000, cost: 4_000, track_stock: true, min_stock: 60.0, initial_stock: Some(50.0), ..Default::default() })
+        .unwrap()
+        .id;
+    let invoice = |date: &str, q: f64, paid: i64| InvoiceInput {
+        issue_date: date.into(),
+        lines: vec![line(Some(pid), "Tinta", q, 10_000)],
+        initial_payment: if paid > 0 { Some(PaymentInput { amount: paid, method: "cash".into(), paid_at: date.into(), note: None }) } else { None },
+        ..Default::default()
+    };
+    db.create_invoice(&invoice("2026-11-03", 2.0, 20_000)).unwrap();
+    db.create_invoice(&invoice("2026-11-10", 1.0, 0)).unwrap();
+    db.create_invoice(&invoice("2026-10-28", 3.0, 30_000)).unwrap();
+    db.save_expense(&ExpenseInput { description: "Luz".into(), amount: 5_000, expense_date: "2026-11-05".into(), method: "cash".into(), ..Default::default() }).unwrap();
+
+    // Sin fechas: del día 1 del mes a hoy (comportamiento anterior).
+    let d = db.dashboard("2026-11-10").unwrap();
+    assert_eq!((d.month.date_from.as_str(), d.month.date_to.as_str()), ("2026-11-01", "2026-11-10"));
+    assert_eq!(d.month.invoiced_total, 30_000);
+    assert_eq!(d.trend.len(), 10, "un punto por día, sin huecos");
+    assert_eq!(d.trend[2].invoiced, 20_000);
+    assert_eq!(d.trend[4].expenses, 5_000);
+    assert_eq!(d.trend[1].invoiced, 0);
+    assert_eq!(d.trend.iter().map(|t| t.invoiced).sum::<i64>(), d.month.invoiced_total);
+    // Periodo anterior de igual duración: 22 al 31 de octubre.
+    let prev = d.previous.clone().unwrap();
+    assert_eq!((prev.date_from.as_str(), prev.date_to.as_str()), ("2026-10-22", "2026-10-31"));
+    assert_eq!(prev.invoiced_total, 30_000);
+    assert_eq!(prev.collected_total, 30_000);
+    assert!(d.scope.expenses && d.scope.finance && d.scope.inventory);
+    assert_eq!(d.low_stock.len(), 1);
+
+    // Rango personalizado y serie mensual en rangos largos.
+    let week = db.dashboard_range("2026-11-10", Some("2026-11-04"), Some("2026-11-10")).unwrap();
+    assert_eq!(week.month.invoiced_total, 10_000);
+    assert_eq!(week.trend.len(), 7);
+    let year = db.dashboard_range("2026-11-10", Some("2026-01-01"), None).unwrap();
+    assert_eq!(year.trend.len(), 11);
+    assert_eq!(year.trend.last().unwrap().period, "2026-11");
+    assert_eq!(year.trend[9].invoiced, 30_000);
+    assert!(db.dashboard_range("2026-11-10", Some("2026-11-11"), None).is_err());
+    assert!(db.dashboard_range("2026-11-10", Some("2010-01-01"), None).is_err());
+
+    // Módulos desactivados: sus datos no viajan y `scope` lo indica.
+    db.features = super::Features { expenses: false, inventory: false, ..Default::default() };
+    let d = db.dashboard("2026-11-10").unwrap();
+    assert!(!d.scope.expenses && !d.scope.inventory && d.scope.finance);
+    assert_eq!(d.month.operating_expenses, 0);
+    assert!(d.month.expenses_by_category.is_empty());
+    assert!(d.low_stock.is_empty());
+    assert_eq!(d.month.invoiced_total, 30_000);
+    db.features = super::Features::default();
+
+    // Un rol sin Gastos, Finanzas ni Inventario no recibe esas cifras.
+    let role = db
+        .save_role(
+            &crate::users::RoleInput {
+                id: None,
+                name: "Caja".into(),
+                description: None,
+                permissions: [("invoices".to_string(), "write".to_string())].into_iter().collect(),
+            },
+            &crate::licensing::ALL_MODULES.iter().map(|m| m.to_string()).collect(),
+        )
+        .unwrap();
+    db.save_user(&crate::users::UserInput { id: None, full_name: "Ana Caja".into(), username: "ana".into(), role_key: role.key.clone(), password: Some("ClaveSegura123".into()), is_active: true }).unwrap();
+    db.logout();
+    db.login("ana", "ClaveSegura123").unwrap();
+    let d = db.dashboard("2026-11-10").unwrap();
+    assert!(!d.scope.expenses && !d.scope.finance && !d.scope.inventory);
+    assert_eq!(d.month.net_cash_flow, 0);
+    assert_eq!(d.month.gross_profit, 0);
+    assert!(d.trend.iter().all(|t| t.expenses == 0));
+    assert!(d.month.monthly.iter().all(|m| m.expenses == 0));
+    assert_eq!(d.month.collected_total, 20_000);
+}

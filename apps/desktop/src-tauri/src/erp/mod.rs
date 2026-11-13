@@ -29,11 +29,12 @@ pub struct Features {
     pub catalog: bool,
     pub inventory: bool,
     pub expenses: bool,
+    pub finance: bool,
 }
 
 impl Default for Features {
     fn default() -> Self {
-        Self { customers: true, catalog: true, inventory: true, expenses: true }
+        Self { customers: true, catalog: true, inventory: true, expenses: true, finance: true }
     }
 }
 use rusqlite::{params, Transaction};

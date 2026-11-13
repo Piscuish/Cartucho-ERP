@@ -101,13 +101,16 @@ pub fn dispatch(state: &AppState, user_id: i64, cmd: &str, args: &Value, writes_
         "get_business_settings" => out(state.gated_as(user_id, Gate::Core, |db| db.get_business_settings())),
         "get_dashboard" => {
             let today: String = arg(args, "today")?;
-            out(state.gated_as(user_id, Gate::Read("invoices"), |db| db.dashboard(&today)))
+            let from: Option<String> = arg(args, "dateFrom")?;
+            let to: Option<String> = arg(args, "dateTo")?;
+            out(state.gated_as(user_id, Gate::Read("invoices"), |db| db.dashboard_range(&today, from.as_deref(), to.as_deref())))
         }
         "global_search" => {
             let query: String = arg(args, "query")?;
             out(state.gated_as(user_id, Gate::Core, |db| {
                 let hits = db.global_search(&query)?;
                 let access = db.current_access()?;
+                let active = db.module_settings()?;
                 Ok(hits
                     .into_iter()
                     .filter(|h| {
@@ -117,7 +120,7 @@ pub fn dispatch(state: &AppState, user_id: i64, cmd: &str, args: &Value, writes_
                             "customer" => "customers",
                             _ => "catalog",
                         };
-                        access.as_ref().map_or(true, |a| a.can_read(module))
+                        !active.disabled.contains(module) && access.as_ref().map_or(true, |a| a.can_read(module))
                     })
                     .collect::<Vec<_>>())
             }))

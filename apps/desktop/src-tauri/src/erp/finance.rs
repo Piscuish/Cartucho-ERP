@@ -100,6 +100,52 @@ pub struct DashboardData {
     pub customer_count: i64,
     pub low_stock: Vec<Product>,
     pub recent_invoices: Vec<InvoiceSummary>,
+    /// Totales del periodo anterior de igual duración (para mostrar la variación).
+    #[serde(default)]
+    pub previous: Option<PeriodTotals>,
+    /// Serie del periodo: por día hasta 92 días; por mes en rangos más largos.
+    #[serde(default)]
+    pub trend: Vec<TrendPoint>,
+    /// Qué fuentes de datos incluye esta respuesta para el usuario de la sesión.
+    #[serde(default)]
+    pub scope: DashboardScope,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PeriodTotals {
+    pub date_from: String,
+    pub date_to: String,
+    pub invoiced_total: i64,
+    pub collected_total: i64,
+    pub expenses_total: i64,
+    pub net_cash_flow: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TrendPoint {
+    /// `AAAA-MM-DD` (serie diaria) o `AAAA-MM` (serie mensual).
+    pub period: String,
+    pub invoiced: i64,
+    pub collected: i64,
+    pub expenses: i64,
+}
+
+/// Fuentes incluidas en el panel según módulos activos y rol. Lo que no está incluido llega
+/// vacío y la interfaz debe mostrarlo como «no disponible», nunca como un cero real.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardScope {
+    pub expenses: bool,
+    pub finance: bool,
+    pub inventory: bool,
+}
+
+impl Default for DashboardScope {
+    fn default() -> Self {
+        Self { expenses: true, finance: true, inventory: true }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -426,11 +472,131 @@ impl LocalDatabase {
         })
     }
 
+    /// Panel de inicio del mes en curso.
     pub fn dashboard(&self, today: &str) -> Result<DashboardData, String> {
+        self.dashboard_range(today, None, None)
+    }
+
+    /// Serie del periodo agrupada por día o por mes, sin huecos (un periodo sin movimientos
+    /// aparece con cero, que es su valor real).
+    fn trend_series(&self, from: &str, to: &str) -> Result<Vec<TrendPoint>, String> {
+        let start = NaiveDate::parse_from_str(from, "%Y-%m-%d").map_err(|_| "Fecha no válida.".to_string())?;
+        let end = NaiveDate::parse_from_str(to, "%Y-%m-%d").map_err(|_| "Fecha no válida.".to_string())?;
+        let daily = (end - start).num_days() <= 92;
+        let width = if daily { 10 } else { 7 };
+        let conn = self.connect()?;
+        let grouped = |sql: &str| -> Result<std::collections::BTreeMap<String, i64>, String> {
+            let mut stmt = conn.prepare(sql).map_err(|e| friendly_sql_error("Inicio", e))?;
+            let rows = stmt
+                .query_map(params![width, from, to], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                .map_err(|e| friendly_sql_error("Inicio", e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| friendly_sql_error("Inicio", e))?;
+            Ok(rows.into_iter().collect())
+        };
+        let invoiced = grouped(
+            "SELECT substr(issue_date, 1, ?1), COALESCE(SUM(total), 0) FROM invoices
+             WHERE status <> 'void' AND issue_date BETWEEN ?2 AND ?3 GROUP BY 1",
+        )?;
+        let collected = grouped(
+            "SELECT substr(p.paid_at, 1, ?1), COALESCE(SUM(p.amount), 0) FROM payments p JOIN invoices i ON i.id = p.invoice_id
+             WHERE i.status <> 'void' AND p.paid_at BETWEEN ?2 AND ?3 GROUP BY 1",
+        )?;
+        let expenses = grouped(
+            "SELECT substr(expense_date, 1, ?1), COALESCE(SUM(amount), 0) FROM expenses
+             WHERE expense_date BETWEEN ?2 AND ?3 GROUP BY 1",
+        )?;
+        let mut periods: Vec<String> = Vec::new();
+        if daily {
+            let mut d = start;
+            while d <= end {
+                periods.push(d.format("%Y-%m-%d").to_string());
+                d += chrono::Duration::days(1);
+            }
+        } else {
+            let (mut y, mut m) = (start.year(), start.month());
+            while (y, m) <= (end.year(), end.month()) {
+                periods.push(format!("{:04}-{:02}", y, m));
+                m += 1;
+                if m == 13 {
+                    m = 1;
+                    y += 1;
+                }
+            }
+        }
+        Ok(periods
+            .into_iter()
+            .map(|p| TrendPoint {
+                invoiced: invoiced.get(&p).copied().unwrap_or(0),
+                collected: collected.get(&p).copied().unwrap_or(0),
+                expenses: expenses.get(&p).copied().unwrap_or(0),
+                period: p,
+            })
+            .collect())
+    }
+
+    /// Panel de inicio para un periodo. Sin fechas: del primer día del mes a hoy.
+    /// Los datos de gastos, finanzas e inventario solo se incluyen si el módulo está activo
+    /// y el rol del usuario puede verlos (`scope` indica qué se incluyó).
+    pub fn dashboard_range(&self, today: &str, date_from: Option<&str>, date_to: Option<&str>) -> Result<DashboardData, String> {
         self.require_authenticated_user()?;
         let today = clean_date(today, "Hoy")?;
-        let month_start = format!("{}-01", &today[..7]);
-        let month = self.finance_summary(&month_start, &today)?;
+        let period_to = match date_to {
+            Some(d) => clean_date(d, "Hasta")?,
+            None => today.clone(),
+        };
+        let month_start = match date_from {
+            Some(d) => clean_date(d, "Desde")?,
+            None => format!("{}-01", &period_to[..7]),
+        };
+        if month_start > period_to {
+            return Err("La fecha inicial no puede ser posterior a la final.".to_string());
+        }
+        let start = NaiveDate::parse_from_str(&month_start, "%Y-%m-%d").map_err(|_| "Fecha no válida.".to_string())?;
+        let end = NaiveDate::parse_from_str(&period_to, "%Y-%m-%d").map_err(|_| "Fecha no válida.".to_string())?;
+        if (end - start).num_days() > 366 * 5 {
+            return Err("Elige un periodo de máximo 5 años.".to_string());
+        }
+        let access = self.current_access()?;
+        let can = |m: &str| access.as_ref().map_or(false, |a| a.can_read(m));
+        let is_admin = access.as_ref().map_or(false, |a| a.is_admin);
+        let scope = DashboardScope {
+            expenses: self.features.expenses && can("expenses"),
+            // El balance lo ve el administrador o un rol con el módulo Finanzas activo.
+            finance: is_admin || (self.features.finance && can("finance")),
+            inventory: self.features.inventory && can("inventory"),
+        };
+
+        let mut month = self.finance_summary(&month_start, &period_to)?;
+        let mut trend = self.trend_series(&month_start, &period_to)?;
+        // Periodo anterior de igual duración, inmediatamente antes.
+        let prev_end = start - chrono::Duration::days(1);
+        let prev_start = prev_end - (end - start);
+        let prev = self.finance_summary(&prev_start.format("%Y-%m-%d").to_string(), &prev_end.format("%Y-%m-%d").to_string())?;
+        let mut previous = PeriodTotals {
+            date_from: prev.date_from.clone(),
+            date_to: prev.date_to.clone(),
+            invoiced_total: prev.invoiced_total,
+            collected_total: prev.collected_total,
+            expenses_total: prev.operating_expenses + prev.inventory_purchases,
+            net_cash_flow: prev.net_cash_flow,
+        };
+        if !scope.expenses {
+            month.operating_expenses = 0;
+            month.inventory_purchases = 0;
+            month.expenses_by_category.clear();
+            previous.expenses_total = 0;
+        }
+        if !scope.finance {
+            month.cost_of_goods_sold = 0;
+            month.gross_profit = 0;
+            month.net_cash_flow = 0;
+            previous.net_cash_flow = 0;
+        }
+        if !(scope.expenses || scope.finance) {
+            month.monthly.iter_mut().for_each(|m| m.expenses = 0);
+            trend.iter_mut().for_each(|t| t.expenses = 0);
+        }
         let conn = self.connect()?;
         let one = |sql: &str| -> Result<i64, String> {
             conn.query_row(sql, params![today], |r| r.get(0))
@@ -453,7 +619,7 @@ impl LocalDatabase {
         let product_count = one("SELECT COUNT(*) FROM products WHERE is_active = 1 AND ?1 = ?1")?;
         let customer_count = one("SELECT COUNT(*) FROM customers WHERE is_active = 1 AND ?1 = ?1")?;
         drop(conn);
-        let mut low_stock = self.list_products(None, None, false, true)?;
+        let mut low_stock = if scope.inventory { self.list_products(None, None, false, true)? } else { Vec::new() };
         low_stock.truncate(8);
         let recent_invoices = self.list_invoices(&InvoiceFilter {
             limit: Some(8),
@@ -471,6 +637,9 @@ impl LocalDatabase {
             customer_count,
             low_stock,
             recent_invoices,
+            previous: Some(previous),
+            trend,
+            scope,
         })
     }
 

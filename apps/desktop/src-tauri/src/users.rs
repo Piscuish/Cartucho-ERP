@@ -204,7 +204,7 @@ impl LocalDatabase {
         Ok(Some(UserAccess { is_admin: false, modules }))
     }
 
-    fn require_admin(&self) -> Result<i64, String> {
+    pub(crate) fn require_admin(&self) -> Result<i64, String> {
         let user = self.require_authenticated_user()?;
         if !user.is_admin {
             return Err(ADMIN_ONLY_MSG.to_string());

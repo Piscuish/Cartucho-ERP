@@ -61,6 +61,12 @@ pub struct AppPreferences {
     /// Minutos sin uso antes de cerrar la sesión (0 = nunca).
     #[serde(default)]
     pub auto_lock_minutes: i64,
+    /// Diseño del panel, tema de color y widgets que aplican a la sesión (ver `modules.rs`).
+    #[serde(default)]
+    pub ui: crate::modules::UiPreferences,
+    /// `true` si el usuario de la sesión eligió su propia apariencia del panel.
+    #[serde(default)]
+    pub ui_personal: bool,
     pub updated_at: String,
 }
 
@@ -85,7 +91,7 @@ impl Default for Appearance {
             layout: "clasico".into(),
             bg_light: "blanco".into(),
             bg_dark: "pizarra".into(),
-            accent: "violeta".into(),
+            accent: "azul".into(),
             tinted_borders: false,
         }
     }
@@ -265,6 +271,9 @@ pub struct SystemOverview {
     /// Estado de la licencia y módulos habilitados (lo completa la capa de la aplicación).
     #[serde(default)]
     pub license: Option<crate::licensing::LicenseStatus>,
+    /// Módulos desactivados u ocultos del menú por el administrador.
+    #[serde(default)]
+    pub module_settings: crate::modules::ModuleSettings,
 }
 
 /// Resuelve el directorio de datos de aplicación nativo del sistema operativo:
@@ -1072,6 +1081,28 @@ impl LocalDatabase {
     pub(crate) fn initialize_and_migrate(&self) -> Result<(), String> {
         let mut conn = self.connect()?;
 
+        // Una base creada por una versión más nueva del programa se rechaza ANTES de escribir
+        // cualquier cosa: no se crean tablas, no se tocan metadatos ni se migra.
+        let has_migrations_table: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_schema_migrations')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Error inspeccionando la base de datos: {}", e))?;
+        if has_migrations_table {
+            let found: i64 = conn
+                .query_row("SELECT COALESCE(MAX(version), 0) FROM _schema_migrations", [], |row| row.get(0))
+                .map_err(|e| format!("Error consultando versión actual de esquema: {}", e))?;
+            if found > target_schema_version() {
+                return Err(format!(
+                    "Esta base de datos fue creada con una versión más nueva de Cartucho ERP (esquema {}; este programa admite hasta {}). Actualiza el programa para abrirla. No se modificó nada.",
+                    found,
+                    target_schema_version()
+                ));
+            }
+        }
+
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS _schema_migrations (
                 version INTEGER PRIMARY KEY NOT NULL,
@@ -1800,7 +1831,11 @@ impl LocalDatabase {
             .and_then(|(v, _)| v.parse::<i64>().ok())
             .filter(|m| VALID_AUTO_LOCK.contains(m))
             .unwrap_or(0);
+        drop(conn);
+        let (ui, ui_personal) = self.effective_ui_preferences()?;
         Ok(AppPreferences {
+            ui,
+            ui_personal,
             auto_lock_minutes,
             theme: theme.as_ref().map(|(v, _)| v.clone()).unwrap_or_else(|| "light".to_string()),
             appearance,
@@ -1949,6 +1984,7 @@ impl LocalDatabase {
             is_authenticated,
             current_user,
             license: None,
+            module_settings: self.module_settings()?,
         })
     }
 }
@@ -2282,6 +2318,32 @@ mod tests {
 
         let report = db.status_report().expect("Debe mantener estado íntegro");
         assert_eq!(report.schema_version, target_schema_version());
+    }
+
+    /// Una base con un esquema más nuevo que el del programa se rechaza sin modificarla.
+    #[test]
+    fn test_future_schema_is_rejected_without_modifying_the_database() {
+        let temp_dir = TempDir::new().expect("Debe crear directorio temporal");
+        {
+            let db = LocalDatabase::open_in_dir(temp_dir.path()).expect("Debe abrir");
+            let conn = db.connect().unwrap();
+            conn.execute(
+                "INSERT INTO _schema_migrations (version, name, applied_at) VALUES (?1, 'futura', '2030-01-01T00:00:00Z')",
+                params![target_schema_version() + 1],
+            )
+            .unwrap();
+        }
+        let snapshot = |dir: &Path| -> (i64, String, usize) {
+            let conn = Connection::open(dir.join("cartucho_erp.sqlite3")).unwrap();
+            let count: i64 = conn.query_row("SELECT value FROM _app_metadata WHERE key = 'startup_count'", [], |r| r.get::<_, String>(0)).unwrap().parse().unwrap();
+            let opened: String = conn.query_row("SELECT value FROM _app_metadata WHERE key = 'last_opened_at'", [], |r| r.get(0)).unwrap();
+            let backups = std::fs::read_dir(dir.join("backups")).map(|d| d.count()).unwrap_or(0);
+            (count, opened, backups)
+        };
+        let before = snapshot(temp_dir.path());
+        let err = LocalDatabase::open_in_dir(temp_dir.path()).err().expect("Debe rechazar la base futura");
+        assert!(err.contains("versión más nueva"), "{}", err);
+        assert_eq!(before, snapshot(temp_dir.path()), "No debe escribir metadatos ni crear respaldos");
     }
 
     #[test]

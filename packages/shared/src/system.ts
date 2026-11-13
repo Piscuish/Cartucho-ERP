@@ -61,12 +61,104 @@ export interface AppPreferences {
   appearance?: Appearance;
   /** Minutos sin uso antes de cerrar la sesión (0 = nunca). */
   autoLockMinutes?: number;
+  /** Diseño del panel, tema de color y widgets de la sesión. Ausente en backends antiguos → DEFAULT_UI_PREFERENCES. */
+  ui?: UiPreferences;
+  /** El usuario eligió su propia apariencia (si no, usa la predeterminada de la instalación). */
+  uiPersonal?: boolean;
   updatedAt: string;
 }
 
+// ------------------------------------------------------------------ Panel: diseño, tema y widgets
+// Tres decisiones independientes. El DISEÑO define la distribución del panel; el TEMA define
+// los colores; los WIDGETS definen qué información aparece y en qué orden.
+
+/** Estilo de diseño del panel de inicio (estructura y distribución, nunca colores). */
+export type DashboardLayoutId = "columns" | "analytics" | "widgets";
+/** Tema de color global (paleta, nunca distribución). */
+export type ColorThemeId = "white" | "black" | "gray";
+export type WidgetSize = "small" | "medium" | "wide";
+
+export type WidgetId =
+  | "salesKpi"
+  | "collectedKpi"
+  | "expensesKpi"
+  | "balanceKpi"
+  | "receivableKpi"
+  | "salesTrend"
+  | "incomeVsExpenses"
+  | "paymentMethods"
+  | "expensesByCategory"
+  | "topProducts"
+  | "lowStock"
+  | "recentInvoices"
+  | "overdueAlerts"
+  | "dueCalendar"
+  | "quickActions";
+
+export interface UiPreferences {
+  dashboardLayout: DashboardLayoutId;
+  /** null: se deriva del tema anterior (claro → Blanco, oscuro → Negro). */
+  colorTheme: ColorThemeId | null;
+  /** Widgets visibles, en orden. null: el conjunto predeterminado del diseño. */
+  dashboardWidgets: WidgetId[] | null;
+  widgetSizes: Partial<Record<WidgetId, WidgetSize>>;
+}
+
+export const DEFAULT_UI_PREFERENCES: UiPreferences = { dashboardLayout: "columns", colorTheme: null, dashboardWidgets: null, widgetSizes: {} };
+
+export interface DashboardLayoutInfo {
+  id: DashboardLayoutId;
+  letter: string;
+  label: string;
+  description: string;
+  advantages: string[];
+}
+
+export const DASHBOARD_LAYOUTS: DashboardLayoutInfo[] = [
+  {
+    id: "columns",
+    letter: "A",
+    label: "Clásico por columnas",
+    description: "Indicadores en columnas, gráfica de barras y accesos rápidos. Se lee de arriba hacia abajo.",
+    advantages: ["Rápido y fácil de usar", "Enfoque en las cifras clave", "Ideal para el día a día"],
+  },
+  {
+    id: "analytics",
+    letter: "B",
+    label: "Analítico y de tendencias",
+    description: "Una gráfica amplia de evolución con indicadores y composición alrededor.",
+    advantages: ["Muestra tendencias y variaciones", "Compara con el periodo anterior", "Para control y crecimiento"],
+  },
+  {
+    id: "widgets",
+    letter: "C",
+    label: "Modular por widgets",
+    description: "Tú eliges qué bloques ver, en qué orden y de qué tamaño.",
+    advantages: ["Se adapta a cada persona", "Agrega, quita y reordena", "Solo lo más relevante para ti"],
+  },
+];
+
+/** Colores de cada tema (los mismos tokens que usa la hoja de estilos). */
+export interface ColorThemeInfo {
+  id: ColorThemeId;
+  label: string;
+  description: string;
+  /** Base clara u oscura (para los estilos que dependen de eso). */
+  base: ResolvedTheme;
+  swatch: { bg: string; surface: string; border: string; text: string; text2: string; accent: string };
+}
+
+export const COLOR_THEMES: ColorThemeInfo[] = [
+  { id: "white", label: "Blanco", description: "Limpio, moderno y con alta legibilidad.", base: "light", swatch: { bg: "#F5F7FA", surface: "#FFFFFF", border: "#E5E7EB", text: "#273244", text2: "#667085", accent: "#2563EB" } },
+  { id: "black", label: "Negro", description: "Oscuro y cómodo para trabajar con poca luz.", base: "dark", swatch: { bg: "#0E1117", surface: "#191F29", border: "#303846", text: "#F3F4F6", text2: "#A7B0BD", accent: "#60A5FA" } },
+  { id: "gray", label: "Gris", description: "Equilibrado, profesional y versátil.", base: "light", swatch: { bg: "#E5E7EB", surface: "#F3F4F6", border: "#C8CDD5", text: "#303742", text2: "#626B75", accent: "#3B82F6" } },
+];
+
+export const WIDGET_SIZE_LABELS: Record<WidgetSize, string> = { small: "Pequeño", medium: "Mediano", wide: "Ancho" };
+
 // ------------------------------------------------------------------ Apariencia
 
-/** Diseño: estructura y forma (menú, tarjetas, esquinas). */
+/** Estilo del menú lateral y de las tarjetas (anterior «diseño»). No es el diseño del panel. */
 export type LayoutId = "clasico" | "riel" | "flotante" | "estudio";
 /** Fondos para el tema claro. */
 export type LightBgId = "blanco" | "calido" | "hielo";
@@ -84,7 +176,7 @@ export interface Appearance {
   tintedBorders: boolean;
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { layout: "clasico", bgLight: "blanco", bgDark: "pizarra", accent: "violeta", tintedBorders: false };
+export const DEFAULT_APPEARANCE: Appearance = { layout: "clasico", bgLight: "blanco", bgDark: "pizarra", accent: "azul", tintedBorders: false };
 
 export interface LayoutInfo {
   id: LayoutId;
@@ -358,6 +450,8 @@ export interface SystemOverview {
   currentUser: AuthenticatedUserSummary | null;
   /** Estado de la licencia (null en versiones antiguas del backend). */
   license?: LicenseStatus | null;
+  /** Módulos desactivados u ocultos (ausente en backends antiguos: todo activo y visible). */
+  moduleSettings?: ModuleSettings;
 }
 
 // ------------------------------------------------------------------ Licencias y módulos
@@ -375,6 +469,16 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   inventory: "Inventario",
   expenses: "Gastos",
   finance: "Resumen financiero",
+};
+
+/**
+ * Dependencias obligatorias entre módulos (igual que `module_requires` en Rust, que es la
+ * regla que realmente se aplica).
+ */
+export const MODULE_REQUIRES: Partial<Record<ModuleKey, ModuleKey>> = {
+  quotes: "invoices",
+  inventory: "catalog",
+  finance: "invoices",
 };
 
 /**
@@ -409,6 +513,19 @@ export interface LicenseStatus {
   /** Menú personalizado del cliente (viene en la licencia). */
   ui?: LicenseUi | null;
 }
+
+/** Activación y visibilidad de módulos decididas por el administrador de la instalación. */
+export interface ModuleSettings {
+  /** Módulos desactivados para esta empresa (sus datos se conservan). */
+  disabled: ModuleKey[];
+  /** Módulos ocultos del menú. Solo visual: no quita permisos. */
+  hidden: ModuleKey[];
+}
+
+export const MODULE_COMMANDS = {
+  SET_MODULE_ACTIVE: "set_module_active",
+  SET_MODULE_VISIBLE: "set_module_visible",
+} as const;
 
 export interface LicenseUi {
   /** Opciones del menú ocultas (ids de NavigationSectionId). */
@@ -446,5 +563,7 @@ export const TAURI_COMMANDS = {
   RECORD_PERSISTENCE_CHECK: "record_persistence_check",
   SET_THEME_PREFERENCE: "set_theme_preference",
   SET_APPEARANCE: "set_appearance",
+  SET_UI_PREFERENCES: "set_ui_preferences",
+  RESET_UI_PREFERENCES: "reset_ui_preferences",
   SAVE_COMPANY_PROFILE: "save_company_profile",
 } as const;

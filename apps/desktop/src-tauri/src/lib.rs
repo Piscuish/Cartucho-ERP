@@ -3,6 +3,7 @@ pub mod db;
 pub mod users;
 pub mod erp;
 pub mod licensing;
+pub mod modules;
 pub mod lan;
 pub mod remote;
 
@@ -29,6 +30,7 @@ fn features_from(ent: &Entitlements) -> erp::Features {
         catalog: ent.has("catalog"),
         inventory: ent.has("inventory"),
         expenses: ent.has("expenses"),
+        finance: ent.has("finance"),
     }
 }
 
@@ -100,8 +102,9 @@ impl AppState {
             .map_err(|_| "Error interno al leer la licencia.".to_string())
     }
 
-    /// Ejecuta una operación solo si la licencia la permite, con los módulos opcionales
-    /// configurados en la base de datos para esta llamada.
+    /// Ejecuta una operación solo si la licencia la permite, el módulo está activo en esta
+    /// instalación y el rol del usuario lo autoriza. Fija además los módulos opcionales
+    /// activos para esta llamada.
     pub fn gated<T>(
         &self,
         gate: Gate,
@@ -110,6 +113,8 @@ impl AppState {
         let ent = self.entitlements();
         check_gate(&ent, gate)?;
         self.with_db(|db| {
+            module_gate(&inactive_modules(db)?, gate)?;
+            let ent = active_entitlements(db, ent)?;
             // Además de la licencia, el rol del usuario de la sesión debe permitirlo.
             if let Some(access) = db.current_access()? {
                 role_gate(&access, gate)?;
@@ -117,6 +122,12 @@ impl AppState {
             db.features = features_from(&ent);
             f(db)
         })
+    }
+
+    /// Licencia combinada con los módulos que el administrador dejó activos.
+    pub fn active_entitlements(&self) -> Entitlements {
+        let ent = self.entitlements();
+        self.with_db(|db| active_entitlements(db, ent.clone())).unwrap_or(ent)
     }
 
     /// Como `gated`, pero con la sesión de otro usuario (un celular conectado por la red
@@ -130,6 +141,8 @@ impl AppState {
         let ent = self.entitlements();
         check_gate(&ent, gate)?;
         self.with_db(|db| {
+            module_gate(&inactive_modules(db)?, gate)?;
+            let ent = active_entitlements(db, ent)?;
             db.run_as_user(user_id, |db| {
                 let access = db
                     .current_access()?
@@ -173,6 +186,33 @@ impl AppState {
             *e = None;
         }
         Ok(())
+    }
+}
+
+/// Módulos que no se pueden usar en esta instalación porque el administrador los desactivó
+/// (Configuración › Módulos y apartados), junto con los que dependen de ellos.
+pub fn inactive_modules(db: &LocalDatabase) -> Result<std::collections::BTreeSet<String>, String> {
+    let all: std::collections::BTreeSet<String> = licensing::ALL_MODULES.iter().map(|m| m.to_string()).collect();
+    let active = db.module_settings()?.active_modules(&all);
+    Ok(all.difference(&active).cloned().collect())
+}
+
+/// Quita de los permisos de licencia los módulos desactivados en la instalación.
+pub fn active_entitlements(db: &LocalDatabase, mut ent: Entitlements) -> Result<Entitlements, String> {
+    let inactive = inactive_modules(db)?;
+    ent.modules.retain(|m| !inactive.contains(m));
+    Ok(ent)
+}
+
+/// Rechaza los comandos de un módulo desactivado en esta instalación. Se evalúa además de
+/// la licencia y del rol; ocultar un módulo del menú no interviene aquí.
+pub fn module_gate(inactive: &std::collections::BTreeSet<String>, gate: Gate) -> Result<(), String> {
+    match gate {
+        Gate::Read(m) | Gate::Write(m) if inactive.contains(m) => Err(format!(
+            "{} está desactivado en esta instalación. Un administrador puede activarlo en Configuración › Módulos y apartados.",
+            modules::module_label(m)
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -356,6 +396,52 @@ mod tauri_commands {
             if let Some(t) = theme.as_deref() {
                 db.set_theme_preference(t)?;
             }
+            db.build_system_overview()
+        })
+    }
+
+    /// Apariencia del panel (diseño, tema de color y widgets). Cada usuario guarda la suya;
+    /// `installation = true` fija la predeterminada de la instalación (solo administrador).
+    #[tauri::command]
+    pub fn set_ui_preferences(
+        prefs: crate::modules::UiPreferences,
+        installation: bool,
+        state: S<'_>,
+    ) -> Result<SystemOverview, String> {
+        overview_gated(&state, if installation { Gate::Admin } else { Gate::Core }, |db| {
+            db.set_ui_preferences(&prefs, installation)?;
+            db.build_system_overview()
+        })
+    }
+
+    #[tauri::command]
+    pub fn reset_ui_preferences(installation: bool, state: S<'_>) -> Result<SystemOverview, String> {
+        overview_gated(&state, if installation { Gate::Admin } else { Gate::Core }, |db| {
+            db.reset_ui_preferences(installation)?;
+            db.build_system_overview()
+        })
+    }
+
+    // ------------------------------------------------------------ Módulos y apartados (solo administrador)
+
+    #[tauri::command]
+    pub fn set_module_active(
+        module: String,
+        active: bool,
+        with_dependencies: bool,
+        state: S<'_>,
+    ) -> Result<SystemOverview, String> {
+        let licensed = state.licensed_modules();
+        overview_gated(&state, Gate::CoreWrite, |db| {
+            db.set_module_active(&module, active, with_dependencies, &licensed)?;
+            db.build_system_overview()
+        })
+    }
+
+    #[tauri::command]
+    pub fn set_module_visible(module: String, visible: bool, state: S<'_>) -> Result<SystemOverview, String> {
+        overview_gated(&state, Gate::CoreWrite, |db| {
+            db.set_module_visible(&module, visible)?;
             db.build_system_overview()
         })
     }
@@ -706,13 +792,18 @@ mod tauri_commands {
     }
 
     #[tauri::command]
-    pub fn get_dashboard(today: String, state: S<'_>) -> Result<DashboardData, String> {
-        state.gated(Gate::Read("invoices"), |db| db.dashboard(&today))
+    pub fn get_dashboard(
+        today: String,
+        date_from: Option<String>,
+        date_to: Option<String>,
+        state: S<'_>,
+    ) -> Result<DashboardData, String> {
+        state.gated(Gate::Read("invoices"), |db| db.dashboard_range(&today, date_from.as_deref(), date_to.as_deref()))
     }
 
     #[tauri::command]
     pub fn global_search(query: String, state: S<'_>) -> Result<Vec<SearchHit>, String> {
-        let ent = state.entitlements();
+        let ent = state.active_entitlements();
         let hits = state.gated(Gate::Core, |db| db.global_search(&query))?;
         Ok(hits
             .into_iter()
@@ -886,6 +977,10 @@ mod tauri_commands {
                 record_persistence_check,
                 set_theme_preference,
                 set_appearance,
+                set_ui_preferences,
+                reset_ui_preferences,
+                set_module_active,
+                set_module_visible,
                 list_roles,
                 get_cash_close,
                 get_customer_statement,
@@ -953,6 +1048,73 @@ pub fn run() {
 mod role_gate_tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    fn state_with_admin(dir: &tempfile::TempDir) -> AppState {
+        let mut db = LocalDatabase::open_in_dir(dir.path()).unwrap();
+        db.complete_initial_setup(&db::CompleteInitialSetupInput {
+            company: db::SaveCompanyProfileInput { trade_name: "Prueba".into(), ..Default::default() },
+            admin: db::CreateInitialAdminInput {
+                full_name: "Admin".into(),
+                username: "admin".into(),
+                password: "ClaveSegura123".into(),
+                password_confirm: "ClaveSegura123".into(),
+            },
+            paper_size: None,
+        })
+        .unwrap();
+        let lic_dir = dir.path().join("lic");
+        std::fs::create_dir_all(&lic_dir).unwrap();
+        AppState {
+            db: Mutex::new(Some(db)),
+            startup_error: Mutex::new(None),
+            license: Mutex::new(LicenseManager::from_build_config(&lic_dir)),
+            lan: Mutex::new(lan::LanController::default()),
+        }
+    }
+
+    /// Una llamada directa a un comando de un módulo desactivado se rechaza en Rust, aunque el
+    /// usuario sea administrador y la licencia lo incluya. Ocultarlo del menú no bloquea nada.
+    #[test]
+    fn disabled_module_blocks_direct_commands_but_hidden_does_not() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let state = state_with_admin(&dir);
+        if !state.entitlements().has("expenses") {
+            // Compilación con licencias obligatorias: sin licencia activa no hay nada que probar aquí.
+            return;
+        }
+        let licensed = state.licensed_modules();
+        assert!(state.gated(Gate::Read("expenses"), |db| db.list_expenses(None, None, None, None)).is_ok());
+
+        state.gated(Gate::CoreWrite, |db| db.set_module_visible("expenses", false)).unwrap();
+        assert!(state.gated(Gate::Read("expenses"), |db| db.list_expenses(None, None, None, None)).is_ok());
+
+        state.gated(Gate::CoreWrite, |db| db.set_module_active("expenses", false, false, &licensed)).unwrap();
+        let err = state.gated(Gate::Read("expenses"), |db| db.list_expenses(None, None, None, None)).unwrap_err();
+        assert!(err.contains("desactivado"), "{}", err);
+        assert!(state.gated(Gate::Write("expenses"), |_| Ok(())).is_err());
+        assert!(!state.active_entitlements().has("expenses"));
+        // Los demás módulos y los comandos básicos siguen funcionando.
+        assert!(state.gated(Gate::Read("invoices"), |db| db.dashboard("2026-11-13")).is_ok());
+        assert!(state.gated(Gate::Core, |db| db.build_system_overview()).unwrap().module_settings.disabled.contains("expenses"));
+
+        // Desactivar Catálogo deja también inactivo a Inventario (dependencia), sin borrar nada.
+        state.gated(Gate::CoreWrite, |db| db.set_module_active("inventory", false, false, &licensed)).unwrap();
+        state.gated(Gate::CoreWrite, |db| db.set_module_active("catalog", false, false, &licensed)).unwrap();
+        assert!(state.gated(Gate::Read("catalog"), |_| Ok(())).is_err());
+        state.gated(Gate::CoreWrite, |db| db.set_module_active("inventory", true, true, &licensed)).unwrap();
+        assert!(state.gated(Gate::Read("catalog"), |_| Ok(())).is_ok());
+        assert!(state.gated(Gate::Read("inventory"), |_| Ok(())).is_ok());
+    }
+
+    #[test]
+    fn module_gate_only_affects_module_commands() {
+        let inactive: std::collections::BTreeSet<String> = ["finance".to_string()].into_iter().collect();
+        assert!(module_gate(&inactive, Gate::Read("finance")).is_err());
+        assert!(module_gate(&inactive, Gate::Write("finance")).is_err());
+        for g in [Gate::Core, Gate::CoreWrite, Gate::Admin, Gate::License, Gate::DataExport, Gate::DataAdmin, Gate::Read("invoices")] {
+            assert!(module_gate(&inactive, g).is_ok());
+        }
+    }
 
     #[test]
     fn role_gate_matches_permissions() {
